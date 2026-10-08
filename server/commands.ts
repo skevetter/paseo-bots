@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { redactSecrets } from "../shared/activity";
 import { pluginDataPath } from "./bot-home";
+import { readParsed, writeJson } from "./files";
 
 // Rules live on this host apart from the bots' settings, so they're never exported.
 
@@ -35,26 +35,24 @@ function validateRule(command: string, cwd: string): void {
     throw new Error("The folder must be an absolute path.");
 }
 
+function parseRules(text: string): StoredRule[] {
+  const saved: unknown = JSON.parse(text);
+  if (typeof saved !== "object" || saved === null || !("rules" in saved) || !Array.isArray(saved.rules))
+    throw new Error("commands.json has no list of rules");
+  return saved.rules;
+}
+
 export class CommandAllowlist {
   private queue: Promise<unknown> = Promise.resolve();
 
   private async load(): Promise<StoredRule[]> {
-    try {
-      const saved = JSON.parse(await readFile(storePath(), "utf8")) as { rules?: StoredRule[] };
-      return Array.isArray(saved.rules) ? saved.rules : [];
-    } catch {
-      return [];
-    }
+    return (await readParsed(storePath(), parseRules)) ?? [];
   }
 
   private change<T>(edit: (rules: StoredRule[]) => { rules: StoredRule[]; result: T }): Promise<T> {
     const run = async () => {
       const { rules, result } = edit(await this.load());
-      await mkdir(pluginDataPath(), { recursive: true });
-      await writeFile(storePath(), JSON.stringify({ version: 1, rules }, null, 2), {
-        encoding: "utf8",
-        mode: 0o600,
-      });
+      await writeJson(storePath(), { version: 1, rules }, 0o600);
       return result;
     };
     const next = this.queue.then(run);

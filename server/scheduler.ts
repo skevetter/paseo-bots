@@ -1,5 +1,4 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
@@ -10,6 +9,7 @@ import { decide } from "../shared/routines";
 import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
 import { pluginDataPath } from "./bot-home";
 import { startChat } from "./chats";
+import { readJson, writeJson } from "./files";
 import type { BotsHost } from "./host";
 import type { PaseoApi } from "./paseo";
 import { type Relay, readBody } from "./relay";
@@ -60,57 +60,6 @@ function upgrade(entry: RoutineRecord | LegacyState): RoutineRecord {
     error: legacy.lastError ?? null,
   };
   return { lastRunAt: legacy.lastRunAt, runs: [run] };
-}
-
-const fileLocks = new Map<string, Promise<unknown>>();
-
-/** Keeps a read that sets a broken file aside from racing a write that replaces it. */
-function withFileLock<T>(path: string, task: () => Promise<T>): Promise<T> {
-  const next = (fileLocks.get(path) ?? Promise.resolve()).then(task);
-  fileLocks.set(
-    path,
-    next.catch(() => {}),
-  );
-  return next;
-}
-
-function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-async function setAside(path: string, error: unknown): Promise<void> {
-  const aside = `${path}.corrupt-${Date.now()}`;
-  try {
-    await rename(path, aside);
-    console.error(`paseo-bots: couldn't read ${path}; moved it to ${aside} and started fresh`, error);
-  } catch (renameError) {
-    if (!isMissing(renameError)) throw renameError;
-  }
-}
-
-/** A missing file reads as `fallback`; a broken one is moved aside first so its next write can't destroy it. */
-function readJson<T>(path: string, fallback: T): Promise<T> {
-  return withFileLock(path, async () => {
-    try {
-      return JSON.parse(await readFile(path, "utf8")) as T;
-    } catch (error) {
-      if (!isMissing(error)) await setAside(path, error);
-      return fallback;
-    }
-  });
-}
-
-/** Written whole and renamed into place, so a crash mid-write can't leave a truncated file. */
-function writeJson(path: string, value: unknown, mode?: number): Promise<void> {
-  return withFileLock(path, async () => {
-    await mkdir(pluginDataPath(), { recursive: true });
-    const temporary = `${path}.${randomBytes(4).toString("hex")}.tmp`;
-    await writeFile(temporary, JSON.stringify(value, null, 2), {
-      encoding: "utf8",
-      ...(mode ? { mode } : {}),
-    });
-    await rename(temporary, path);
-  });
 }
 
 export interface WebhookEvent {

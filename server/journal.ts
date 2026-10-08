@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { redactSecrets } from "../shared/activity";
 import { lineDiff } from "../shared/diff";
 import { pluginDataPath } from "./bot-home";
+import { readParsed, writeAtomic } from "./files";
 import { MAIN_MEMORY, memoryFilePath, memoryFolder } from "./memory";
 
 // Bots edit their memory with their own file tools, so changes are found by comparing the files when
@@ -32,6 +33,20 @@ type Snapshot = Map<string, string>;
 
 function journalPath(botId: string): string {
   return join(pluginDataPath(), "journal", `${botId}.ndjson`);
+}
+
+function parseJournal(text: string): JournalEntry[] {
+  const lines = text.split("\n").filter((line) => line.trim());
+  const entries: JournalEntry[] = [];
+  for (const line of lines) {
+    try {
+      entries.push(JSON.parse(line) as JournalEntry);
+    } catch {
+      // A torn line from a crash; skip it.
+    }
+  }
+  if (lines.length > 0 && entries.length === 0) throw new Error("The journal has no readable entries");
+  return entries;
 }
 
 async function snapshot(botId: string): Promise<Snapshot> {
@@ -149,24 +164,11 @@ export class MemoryJournal {
       removed,
     };
     const entries = [...(await this.load(botId)), entry].slice(-KEEP);
-    await mkdir(join(pluginDataPath(), "journal"), { recursive: true });
-    await writeFile(journalPath(botId), `${entries.map((item) => JSON.stringify(item)).join("\n")}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    const text = `${entries.map((item) => JSON.stringify(item)).join("\n")}\n`;
+    await writeAtomic(journalPath(botId), text, 0o600);
   }
 
   private async load(botId: string): Promise<JournalEntry[]> {
-    const text = await readFile(journalPath(botId), "utf8").catch(() => "");
-    const entries: JournalEntry[] = [];
-    for (const line of text.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        entries.push(JSON.parse(line) as JournalEntry);
-      } catch {
-        // A torn line from a crash; skip it.
-      }
-    }
-    return entries;
+    return (await readParsed(journalPath(botId), parseJournal)) ?? [];
   }
 }

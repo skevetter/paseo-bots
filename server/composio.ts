@@ -1,6 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import {
   type AppAccount,
   type AppCard,
@@ -11,6 +10,7 @@ import {
   isComposioUrl,
 } from "../shared/apps";
 import { pluginDataPath } from "./bot-home";
+import { readParsed, writeJson } from "./files";
 
 // The project key stays in a file only this process reads; clients never see it.
 
@@ -46,27 +46,21 @@ let cached: State | null = null;
 
 export async function readState(): Promise<State> {
   if (cached) return cached;
-  try {
-    cached = JSON.parse(await readFile(statePath(), "utf8")) as State;
-  } catch {
-    cached = {
-      apiKey: null,
-      userId: `paseo_bots_${randomUUID()}`,
-      sessionId: null,
-      mcpUrl: null,
-      secret: randomBytes(32).toString("hex"),
-      port: null,
-    };
-  }
+  cached = (await readParsed(statePath(), (text) => JSON.parse(text) as State)) ?? {
+    apiKey: null,
+    userId: `paseo_bots_${randomUUID()}`,
+    sessionId: null,
+    mcpUrl: null,
+    secret: randomBytes(32).toString("hex"),
+    port: null,
+  };
   return cached;
 }
 
 export async function writeState(patch: Partial<State>): Promise<State> {
   const next = { ...(await readState()), ...patch };
   cached = next;
-  await mkdir(dirname(statePath()), { recursive: true });
-  await writeFile(statePath(), JSON.stringify(next, null, 2), { encoding: "utf8", mode: 0o600 });
-  await chmod(statePath(), 0o600).catch(() => {});
+  await writeJson(statePath(), next, 0o600);
   return next;
 }
 

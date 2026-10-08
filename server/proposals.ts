@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Proposal } from "../shared/proposals";
 import { pluginDataPath } from "./bot-home";
+import { readParsed, writeJson } from "./files";
 import { writeSkill } from "./library";
 
 const KEEP = 200;
@@ -13,12 +13,16 @@ function storePath(): string {
   return join(pluginDataPath(), "proposals.json");
 }
 
+function parseProposals(text: string): Proposal[] {
+  const saved: unknown = JSON.parse(text);
+  if (typeof saved !== "object" || saved === null) throw new Error("proposals.json isn't an object");
+  if (!("proposals" in saved)) return [];
+  if (!Array.isArray(saved.proposals)) throw new Error("proposals.json has no list of proposals");
+  return saved.proposals;
+}
+
 async function load(): Promise<Proposal[]> {
-  try {
-    return (JSON.parse(await readFile(storePath(), "utf8")) as { proposals?: Proposal[] }).proposals ?? [];
-  } catch {
-    return [];
-  }
+  return (await readParsed(storePath(), parseProposals)) ?? [];
 }
 
 let queue: Promise<unknown> = Promise.resolve();
@@ -27,8 +31,7 @@ let queue: Promise<unknown> = Promise.resolve();
 function update<T>(change: (proposals: Proposal[]) => { proposals: Proposal[]; result: T }): Promise<T> {
   const run = async () => {
     const { proposals, result } = change(await load());
-    await mkdir(pluginDataPath(), { recursive: true });
-    await writeFile(storePath(), JSON.stringify({ proposals: proposals.slice(-KEEP) }, null, 2), "utf8");
+    await writeJson(storePath(), { proposals: proposals.slice(-KEEP) });
     return result;
   };
   const next = queue.then(run);
