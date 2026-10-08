@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { botLimits } from "../shared/bot";
+import { botLimits, type ProviderModes } from "../shared/bot";
 import { shellCommand } from "../shared/commands";
 import { makeBot } from "./helpers";
 
@@ -82,5 +82,59 @@ describe("what a bot won't do", () => {
       "Can't contact other bots.",
       "Has no connected apps.",
     ]);
+  });
+
+  const ASKS = "Asks before running commands and tools it isn't allowed to use.";
+  const asks = (modeId: string | null, provider?: ProviderModes) =>
+    botLimits(makeBot({ modeId }), { local: true, appsConfigured: true, provider }).includes(ASKS);
+  const omp: ProviderModes = {
+    defaultModeId: "full",
+    modes: [
+      { id: "default", colorTier: "safe" },
+      { id: "full", colorTier: "dangerous" },
+    ],
+  };
+  const claude: ProviderModes = {
+    defaultModeId: "auto",
+    modes: [
+      { id: "auto", colorTier: "moderate" },
+      { id: "bypassPermissions", colorTier: "dangerous" },
+      { id: "plan", colorTier: "planning" },
+    ],
+  };
+
+  it("reads the provider's default mode when the bot has none", () => {
+    expect(asks(null, omp)).toBe(false);
+    expect(asks(null, claude)).toBe(true);
+    expect(asks("default", omp)).toBe(true);
+  });
+
+  it("trusts the mode's tier over its id", () => {
+    expect(asks("bypassPermissions", claude)).toBe(false);
+    expect(asks("full-access", { modes: [{ id: "full-access", colorTier: "dangerous" }] })).toBe(false);
+    expect(asks("allow-all", { modes: [{ id: "allow-all", colorTier: "dangerous" }] })).toBe(false);
+    expect(asks("yolo-ish", { modes: [{ id: "yolo-ish", colorTier: "safe" }] })).toBe(true);
+  });
+
+  it("asks in modes that report no tier unless the id says otherwise", () => {
+    const hermes: ProviderModes = {
+      defaultModeId: "default",
+      modes: [{ id: "default" }, { id: "accept_edits" }, { id: "dont_ask" }],
+    };
+    expect(asks("dont_ask", hermes)).toBe(true);
+    expect(asks("accept_edits", hermes)).toBe(true);
+    expect(asks(null, hermes)).toBe(true);
+  });
+
+  it("guesses from whole words in the id before the providers load", () => {
+    expect(asks(null)).toBe(true);
+    expect(asks("bypassPermissions")).toBe(false);
+    expect(asks("full-access")).toBe(false);
+    expect(asks("allow-all")).toBe(false);
+    expect(asks("full")).toBe(false);
+    expect(asks("yolo")).toBe(false);
+    expect(asks("fullstack")).toBe(true);
+    expect(asks("full-review")).toBe(true);
+    expect(asks("default")).toBe(true);
   });
 });

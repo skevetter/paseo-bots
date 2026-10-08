@@ -17,7 +17,7 @@ import { teamOf } from "../../shared/groups";
 import { describeSchedule } from "../../shared/routines";
 import { systemPromptRpc } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
-import { useBotChats, useBotHost } from "../data";
+import { useBotChats, useBotHost, useProviders } from "../data";
 import { useAppsCatalog, useAppsStatus } from "../library/apps";
 import { MONO_FONT, MONO_PROPS } from "../native";
 import { code, codeLine, ui } from "../typography";
@@ -87,6 +87,7 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
   });
   const [sheet, setSheet] = useState<"summary" | "prompt" | null>(null);
   const { tools, appsConfigured } = useReachableTools(bot, library, host.isLocal);
+  const provider = useProviders(host).data?.find((entry) => entry.provider === bot.provider);
 
   return (
     <>
@@ -121,7 +122,7 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
           bot={bot}
           team={teamLine(bot, groups)}
           tools={tools}
-          limits={botLimits(bot, { local: host.isLocal, appsConfigured })}
+          limits={botLimits(bot, { local: host.isLocal, appsConfigured, provider })}
           onClose={() => setSheet(null)}
         />
       ) : null}
