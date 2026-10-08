@@ -9,3 +9,4 @@ type PaseoAgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;
 export type PaseoAgent = Exclude<Parameters<PaseoApi["agents"]["ref"]>[0], string>;
 export type PaseoAgentSendOptions = NonNullable<Parameters<PaseoAgentHandle["send"]>[1]>;
 export type PaseoAgentPermissionResponse = Parameters<PaseoAgentHandle["respondToPermission"]>[0]["response"];
+export type PaseoProviderEntry = Awaited<ReturnType<PaseoApi["providers"]["snapshot"]>>["entries"][number];

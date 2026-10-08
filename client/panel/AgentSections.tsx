@@ -1,4 +1,3 @@
-import type { PaseoProviderSnapshotResult } from "@getpaseo/client";
 import { type PluginHostSummary, useHosts, useRpc } from "@getpaseo/plugin/client";
 import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import {
@@ -25,6 +24,7 @@ import {
   useProviders,
 } from "../data";
 import { errorText } from "../native";
+import type { PaseoProviderEntry } from "../paseo";
 import { AppsPicker } from "./AppsPicker";
 import type { PanelProps } from "./BotPanel";
 import {
@@ -44,7 +44,7 @@ const CUSTOM = "Custom";
 const ABSOLUTE_PATH = /^(\/|~(\/|$)|[A-Za-z]:[\\/]|\\\\)/;
 
 type Bot = PanelProps["bot"];
-type ProviderEntry = PaseoProviderSnapshotResult["entries"][number];
+type ProviderEntry = PaseoProviderEntry;
 
 interface AgentProfile {
   id: string;
