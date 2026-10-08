@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { listMemory, memoryFilePath } from "../server/memory";
 import {
   journalSummary,
   lastTurn,
@@ -14,6 +15,7 @@ import {
   snippet,
 } from "../shared/activity";
 import { lineDiff } from "../shared/diff";
+import { memoryListRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { defined, type FakeHost, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
 
@@ -264,6 +266,35 @@ describe("memory journal", () => {
     await journal.write("bot-j", "MEMORY.md", "# Memory\n- edited in the app\n");
     expect((await journal.list("bot-j"))[0]).toMatchObject({ actor: "you", via: "app", kind: "edited" });
     expect((await journal.list("bot-j")).filter((entry) => entry.via === "undo")).toHaveLength(2);
+  });
+});
+
+describe("memory list", () => {
+  useTempPaseoHome("paseo-bots-memory-");
+
+  async function topicFolder(botId: string): Promise<string> {
+    const folder = join(memoryFilePath(botId, "MEMORY.md"), "..", "memory");
+    await mkdir(folder, { recursive: true });
+    return folder;
+  }
+
+  it("leaves out topic files whose names the app can't open", async () => {
+    const folder = await topicFolder("bot-m");
+    await writeFile(join(folder, "café.md"), "# Café\n");
+    await writeFile(join(folder, "ok.md"), "# Ok\n");
+
+    const listed = await listMemory("bot-m");
+    expect(listed.files.map((file) => file.name)).toEqual(["MEMORY.md", "ok.md"]);
+    expect(memoryListRpc.output.safeParse(listed).success).toBe(true);
+  });
+
+  it("keeps listing topic files past a dangling symlink", async () => {
+    const folder = await topicFolder("bot-l");
+    await symlink(join(folder, "missing.md"), join(folder, "a-broken.md"));
+    await writeFile(join(folder, "notes.md"), "# Notes\n");
+
+    const listed = await listMemory("bot-l");
+    expect(listed.files.map((file) => file.name)).toEqual(["MEMORY.md", "notes.md"]);
   });
 });
 

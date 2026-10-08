@@ -1,6 +1,7 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { type LogEntry, localDay, parseLog } from "../shared/activity";
+import { MEMORY_FILE_NAME } from "../shared/rpc";
 import { botDataPath } from "./bot-home";
 
 const MEMORY_MAX_LINES = 200;
@@ -40,31 +41,33 @@ export async function injectedMemory(botId: string): Promise<string> {
   return trimForPrompt(await readText(memoryFilePath(botId, MAIN_MEMORY)));
 }
 
-export async function listMemory(botId: string) {
-  const files: { name: string; bytes: number; lines: number; topic: boolean }[] = [];
-  const main = await readText(memoryFilePath(botId, MAIN_MEMORY));
-  files.push({
-    name: MAIN_MEMORY,
-    bytes: Buffer.byteLength(main, "utf8"),
-    lines: main ? main.split("\n").length : 0,
-    topic: false,
-  });
-  try {
-    for (const name of (await readdir(join(botDataPath(botId), "memory"))).sort()) {
-      if (!name.endsWith(".md")) continue;
-      const path = join(botDataPath(botId), "memory", name);
-      if (!(await stat(path)).isFile()) continue;
-      const text = await readText(path);
-      files.push({
-        name,
-        bytes: Buffer.byteLength(text, "utf8"),
-        lines: text.split("\n").length,
-        topic: true,
-      });
-    }
-  } catch {
-    // No topic files yet.
+type MemoryFile = { name: string; bytes: number; lines: number; topic: boolean };
+
+async function topicFiles(botId: string): Promise<MemoryFile[]> {
+  const folder = join(botDataPath(botId), "memory");
+  const names = await readdir(folder).catch(() => []);
+  const files: MemoryFile[] = [];
+  for (const name of names.sort()) {
+    const path = join(folder, name);
+    if (!MEMORY_FILE_NAME.test(name)) continue;
+    if (!(await stat(path).catch(() => null))?.isFile()) continue;
+    const text = await readText(path);
+    files.push({ name, bytes: Buffer.byteLength(text, "utf8"), lines: text.split("\n").length, topic: true });
   }
+  return files;
+}
+
+export async function listMemory(botId: string) {
+  const main = await readText(memoryFilePath(botId, MAIN_MEMORY));
+  const files: MemoryFile[] = [
+    {
+      name: MAIN_MEMORY,
+      bytes: Buffer.byteLength(main, "utf8"),
+      lines: main ? main.split("\n").length : 0,
+      topic: false,
+    },
+    ...(await topicFiles(botId)),
+  ];
   const injected = trimForPrompt(main);
   return {
     folder: botDataPath(botId),

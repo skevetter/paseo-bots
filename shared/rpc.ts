@@ -12,8 +12,10 @@ import { ProposalSchema } from "./proposals";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
 /** "MEMORY.md" or a topic file such as "projects.md" (stored under memory/). */
-const MemoryFileName = z.string().regex(/^[A-Za-z0-9 ._-]+\.md$/);
-const SkillName = z.string().regex(/^[A-Za-z0-9._-]+$/);
+export const MEMORY_FILE_NAME = /^[A-Za-z0-9 ._-]+\.md$/;
+const MemoryFileName = z.string().regex(MEMORY_FILE_NAME);
+/** Matches sanitizeSkillName: a leading dot would name "." or ".." instead of a skill folder. */
+const SkillName = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/);
 
 /** `root` backs the Bots project, `path` the bot's workspace. */
 export const ensureBotHomeRpc = defineRpc({
