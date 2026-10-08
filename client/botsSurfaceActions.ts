@@ -117,6 +117,7 @@ async function duplicate(ctx: SurfaceContext, bot: Bot) {
     name: `${bot.name} copy`,
     hostId: bot.hostId,
     cwd: bot.cwd,
+    modeId: bot.modeId,
     alwaysAllow: bot.alwaysAllow,
     skillIds: bot.skillIds,
     mcpServerIds: bot.mcpServerIds,

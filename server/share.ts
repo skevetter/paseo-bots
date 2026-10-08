@@ -1,4 +1,5 @@
-import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
 import {
@@ -85,23 +86,34 @@ function redact(servers: BotMcpServer[]): BotMcpServer[] {
   }));
 }
 
-async function collect(root: string, include: (path: string) => boolean): Promise<Record<string, string>> {
+/** Links are skipped: they can dangle, loop, or point outside the folder being shared. */
+async function collect(root: string, prefix: string): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   const walk = async (dir: string) => {
-    const names = await readdir(dir).catch(() => [] as string[]);
-    for (const name of names) {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
       if (Object.keys(files).length >= MAX_FILES) return;
-      const path = join(dir, name);
-      if ((await stat(path)).isDirectory()) await walk(path);
-      else await addFile(path);
+      await visit(entry, join(dir, entry.name));
     }
   };
+  const visit = async (entry: Dirent, path: string) => {
+    if (entry.isDirectory()) await walk(path);
+    else if (entry.isFile()) await addFile(path);
+  };
   const addFile = async (path: string) => {
-    const key = relative(root, path).split(sep).join("/");
-    if (include(key)) files[key] = await readFile(path, "utf8");
+    const text = await readFile(path, "utf8").catch(() => null);
+    if (text !== null) files[`${prefix}/${relative(root, path).split(sep).join("/")}`] = text;
   };
   await walk(root);
   return files;
+}
+
+/** The bot folder is also the agent's working directory, so only the memory files are read. */
+async function memoryFiles(botId: string): Promise<Record<string, string>> {
+  const root = botDataPath(botId);
+  const memory = await readFile(join(root, "MEMORY.md"), "utf8").catch(() => null);
+  const notes = await collect(join(root, "memory"), "memory");
+  return memory === null ? notes : { "MEMORY.md": memory, ...notes };
 }
 
 export async function exportBot(
@@ -110,15 +122,9 @@ export async function exportBot(
 ) {
   const skills = botSkills(bot, library);
   const files: Record<string, string> = {};
-  for (const skill of skills) {
-    const skillFiles = await collect(librarySkillPath(skill.id), () => true);
-    for (const [path, text] of Object.entries(skillFiles)) files[`skills/${skill.id}/${path}`] = text;
-  }
-  if (includeMemory)
-    Object.assign(
-      files,
-      await collect(botDataPath(bot.id), (path) => path === "MEMORY.md" || path.startsWith("memory/")),
-    );
+  for (const skill of skills)
+    Object.assign(files, await collect(librarySkillPath(skill.id), `skills/${skill.id}`));
+  if (includeMemory) Object.assign(files, await memoryFiles(bot.id));
   const payload: z.input<typeof ExportV2Schema> = {
     format: FORMAT,
     version: 2,
@@ -212,6 +218,8 @@ export async function importBot({
     id: botId,
     hostId: null,
     cwd: null,
+    // Permissions start as on a new bot.
+    modeId: null,
     alwaysAllow: [],
     skillIds: skills.map((skill) => skill.id),
     mcpServerIds: [],
