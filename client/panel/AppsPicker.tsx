@@ -70,13 +70,13 @@ export function AppsPicker({
       }
     >
       <SettingsCard>
-        <AppsStatusNote
-          colors={colors}
-          isLocal={host.isLocal}
-          notSetUp={Boolean(status.data) && !configured}
-          loading={configured && accounts.isLoading}
-          empty={configured && !accounts.isLoading && apps.length === 0}
-        />
+        {appsStatusNotes({
+          colors,
+          isLocal: host.isLocal,
+          notSetUp: Boolean(status.data) && !configured,
+          loading: configured && accounts.isLoading,
+          empty: configured && !accounts.isLoading && apps.length === 0,
+        })}
         {host.isLocal && configured
           ? apps.map((app) => (
               <AppRow
@@ -110,7 +110,7 @@ export function AppsPicker({
   );
 }
 
-function AppsStatusNote({
+function appsStatusNotes({
   colors,
   isLocal,
   notSetUp,
@@ -123,14 +123,13 @@ function AppsStatusNote({
   loading: boolean;
   empty: boolean;
 }) {
-  if (!isLocal) return <CardNote colors={colors} text="Only bots on this host can use connected apps" />;
-  return (
-    <>
-      {notSetUp ? <CardNote colors={colors} text="Not set up yet" /> : null}
-      {loading ? <CardNote colors={colors} loading text="Loading..." /> : null}
-      {empty ? <CardNote colors={colors} text="No apps connected yet" /> : null}
-    </>
-  );
+  if (!isLocal)
+    return [<CardNote key="remote" colors={colors} text="Only bots on this host can use connected apps" />];
+  return [
+    notSetUp ? <CardNote key="setup" colors={colors} text="Not set up yet" /> : null,
+    loading ? <CardNote key="loading" colors={colors} loading text="Loading..." /> : null,
+    empty ? <CardNote key="empty" colors={colors} text="No apps connected yet" /> : null,
+  ];
 }
 
 function AppRow({

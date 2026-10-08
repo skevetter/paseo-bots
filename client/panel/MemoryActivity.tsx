@@ -74,90 +74,100 @@ export function ChangesSheet({
     }
   };
 
-  if (open) {
-    return (
-      <ChangeDetail
-        colors={colors}
-        bot={bot}
-        row={open}
-        busy={busy}
-        actions={{ onBack: () => setOpen(null), onUndo: () => void revert(open), onClose }}
-      />
-    );
-  }
-
+  const locked = open !== null && busy;
   return (
-    <Modal title="Memory changes" open onOpenChange={(value) => !value && onClose()}>
+    <Modal
+      title={open ? journalSummary(open, bot.name) : "Memory changes"}
+      open
+      onOpenChange={(value) => !value && !locked && onClose()}
+    >
       <Modal.Content>
-        <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
-          Every change to the memory files, by the bot or by you. Undo puts a file back the way it was before
-          that change.
-        </Text>
-        <SettingsCard>
-          {rows.length === 0 ? (
-            <CardNote
-              colors={colors}
-              text={query.isLoading ? "Loading..." : "No changes yet"}
-              loading={query.isLoading}
-            />
-          ) : null}
-          {rows.map((row) => (
-            <DrillRow
-              key={row.id}
-              colors={colors}
-              label={journalSummary(row, bot.name)}
-              hint={`${relativeTime(row.at)} · ${journalSource(row)}`}
-              onPress={() => setOpen(row)}
-            />
-          ))}
-        </SettingsCard>
+        {open ? (
+          <ChangeDetail
+            colors={colors}
+            row={open}
+            busy={busy}
+            actions={{ onBack: () => setOpen(null), onUndo: () => void revert(open) }}
+          />
+        ) : (
+          <ChangeList colors={colors} bot={bot} rows={rows} loading={query.isLoading} onOpen={setOpen} />
+        )}
       </Modal.Content>
     </Modal>
   );
 }
 
-function ChangeDetail({
+function ChangeList({
   colors,
   bot,
+  rows,
+  loading,
+  onOpen,
+}: {
+  colors: Colors;
+  bot: Bot;
+  rows: readonly JournalRow[];
+  loading: boolean;
+  onOpen(row: JournalRow): void;
+}) {
+  return (
+    <>
+      <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+        Every change to the memory files, by the bot or by you. Undo puts a file back the way it was before
+        that change.
+      </Text>
+      <SettingsCard>
+        {rows.length === 0 ? (
+          <CardNote colors={colors} text={loading ? "Loading..." : "No changes yet"} loading={loading} />
+        ) : null}
+        {rows.map((row) => (
+          <DrillRow
+            key={row.id}
+            colors={colors}
+            label={journalSummary(row, bot.name)}
+            hint={`${relativeTime(row.at)} · ${journalSource(row)}`}
+            onPress={() => onOpen(row)}
+          />
+        ))}
+      </SettingsCard>
+    </>
+  );
+}
+
+function ChangeDetail({
+  colors,
   row,
   busy,
   actions,
 }: {
   colors: Colors;
-  bot: Bot;
   row: JournalRow;
   busy: boolean;
-  actions: { onBack(): void; onUndo(): void; onClose(): void };
+  actions: { onBack(): void; onUndo(): void };
 }) {
   const file = row.file === "MEMORY.md" ? row.file : `memory/${row.file}`;
   return (
-    <Modal
-      title={journalSummary(row, bot.name)}
-      open
-      onOpenChange={(value) => !value && !busy && actions.onClose()}
-    >
-      <Modal.Content>
-        <Text
-          style={{ fontSize: ui(14), color: colors.foregroundMuted }}
-        >{`${file} · ${relativeTime(row.at)} · ${journalSource(row)}`}</Text>
-        <ChangeDiff colors={colors} row={row} file={file} />
-        {!row.canUndo ? (
-          <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
-            The earlier version was too large to keep, so this can't be undone.
-          </Text>
-        ) : null}
-        <SheetActions>
-          <Button colors={colors} variant="ghost" label="Back" disabled={busy} onPress={actions.onBack} />
-          <Button
-            colors={colors}
-            variant="default"
-            label={busy ? "Undoing..." : "Undo"}
-            disabled={!row.canUndo || busy}
-            onPress={actions.onUndo}
-          />
-        </SheetActions>
-      </Modal.Content>
-    </Modal>
+    <>
+      <Text
+        style={{ fontSize: ui(14), color: colors.foregroundMuted }}
+      >{`${file} · ${relativeTime(row.at)} · ${journalSource(row)}`}</Text>
+      <ChangeDiff colors={colors} row={row} file={file} />
+      {!row.canUndo ? (
+        <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
+          The earlier version was too large to keep, so this can't be undone.
+        </Text>
+      ) : null}
+      <SheetActions>
+        <Button colors={colors} variant="ghost" label="Back" disabled={busy} onPress={actions.onBack} />
+        <Button
+          colors={colors}
+          variant="default"
+          label={busy ? "Undoing..." : "Undo"}
+          disabled={!row.canUndo || busy}
+          onPress={actions.onUndo}
+        />
+      </SheetActions>
+    </>
   );
 }
 

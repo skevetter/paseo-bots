@@ -203,12 +203,7 @@ function ChosenToolsSection({
         </View>
       ) : null}
       <SettingsCard>
-        <ToolsStatusNote
-          colors={colors}
-          tools={tools}
-          empty={shown.length === 0}
-          filtered={Boolean(needle)}
-        />
+        {toolsStatusNotes({ colors, tools, empty: shown.length === 0, filtered: Boolean(needle) })}
         {shown.map((tool) => (
           <SettingsSwitch
             key={tool.slug}
@@ -227,7 +222,7 @@ function ChosenToolsSection({
   );
 }
 
-function ToolsStatusNote({
+function toolsStatusNotes({
   colors,
   tools,
   empty,
@@ -238,13 +233,11 @@ function ToolsStatusNote({
   empty: boolean;
   filtered: boolean;
 }) {
-  return (
-    <>
-      {tools.isLoading ? <CardNote colors={colors} loading text="Loading tools..." /> : null}
-      {tools.error ? <CardNote colors={colors} text={errorText(tools.error)} /> : null}
-      {tools.data && empty ? (
-        <CardNote colors={colors} text={filtered ? "No tools match" : "This app has no tools"} />
-      ) : null}
-    </>
-  );
+  return [
+    tools.isLoading ? <CardNote key="loading" colors={colors} loading text="Loading tools..." /> : null,
+    tools.error ? <CardNote key="error" colors={colors} text={errorText(tools.error)} /> : null,
+    tools.data && empty ? (
+      <CardNote key="empty" colors={colors} text={filtered ? "No tools match" : "This app has no tools"} />
+    ) : null,
+  ];
 }
