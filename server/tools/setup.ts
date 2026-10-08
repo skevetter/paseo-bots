@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  type AppAccountInfo,
+  type ApplyContext,
   applyChanges,
   botDetails,
   ChangesSchema,
@@ -7,8 +9,6 @@ import {
   readyProvider,
   resolveChanges,
   setupOverview,
-  type AppAccountInfo,
-  type ApplyContext,
 } from "../../shared/changes";
 import { proposalReply } from "../../shared/proposals";
 import { accounts, status } from "../composio";

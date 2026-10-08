@@ -4,7 +4,7 @@ import { Pressable, View } from "react-native";
 import { nativeTokens } from "../../native";
 import { measureAnchor, useMenu } from "../../ui/Menu";
 import { tooltip, tooltipsShown } from "../../ui/Tooltip";
-import { formatSessionCost, formatTokenCount, meterTone, ringRotations, type ContextUsage } from "./logic";
+import { type ContextUsage, formatSessionCost, formatTokenCount, meterTone, ringRotations } from "./logic";
 
 type Colors = PluginTheme["colors"];
 

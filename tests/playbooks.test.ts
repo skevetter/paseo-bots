@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promptSections, type Playbook } from "../shared/bot";
+import { type Playbook, promptSections } from "../shared/bot";
 import { parseTriggers, renderPlaybooks, selectPlaybooks } from "../shared/playbooks";
 import { makeBot } from "./helpers";
 

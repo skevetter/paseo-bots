@@ -4,13 +4,12 @@ import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@get
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { newPlaybookId, SOUL_MAX_BYTES, utf8Bytes, type Playbook } from "../../shared/bot";
+import { newPlaybookId, type Playbook, SOUL_MAX_BYTES, utf8Bytes } from "../../shared/bot";
 import { parseTriggers } from "../../shared/playbooks";
 import { memoryDeleteRpc, memoryListRpc, memoryReadRpc, memoryWriteRpc } from "../../shared/rpc";
 import { useBotHost } from "../data";
 import { confirmDialog, errorText } from "../native";
 import type { PanelProps } from "./BotPanel";
-import { LibraryPicker } from "./LibraryPicker";
 import {
   Alert,
   Button,
@@ -23,6 +22,7 @@ import {
   SheetActions,
   TextAreaField,
 } from "./controls";
+import { LibraryPicker } from "./LibraryPicker";
 import { ChangesSheet, LogSheet, useDailyLog, useMemoryJournal } from "./MemoryActivity";
 
 type Colors = PanelProps["colors"];
@@ -160,93 +160,28 @@ const MEMORY_BYTES = 24_000;
 
 export function MemorySection({ colors, bot, localHost }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
-  const list = useRpc(memoryListRpc);
   const queryClient = useQueryClient();
-  const toast = useToast();
   const [open, setOpen] = useState<string | null>(null);
   const [sheet, setSheet] = useState<"topic" | "changes" | "log" | null>(null);
-  const files = useQuery({
-    queryKey: ["paseo-bots", "memory", bot.id],
-    queryFn: () => list({ botId: bot.id }),
-    refetchInterval: 20_000,
-  });
-  const journal = useMemoryJournal(bot.id);
-  const log = useDailyLog(bot.id);
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory", bot.id] }),
       queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory-journal", bot.id] }),
     ]);
 
-  const data = files.data;
-  const over = data ? data.injectedLines > MEMORY_LINES || data.injectedBytes > MEMORY_BYTES : false;
-  const changes = journal.data?.entries.length ?? 0;
-  const days = log.data?.days.length ?? 0;
-
   return (
     <>
       {!host.isLocal ? <LocalOnly colors={colors} what="Memory files" /> : null}
-      <SettingsSection
-        title="Files"
-        info="The bot updates these itself as it learns; edit them to correct or add facts. MEMORY.md is loaded into every chat, topic files are read on demand."
-        trailing={<SectionLink colors={colors} label="New topic file" onPress={() => setSheet("topic")} />}
-      >
-        <SettingsCard>
-          {(data?.files ?? [{ name: "MEMORY.md", bytes: 0, lines: 0, topic: false }]).map((file) => (
-            <DrillRow
-              key={file.name}
-              colors={colors}
-              label={file.topic ? `memory/${file.name}` : file.name}
-              hint={
-                !data
-                  ? "Loading..."
-                  : file.topic
-                    ? `${file.lines} lines · ${kb(file.bytes)} KB`
-                    : `${data.injectedLines} of ${MEMORY_LINES} lines · ${kb(data.injectedBytes)} of ${MEMORY_BYTES / 1000} KB loaded into every chat`
-              }
-              error={!file.topic && over ? "Over the budget, so the end is left out" : null}
-              hintLines={2}
-              onPress={() => setOpen(file.name)}
-            />
-          ))}
-          {data ? (
-            <SettingsAction
-              label="Folder"
-              hint={data.folder.replace(/^\/(?:Users|home)\/[^/]+/, "~")}
-              actionLabel="Copy"
-              onPress={() =>
-                void copyText(data.folder).then(() => toast.show("Path copied", { variant: "success" }))
-              }
-            />
-          ) : null}
-        </SettingsCard>
-      </SettingsSection>
+      <MemoryFilesSection
+        colors={colors}
+        botId={bot.id}
+        onNewTopic={() => setSheet("topic")}
+        onOpen={setOpen}
+      />
       <SettingsSection title="Activity">
         <SettingsCard>
-          <DrillRow
-            colors={colors}
-            label="Changes"
-            hint={
-              journal.isLoading
-                ? "Loading..."
-                : changes
-                  ? `${changes} ${changes === 1 ? "change" : "changes"}, with undo`
-                  : "No changes yet"
-            }
-            onPress={() => setSheet("changes")}
-          />
-          <DrillRow
-            colors={colors}
-            label="Daily log"
-            hint={
-              log.isLoading
-                ? "Loading..."
-                : days
-                  ? `${days} ${days === 1 ? "day" : "days"}`
-                  : "No entries yet"
-            }
-            onPress={() => setSheet("log")}
-          />
+          <ChangesRow colors={colors} botId={bot.id} onPress={() => setSheet("changes")} />
+          <DailyLogRow colors={colors} botId={bot.id} onPress={() => setSheet("log")} />
         </SettingsCard>
       </SettingsSection>
       {sheet === "topic" ? (
@@ -280,6 +215,110 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
         />
       ) : null}
     </>
+  );
+}
+
+interface MemoryFileInfo {
+  name: string;
+  bytes: number;
+  lines: number;
+  topic: boolean;
+}
+
+interface MemoryBudget {
+  injectedLines: number;
+  injectedBytes: number;
+}
+
+function memoryFileHint(file: MemoryFileInfo, budget: MemoryBudget | undefined): string {
+  if (!budget) return "Loading...";
+  if (file.topic) return `${file.lines} lines · ${kb(file.bytes)} KB`;
+  return `${budget.injectedLines} of ${MEMORY_LINES} lines · ${kb(budget.injectedBytes)} of ${MEMORY_BYTES / 1000} KB loaded into every chat`;
+}
+
+function MemoryFilesSection({
+  colors,
+  botId,
+  onNewTopic,
+  onOpen,
+}: {
+  colors: Colors;
+  botId: string;
+  onNewTopic(): void;
+  onOpen(name: string): void;
+}) {
+  const list = useRpc(memoryListRpc);
+  const toast = useToast();
+  const files = useQuery({
+    queryKey: ["paseo-bots", "memory", botId],
+    queryFn: () => list({ botId }),
+    refetchInterval: 20_000,
+  });
+  const data = files.data;
+  const over = data ? data.injectedLines > MEMORY_LINES || data.injectedBytes > MEMORY_BYTES : false;
+
+  return (
+    <SettingsSection
+      title="Files"
+      info="The bot updates these itself as it learns; edit them to correct or add facts. MEMORY.md is loaded into every chat, topic files are read on demand."
+      trailing={<SectionLink colors={colors} label="New topic file" onPress={onNewTopic} />}
+    >
+      <SettingsCard>
+        {(data?.files ?? [{ name: "MEMORY.md", bytes: 0, lines: 0, topic: false }]).map((file) => (
+          <DrillRow
+            key={file.name}
+            colors={colors}
+            label={file.topic ? `memory/${file.name}` : file.name}
+            hint={memoryFileHint(file, data)}
+            error={!file.topic && over ? "Over the budget, so the end is left out" : null}
+            hintLines={2}
+            onPress={() => onOpen(file.name)}
+          />
+        ))}
+        {data ? (
+          <SettingsAction
+            label="Folder"
+            hint={data.folder.replace(/^\/(?:Users|home)\/[^/]+/, "~")}
+            actionLabel="Copy"
+            onPress={() =>
+              void copyText(data.folder).then(() => toast.show("Path copied", { variant: "success" }))
+            }
+          />
+        ) : null}
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function ChangesRow({ colors, botId, onPress }: { colors: Colors; botId: string; onPress(): void }) {
+  const journal = useMemoryJournal(botId);
+  const changes = journal.data?.entries.length ?? 0;
+  return (
+    <DrillRow
+      colors={colors}
+      label="Changes"
+      hint={
+        journal.isLoading
+          ? "Loading..."
+          : changes
+            ? `${changes} ${changes === 1 ? "change" : "changes"}, with undo`
+            : "No changes yet"
+      }
+      onPress={onPress}
+    />
+  );
+}
+
+function DailyLogRow({ colors, botId, onPress }: { colors: Colors; botId: string; onPress(): void }) {
+  const log = useDailyLog(botId);
+  const days = log.data?.days.length ?? 0;
+  return (
+    <DrillRow
+      colors={colors}
+      label="Daily log"
+      hint={log.isLoading ? "Loading..." : days ? `${days} ${days === 1 ? "day" : "days"}` : "No entries yet"}
+      onPress={onPress}
+    />
   );
 }
 
@@ -351,28 +390,11 @@ function MemorySheet({
   const write = useRpc(memoryWriteRpc);
   const remove = useRpc(memoryDeleteRpc);
   const toast = useToast();
-  const toastRef = useRef(toast);
-  toastRef.current = toast;
-  const [text, setText] = useState<string | null>(null);
-  const [saved, setSaved] = useState("");
+  const { text, setText, saved, setSaved } = useMemoryText(botId, name);
   const [saving, setSaving] = useState(false);
   const topic = name !== "MEMORY.md";
   const label = topic ? `memory/${name}` : name;
   const dirty = text !== null && text !== saved;
-
-  useEffect(() => {
-    let cancelled = false;
-    void read({ botId, name })
-      .then(({ text: loaded }) => {
-        if (cancelled) return;
-        setText(loaded);
-        setSaved(loaded);
-      })
-      .catch((error: unknown) => !cancelled && toastRef.current.error(errorText(error)));
-    return () => {
-      cancelled = true;
-    };
-  }, [botId, name, read]);
 
   const close = async () => {
     if (
@@ -425,23 +447,7 @@ function MemorySheet({
   return (
     <Modal title={label} open onOpenChange={(value) => !value && void close()}>
       <Modal.Content>
-        {text === null ? (
-          <SettingsCard>
-            <View style={{ minHeight: 320, alignItems: "center", justifyContent: "center" }}>
-              <ActivityIndicator size="small" color={colors.foregroundMuted} />
-            </View>
-          </SettingsCard>
-        ) : (
-          <FormTextArea
-            colors={colors}
-            monospace
-            accessibilityLabel={`${label} contents`}
-            value={text}
-            onChangeText={setText}
-            minHeight={320}
-            placeholder={"- Prefers short replies\n- Works Mon-Fri, CET"}
-          />
-        )}
+        <MemoryEditor colors={colors} label={label} text={text} onChangeText={setText} />
         <SheetActions
           leading={
             topic ? (
@@ -473,6 +479,63 @@ function MemorySheet({
       </Modal.Content>
     </Modal>
   );
+}
+
+function MemoryEditor({
+  colors,
+  label,
+  text,
+  onChangeText,
+}: {
+  colors: Colors;
+  label: string;
+  text: string | null;
+  onChangeText(text: string): void;
+}) {
+  if (text === null)
+    return (
+      <SettingsCard>
+        <View style={{ minHeight: 320, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator size="small" color={colors.foregroundMuted} />
+        </View>
+      </SettingsCard>
+    );
+  return (
+    <FormTextArea
+      colors={colors}
+      monospace
+      accessibilityLabel={`${label} contents`}
+      value={text}
+      onChangeText={onChangeText}
+      minHeight={320}
+      placeholder={"- Prefers short replies\n- Works Mon-Fri, CET"}
+    />
+  );
+}
+
+function useMemoryText(botId: string, name: string) {
+  const read = useRpc(memoryReadRpc);
+  const toast = useToast();
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void read({ botId, name })
+      .then(({ text: loaded }) => {
+        if (cancelled) return;
+        setText(loaded);
+        setSaved(loaded);
+      })
+      .catch((error: unknown) => !cancelled && toastRef.current.error(errorText(error)));
+    return () => {
+      cancelled = true;
+    };
+  }, [botId, name, read]);
+
+  return { text, setText, saved, setSaved };
 }
 
 // ---------------------------------------------------------------- playbooks

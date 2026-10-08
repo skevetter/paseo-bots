@@ -2,17 +2,17 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
-import type { PaseoApi } from "./paseo";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
 import { foldText } from "../shared/activity";
 import type { Bot, Routine } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
-import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
 import { decide } from "../shared/routines";
+import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
 import { pluginDataPath } from "./bot-home";
 import { startChat } from "./chats";
 import type { BotsHost } from "./host";
-import { readBody, type Relay } from "./relay";
+import type { PaseoApi } from "./paseo";
+import { type Relay, readBody } from "./relay";
 
 const TICK_MS = 30_000;
 const KEEP_RUNS = 30;
@@ -102,6 +102,31 @@ export function runPrompt(routine: Routine, event?: WebhookEvent): string {
   ].join("\n");
 }
 
+interface RunRequest {
+  bot: Bot;
+  routine: Routine;
+  trigger: Trigger;
+  due: Date;
+  event?: WebhookEvent;
+}
+
+interface HookReply {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+function turnError(outcome: PluginTurnOutcome): string | null {
+  if (outcome.kind === "failed") return outcome.error.message;
+  if (outcome.kind === "canceled") return "Stopped before it finished.";
+  return null;
+}
+
+function webhookStatus(status: RoutineRun["status"]): number {
+  if (status === "running") return 202;
+  if (status === "skipped-busy") return 429;
+  return 500;
+}
+
 /**
  * Runs bot routines on this host: on their schedule, from Run now and from
  * their webhook. Every run is recorded, and finishes when its chat's turn ends.
@@ -175,7 +200,7 @@ export class RoutineScheduler {
 
   async runNow(botId: string, routineId: string): Promise<{ run: RoutineRun }> {
     const { bot, routine } = await this.find(botId, routineId);
-    return { run: await this.run(bot, routine, "manual", new Date()) };
+    return { run: await this.run({ bot, routine, trigger: "manual", due: new Date() }) };
   }
 
   /** The routine's webhook URL, making (or replacing) its secret. */
@@ -209,12 +234,7 @@ export class RoutineScheduler {
         endedAt: new Date().toISOString(),
         status: outcome.kind === "completed" ? "succeeded" : "failed",
         output: reply.trim() ? foldText(reply, 400) : null,
-        error:
-          outcome.kind === "failed"
-            ? outcome.error.message
-            : outcome.kind === "canceled"
-              ? "Stopped before it finished."
-              : null,
+        error: turnError(outcome),
       });
       return { ...found };
     });
@@ -250,13 +270,8 @@ export class RoutineScheduler {
   }
 
   /** Starts a run in a new chat, or records why it didn't; the results chat gets a card either way. */
-  private async run(
-    bot: Bot,
-    routine: Routine,
-    trigger: Trigger,
-    due: Date,
-    event?: WebhookEvent,
-  ): Promise<RoutineRun> {
+  private async run(request: RunRequest): Promise<RoutineRun> {
+    const { routine, trigger, due } = request;
     const run = await this.update(async (records) => {
       const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
       records[routine.id] = record;
@@ -273,30 +288,38 @@ export class RoutineScheduler {
         error: null,
       };
       if (trigger === "schedule") record.lastRunAt = now;
-      try {
-        if (bot.hostId)
-          throw new Error("Routines run on the host that stores the bot; this bot runs on another host.");
-        // OpenMausBot's overlap rule: skip while the previous run is still working (webhooks allow a few at once).
-        const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
-        const recent = record.runs
-          .filter((entry) => entry.agentId && entry.status === "running")
-          .slice(-limit);
-        let busy = 0;
-        for (const entry of recent) if (await this.working(entry.agentId)) busy++;
-        if (busy >= limit) Object.assign(run, { status: "skipped-busy", endedAt: now });
-        else run.agentId = await this.newChat(bot, routine, runPrompt(routine, event));
-      } catch (error) {
-        Object.assign(run, {
-          status: "failed",
-          endedAt: now,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      await this.start(request, record, run);
       record.runs = [...record.runs, run].slice(-KEEP_RUNS);
       return run;
     });
     await this.postCard(routine, run);
     return run;
+  }
+
+  private async start(request: RunRequest, record: RoutineRecord, run: RoutineRun): Promise<void> {
+    const { bot, routine, trigger, event } = request;
+    try {
+      if (bot.hostId)
+        throw new Error("Routines run on the host that stores the bot; this bot runs on another host.");
+      // OpenMausBot's overlap rule: skip while the previous run is still working (webhooks allow a few at once).
+      const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
+      if ((await this.busyRuns(record, limit)) >= limit)
+        Object.assign(run, { status: "skipped-busy", endedAt: run.startedAt });
+      else run.agentId = await this.newChat(bot, routine, runPrompt(routine, event));
+    } catch (error) {
+      Object.assign(run, {
+        status: "failed",
+        endedAt: run.startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  private async busyRuns(record: RoutineRecord, limit: number): Promise<number> {
+    const recent = record.runs.filter((entry) => entry.agentId && entry.status === "running").slice(-limit);
+    let busy = 0;
+    for (const entry of recent) if (await this.working(entry.agentId)) busy++;
+    return busy;
   }
 
   /** Puts (or updates) the run's card in the routine's results chat. */
@@ -321,41 +344,7 @@ export class RoutineScheduler {
     if (this.ticking || !this.paseo) return;
     this.ticking = true;
     try {
-      const values = await this.host.values();
-      if (!values) return;
-      const { routines } = await this.status();
-      const now = new Date();
-      for (const bot of values.bots) {
-        if (bot.archived || bot.hostId) continue;
-        for (const routine of bot.routines) {
-          const decision = decide(routine, routines[routine.id]?.lastRunAt ?? null, now);
-          if (decision.action === "run") await this.run(bot, routine, "schedule", decision.due);
-          else if (decision.action === "skip-missed") {
-            await this.update((records) => {
-              const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
-              const at = now.toISOString();
-              records[routine.id] = {
-                ...record,
-                lastRunAt: at,
-                runs: [
-                  ...record.runs,
-                  {
-                    id: `run-${randomBytes(4).toString("hex")}`,
-                    trigger: "schedule" as const,
-                    scheduledFor: decision.due.toISOString(),
-                    startedAt: at,
-                    endedAt: at,
-                    status: "skipped-missed" as const,
-                    agentId: null,
-                    output: null,
-                    error: null,
-                  },
-                ].slice(-KEEP_RUNS),
-              };
-            });
-          }
-        }
-      }
+      await this.tickBots();
     } catch (error) {
       console.error("paseo-bots: routine tick failed", error);
     } finally {
@@ -363,47 +352,113 @@ export class RoutineScheduler {
     }
   }
 
+  private async tickBots(): Promise<void> {
+    const values = await this.host.values();
+    if (!values) return;
+    const { routines } = await this.status();
+    const now = new Date();
+    for (const bot of values.bots) {
+      if (bot.archived || bot.hostId) continue;
+      for (const routine of bot.routines)
+        await this.tickRoutine(bot, routine, routines[routine.id]?.lastRunAt ?? null, now);
+    }
+  }
+
+  private async tickRoutine(bot: Bot, routine: Routine, lastRunAt: string | null, now: Date): Promise<void> {
+    const decision = decide(routine, lastRunAt, now);
+    if (decision.action === "run") await this.run({ bot, routine, trigger: "schedule", due: decision.due });
+    else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
+  }
+
+  private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {
+    await this.update((records) => {
+      const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
+      const at = now.toISOString();
+      records[routine.id] = {
+        ...record,
+        lastRunAt: at,
+        runs: [
+          ...record.runs,
+          {
+            id: `run-${randomBytes(4).toString("hex")}`,
+            trigger: "schedule" as const,
+            scheduledFor: due.toISOString(),
+            startedAt: at,
+            endedAt: at,
+            status: "skipped-missed" as const,
+            agentId: null,
+            output: null,
+            error: null,
+          },
+        ].slice(-KEEP_RUNS),
+      };
+    });
+  }
+
   /** POST /hooks/<routineId>/<secret> on the loopback relay starts a run with the request body. */
   private async webhook(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
     const match = /^\/hooks\/([a-z0-9-]+)\/([a-f0-9]{48})$/.exec(path);
     if (!match) return false;
-    const [, routineId, secret] = match as unknown as [string, string, string];
-    const reply = (status: number, body: Record<string, unknown>) =>
-      response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
-    if (request.method !== "POST") return reply(405, { error: "Use POST." }), true;
-    const expected = (await readJson<Record<string, string>>(hooksPath(), {}))[routineId];
-    if (!expected || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret)))
-      return reply(404, { error: "not found" }), true;
-    const values = await this.host.values();
-    const bot = values?.bots.find(
-      (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),
-    );
-    const routine = bot?.routines.find((entry) => entry.id === routineId);
-    if (!values || !bot || !routine || routine.schedule.kind !== "webhook")
-      return reply(404, { error: "not found" }), true;
-    if (!routine.enabled) return reply(409, { error: "The routine is paused." }), true;
+    const [, routineId, secret] = match;
+    const { status, body } = await this.answerWebhook(request, routineId, secret);
+    response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
+    return true;
+  }
+
+  private async answerWebhook(
+    request: IncomingMessage,
+    routineId: string,
+    secret: string,
+  ): Promise<HookReply> {
+    if (request.method !== "POST") return { status: 405, body: { error: "Use POST." } };
+    const target = await this.webhookTarget(routineId, secret);
+    if ("status" in target) return target;
     const now = Date.now();
-    const calls = (this.hookCalls.get(routineId) ?? []).filter((at) => now - at < 60_000);
-    if (calls.length >= WEBHOOK_CALLS_PER_MINUTE)
-      return reply(429, { error: "Too many calls this minute." }), true;
-    this.hookCalls.set(routineId, [...calls, now]);
+    if (this.throttled(routineId, now))
+      return { status: 429, body: { error: "Too many calls this minute." } };
     let body: string;
     try {
       body = await readBody(request, WEBHOOK_BODY_MAX);
     } catch {
-      return reply(413, { error: `Send at most ${WEBHOOK_BODY_MAX / 1024} KB.` }), true;
+      return { status: 413, body: { error: `Send at most ${WEBHOOK_BODY_MAX / 1024} KB.` } };
     }
     const event: WebhookEvent = {
       body,
       contentType: request.headers["content-type"] ?? null,
       receivedAt: new Date(now).toISOString(),
     };
-    const run = await this.run(bot, routine, "webhook", new Date(now), event);
-    reply(run.status === "running" ? 202 : run.status === "skipped-busy" ? 429 : 500, {
-      status: run.status,
-      ...(run.agentId ? { chat: run.agentId } : {}),
-      ...(run.error ? { error: run.error } : {}),
-    });
-    return true;
+    const run = await this.run({ ...target, trigger: "webhook", due: new Date(now), event });
+    return {
+      status: webhookStatus(run.status),
+      body: {
+        status: run.status,
+        ...(run.agentId ? { chat: run.agentId } : {}),
+        ...(run.error ? { error: run.error } : {}),
+      },
+    };
+  }
+
+  private async webhookTarget(
+    routineId: string,
+    secret: string,
+  ): Promise<{ bot: Bot; routine: Routine } | HookReply> {
+    const notFound: HookReply = { status: 404, body: { error: "not found" } };
+    const expected = (await readJson<Record<string, string>>(hooksPath(), {}))[routineId];
+    if (!expected || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
+    const values = await this.host.values();
+    const bot = values?.bots.find(
+      (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),
+    );
+    const routine = bot?.routines.find((entry) => entry.id === routineId);
+    if (!bot || !routine || routine.schedule.kind !== "webhook") return notFound;
+    if (!routine.enabled) return { status: 409, body: { error: "The routine is paused." } };
+    return { bot, routine };
+  }
+
+  private throttled(routineId: string, now: number): boolean {
+    const calls = (this.hookCalls.get(routineId) ?? []).filter((at) => now - at < 60_000);
+    if (calls.length >= WEBHOOK_CALLS_PER_MINUTE) return true;
+    this.hookCalls.set(routineId, [...calls, now]);
+    return false;
   }
 }

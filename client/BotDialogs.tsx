@@ -1,8 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { Icon, Modal, TextInput, copyText, useToast } from "@getpaseo/plugin/client/react-native";
+import { copyText, Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard, SettingsSection, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Bot, BotAvatar, Preset } from "../shared/bot";
 import { exportBotRpc } from "../shared/rpc";
@@ -10,8 +10,8 @@ import { BOT_TEMPLATES, type BotTemplate } from "../shared/templates";
 import { Avatar } from "./Avatar";
 import { errorText, MONO_FONT, MONO_PROPS, nativeTokens, useHover } from "./native";
 import { Button, FormTextArea, SheetActions } from "./panel/controls";
-import type { MenuEntry } from "./ui/Menu";
 import { code, codeLine, ui } from "./typography";
+import type { MenuEntry } from "./ui/Menu";
 
 type Colors = PluginTheme["colors"];
 
@@ -204,21 +204,24 @@ export function RenameDialog({
   const invalid = !draft.trim();
   const submitDisabled = pending || draft === initialValue || invalid;
 
-  const submit = async () => {
-    if (pending || draft === initialValue) return;
-    if (invalid) {
-      setError("Name is required");
-      return;
-    }
+  const save = async (name: string) => {
     try {
       setPending(true);
-      await onSubmit(draft.trim());
+      await onSubmit(name);
       setPending(false);
       onClose();
     } catch (err) {
       setPending(false);
       setError(err instanceof Error && err.message ? err.message : "Unable to save");
     }
+  };
+  const submit = async () => {
+    if (pending || draft === initialValue) return;
+    if (invalid) {
+      setError("Name is required");
+      return;
+    }
+    await save(draft.trim());
   };
   const cancel = () => {
     if (!pending) onClose();
@@ -449,12 +452,16 @@ export function ExportDialog({ colors, bot, onClose }: { colors: Colors; bot: Bo
   const toast = useToast();
   const [includeMemory, setIncludeMemory] = useState(false);
   const [json, setJson] = useState<string | null>(null);
+  const latest = useRef({ exportBot, bot, toast });
+  latest.current = { exportBot, bot, toast };
   useEffect(() => {
     let cancelled = false;
+    const snapshot = latest.current;
     setJson(null);
-    exportBot({ bot, includeMemory })
+    snapshot
+      .exportBot({ bot: snapshot.bot, includeMemory })
       .then((result) => !cancelled && setJson(result.json))
-      .catch((error: unknown) => toast.error(errorText(error)));
+      .catch((error: unknown) => snapshot.toast.error(errorText(error)));
     return () => {
       cancelled = true;
     };
@@ -479,9 +486,9 @@ export function ExportDialog({ colors, bot, onClose }: { colors: Colors; bot: Bo
             }
             actionLabel="Copy"
             disabled={!json}
-            onPress={() =>
-              void copyText(json!).then(() => toast.show("Bot file copied", { variant: "success" }))
-            }
+            onPress={() => {
+              if (json) void copyText(json).then(() => toast.show("Bot file copied", { variant: "success" }));
+            }}
           />
         </SettingsCard>
         <Text

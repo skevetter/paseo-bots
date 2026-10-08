@@ -12,6 +12,7 @@ import {
   scanSkillText,
   skillMarkdown,
 } from "../../shared/skills";
+import { errorText, MONO_FONT, MONO_PROPS } from "../native";
 import {
   Alert,
   Button,
@@ -22,7 +23,6 @@ import {
   TextAreaField,
 } from "../panel/controls";
 import { code, codeLine, ui } from "../typography";
-import { errorText, MONO_FONT, MONO_PROPS } from "../native";
 
 type Colors = PluginTheme["colors"];
 

@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { localDay, parseLog, type LogEntry } from "../shared/activity";
+import { type LogEntry, localDay, parseLog } from "../shared/activity";
 import { botDataPath } from "./bot-home";
 
 /** OpenMausBot's budget: the first 200 lines or 24 KB of MEMORY.md go into every chat. */

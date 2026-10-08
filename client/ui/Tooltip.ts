@@ -95,16 +95,86 @@ export function useTooltipTheme(theme: Colors): void {
   }, [theme]);
 }
 
+function styleBubble(bubble: Bubble, target: El, theme: Colors | null): void {
+  const tokens = theme ? nativeTokens(theme) : null;
+  const dark = tokens?.dark ?? true;
+  Object.assign(bubble.style, {
+    position: "fixed",
+    zIndex: "2147483000",
+    pointerEvents: "none",
+    maxWidth: "280px",
+    padding: "4px 8px",
+    borderRadius: "12px",
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: tokens?.borderAccent ?? "#3a3d42",
+    backgroundColor: theme ? (dark ? theme.surface2 : theme.surface0) : "#202225",
+    color: theme?.foreground ?? "#e6e6e6",
+    boxShadow: dark ? "0 4px 8px rgba(0, 0, 0, 0.20)" : "0 4px 16px rgba(0, 0, 0, 0.04)",
+    fontFamily: window.getComputedStyle(target).fontFamily || UI_FONT,
+    fontSize: `${ui(14)}px`,
+    lineHeight: "1.4",
+    whiteSpace: "normal",
+    transition: "opacity 80ms ease-out",
+    opacity: "0",
+    left: "-9999px",
+    top: "-9999px",
+  });
+}
+
+function fillBubble(bubble: Bubble, target: El, label: string, theme: Colors | null): void {
+  const lines = target.getAttribute("data-pb-tip-lines")?.split("\n") ?? [];
+  const details = target.getAttribute("data-pb-tip-details")?.split("\n") ?? [];
+  bubble.style.minWidth = details.length ? "200px" : "0";
+  bubble.textContent = "";
+  // Paseo's context meter tooltip: foreground 14pt lines, then muted 12pt details, 6 apart.
+  [label, ...lines, ...details].forEach((text, index) => {
+    const line = document.createElement("div");
+    line.textContent = text;
+    const detail = index > lines.length;
+    Object.assign(line.style, {
+      marginTop: index === 0 ? "0" : "6px",
+      color: detail ? (theme?.foregroundMuted ?? "#a1a1aa") : "inherit",
+      fontSize: detail ? `${ui(12)}px` : "inherit",
+    });
+    bubble.appendChild(line);
+  });
+}
+
+function fittingSide(wanted: Side, above: number, below: number, height: number): Side {
+  const limit = window.innerHeight - EDGE;
+  if (wanted === "top") return above < EDGE && below + height <= limit ? "bottom" : "top";
+  return below + height > limit && above >= EDGE ? "top" : "bottom";
+}
+
+function placeBubble(bubble: Bubble, target: El): void {
+  const rect = target.getBoundingClientRect();
+  const width = bubble.offsetWidth;
+  const height = bubble.offsetHeight;
+  const wanted = (target.getAttribute("data-pb-tip-side") as Side | null) ?? "top";
+  const above = rect.top - height - OFFSET;
+  const below = rect.top + rect.height + OFFSET;
+  // Paseo flips to the other side when the preferred one hasn't the room.
+  const side = fittingSide(wanted, above, below, height);
+  const left = Math.max(
+    EDGE,
+    Math.min(window.innerWidth - width - EDGE, rect.left + (rect.width - width) / 2),
+  );
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${side === "top" ? above : below}px`;
+  bubble.style.opacity = "1";
+}
+
 /** Starts the shared tooltip on web; returns its cleanup. */
 export function installTooltips(): () => void {
   if (!web || typeof document === "undefined") return () => {};
   let anchor: El | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let bubble: Bubble | null = null;
 
   const hide = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
+    clearTimeout(timer);
+    timer = undefined;
     anchor = null;
     if (bubble) bubble.style.opacity = "0";
   };
@@ -113,70 +183,11 @@ export function installTooltips(): () => void {
     const label = target.getAttribute("data-pb-tip");
     if (!label || !tooltipsShown()) return;
     const theme = colors;
-    const tokens = theme ? nativeTokens(theme) : null;
-    const dark = tokens?.dark ?? true;
     bubble ??= document.createElement("div");
-    Object.assign(bubble.style, {
-      position: "fixed",
-      zIndex: "2147483000",
-      pointerEvents: "none",
-      maxWidth: "280px",
-      padding: "4px 8px",
-      borderRadius: "12px",
-      borderWidth: "1px",
-      borderStyle: "solid",
-      borderColor: tokens?.borderAccent ?? "#3a3d42",
-      backgroundColor: theme ? (dark ? theme.surface2 : theme.surface0) : "#202225",
-      color: theme?.foreground ?? "#e6e6e6",
-      boxShadow: dark ? "0 4px 8px rgba(0, 0, 0, 0.20)" : "0 4px 16px rgba(0, 0, 0, 0.04)",
-      fontFamily: window.getComputedStyle(target).fontFamily || UI_FONT,
-      fontSize: `${ui(14)}px`,
-      lineHeight: "1.4",
-      whiteSpace: "normal",
-      transition: "opacity 80ms ease-out",
-      opacity: "0",
-      left: "-9999px",
-      top: "-9999px",
-    });
-    const lines = target.getAttribute("data-pb-tip-lines")?.split("\n") ?? [];
-    const details = target.getAttribute("data-pb-tip-details")?.split("\n") ?? [];
-    bubble.style.minWidth = details.length ? "200px" : "0";
-    bubble.textContent = "";
-    // Paseo's context meter tooltip: foreground 14pt lines, then muted 12pt details, 6 apart.
-    [label, ...lines, ...details].forEach((text, index) => {
-      const line = document.createElement("div");
-      line.textContent = text;
-      const detail = index > lines.length;
-      Object.assign(line.style, {
-        marginTop: index === 0 ? "0" : "6px",
-        color: detail ? (theme?.foregroundMuted ?? "#a1a1aa") : "inherit",
-        fontSize: detail ? `${ui(12)}px` : "inherit",
-      });
-      bubble?.appendChild(line);
-    });
+    styleBubble(bubble, target, theme);
+    fillBubble(bubble, target, label, theme);
     document.body.appendChild(bubble);
-    const rect = target.getBoundingClientRect();
-    const width = bubble.offsetWidth;
-    const height = bubble.offsetHeight;
-    const wanted = (target.getAttribute("data-pb-tip-side") as Side | null) ?? "top";
-    const above = rect.top - height - OFFSET;
-    const below = rect.top + rect.height + OFFSET;
-    // Paseo flips to the other side when the preferred one hasn't the room.
-    const side: Side =
-      wanted === "top"
-        ? above < EDGE && below + height <= window.innerHeight - EDGE
-          ? "bottom"
-          : "top"
-        : below + height > window.innerHeight - EDGE && above >= EDGE
-          ? "top"
-          : "bottom";
-    const left = Math.max(
-      EDGE,
-      Math.min(window.innerWidth - width - EDGE, rect.left + (rect.width - width) / 2),
-    );
-    bubble.style.left = `${left}px`;
-    bubble.style.top = `${side === "top" ? above : below}px`;
-    bubble.style.opacity = "1";
+    placeBubble(bubble, target);
   };
 
   const over = (event: PointerEventLike) => {
@@ -188,7 +199,7 @@ export function installTooltips(): () => void {
     anchor = target;
     timer = setTimeout(
       () => {
-        timer = null;
+        timer = undefined;
         if (anchor === target) show(target);
       },
       Number(target.getAttribute("data-pb-tip-delay") ?? DELAY_MS),
@@ -201,20 +212,18 @@ export function installTooltips(): () => void {
     if (event.key === "Escape") hide();
   };
 
-  document.addEventListener("pointerover", over, true);
-  document.addEventListener("pointerout", out, true);
-  document.addEventListener("pointerdown", hide, true);
-  document.addEventListener("keydown", key, true);
-  document.addEventListener("scroll", hide, true);
-  document.addEventListener("wheel", hide, true);
+  const listeners: Array<[string, (event: PointerEventLike & { key?: string }) => void]> = [
+    ["pointerover", over],
+    ["pointerout", out],
+    ["pointerdown", hide],
+    ["keydown", key],
+    ["scroll", hide],
+    ["wheel", hide],
+  ];
+  for (const [type, listener] of listeners) document.addEventListener(type, listener, true);
   return () => {
     hide();
     bubble?.remove();
-    document.removeEventListener("pointerover", over, true);
-    document.removeEventListener("pointerout", out, true);
-    document.removeEventListener("pointerdown", hide, true);
-    document.removeEventListener("keydown", key, true);
-    document.removeEventListener("scroll", hide, true);
-    document.removeEventListener("wheel", hide, true);
+    for (const [type, listener] of listeners) document.removeEventListener(type, listener, true);
   };
 }

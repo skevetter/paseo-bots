@@ -9,7 +9,7 @@ import {
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
-import { DEFAULT_BOT_DEFAULTS, type Bot, type BotDefaults, type BotGroup } from "../../shared/bot";
+import { type Bot, type BotDefaults, type BotGroup, DEFAULT_BOT_DEFAULTS } from "../../shared/bot";
 import { addImportedBots } from "../../shared/library";
 import { exportTeamRpc, importTeamRpc } from "../../shared/rpc";
 import { useBotHost, useProviders } from "../data";
@@ -155,6 +155,21 @@ function DefaultsSection({
   );
 }
 
+function counted(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+function teamFileHint(bots: readonly Bot[], groups: readonly BotGroup[]): string {
+  if (!bots.length) return "No bots to share yet";
+  const teams = groups.length ? ` on ${counted(groups.length, "team", "teams")}` : "";
+  return `${counted(bots.length, "bot", "bots")}${teams}, all but archived ones`;
+}
+
+function importedMessage(imported: { bots: readonly unknown[]; teams: readonly unknown[] }): string {
+  const teams = imported.teams.length ? ` and ${counted(imported.teams.length, "team", "teams")}` : "";
+  return `Added ${counted(imported.bots.length, "bot", "bots")}${teams}. Routines arrive paused and skills need a review.`;
+}
+
 /** A team file: every bot that isn't archived and the teams they're on, in one file; and adding those of one. */
 function TeamSection({
   colors,
@@ -179,7 +194,7 @@ function TeamSection({
     try {
       const file = await exportTeam({ bots, groups, includeMemory });
       await copyText(file.json);
-      toast.show(`Team file with ${bots.length} ${bots.length === 1 ? "bot" : "bots"} copied`, {
+      toast.show(`Team file with ${counted(bots.length, "bot", "bots")} copied`, {
         variant: "success",
       });
     } catch (error) {
@@ -195,13 +210,7 @@ function TeamSection({
       const imported = await importTeam({ json });
       if (await commit((current) => addImportedBots(current, imported.bots, imported.teams))) {
         setJson("");
-        const teams = imported.teams.length
-          ? ` and ${imported.teams.length} ${imported.teams.length === 1 ? "team" : "teams"}`
-          : "";
-        toast.show(
-          `Added ${imported.bots.length} ${imported.bots.length === 1 ? "bot" : "bots"}${teams}. Routines arrive paused and skills need a review.`,
-          { variant: "success" },
-        );
+        toast.show(importedMessage(imported), { variant: "success" });
       }
     } catch (error) {
       toast.error(errorText(error));
@@ -224,11 +233,7 @@ function TeamSection({
         />
         <SettingsAction
           label="Copy a team file"
-          hint={
-            bots.length
-              ? `${bots.length} ${bots.length === 1 ? "bot" : "bots"}${groups.length ? ` on ${groups.length} ${groups.length === 1 ? "team" : "teams"}` : ""}, all but archived ones`
-              : "No bots to share yet"
-          }
+          hint={teamFileHint(bots, groups)}
           actionLabel={busy === "export" ? "Copying..." : "Copy"}
           disabled={!bots.length || busy !== null}
           onPress={() => void copyTeam()}

@@ -3,7 +3,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Image, Platform, Pressable, Text, View } from "react-native";
-import { faviconUrl, type AppCard } from "../../shared/apps";
+import { type AppCard, faviconUrl } from "../../shared/apps";
 import type { Bot } from "../../shared/bot";
 import { Avatar } from "../Avatar";
 import { confirmDialog, nativeTokens, useHover } from "../native";

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ComposerAttachment } from "../shared/attachments";
 import {
   activeTurnBehaviorFor,
   applyCommand,
+  type ComposerDraft,
   commandQuery,
   composerDraftKey,
   contextUsage,
@@ -26,8 +26,8 @@ import {
   shouldDrainQueue,
   submitAccessibilityLabel,
   takeQueued,
-  type ComposerDraft,
 } from "../client/chat/composer/logic";
+import type { ComposerAttachment } from "../shared/attachments";
 
 const image = (id: string, bytes = 4): ComposerAttachment => ({
   kind: "image",
@@ -168,7 +168,7 @@ describe("drafts", () => {
     };
     const parsed = parseDrafts(serializeDrafts(drafts));
     expect(Object.keys(parsed)).toEqual(["a"]);
-    expect(parsed.a!.attachments[0]).toMatchObject({ kind: "text", text: "hi" });
+    expect(parsed.a?.attachments[0]).toMatchObject({ kind: "text", text: "hi" });
     expect(parseDrafts(JSON.stringify({ x: { text: 5, attachments: [{ kind: "image" }] } }))).toEqual({});
     expect(parseDrafts("[1]")).toEqual({});
     expect(parseDrafts("{")).toEqual({});
@@ -183,7 +183,7 @@ describe("drafts", () => {
     const parsed = parseDrafts(serializeDrafts(drafts, { maxBytes: 2000 }));
     expect(parsed.old).toMatchObject({ text: "old", attachments: [] });
     expect(parsed.mid).toBeUndefined();
-    expect(parsed.new!.attachments).toHaveLength(1);
+    expect(parsed.new?.attachments).toHaveLength(1);
     expect(Object.keys(parseDrafts(serializeDrafts(drafts, { maxDrafts: 1 })))).toEqual(["new"]);
   });
 
@@ -236,8 +236,9 @@ describe("context window meter", () => {
 });
 
 describe("slash commands", () => {
+  const review = { name: "review", description: "Review", argumentHint: "" };
   const commands = [
-    { name: "review", description: "Review", argumentHint: "" },
+    review,
     { name: "compact", description: "Compact", argumentHint: "" },
     { name: "pr-comments", description: "PR", argumentHint: "" },
     { name: "clear", description: "Clear", argumentHint: "" },
@@ -261,6 +262,6 @@ describe("slash commands", () => {
       "pr-comments",
       "review",
     ]);
-    expect(applyCommand(commands[0]!)).toBe("/review ");
+    expect(applyCommand(review)).toBe("/review ");
   });
 });

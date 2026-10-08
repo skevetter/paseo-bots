@@ -11,13 +11,13 @@ import { useState } from "react";
 import { randomSeed } from "../../shared/avatar";
 import type { Bot, BotAvatar, BotVoice } from "../../shared/bot";
 import { Avatar } from "../Avatar";
-import type { PanelProps } from "./BotPanel";
 import { errorText } from "../native";
 import { canSpeak, speak, useVoices } from "../speech";
 import { canPickFiles } from "../web";
 import { AvatarSheet } from "./AvatarSheet";
+import type { PanelProps } from "./BotPanel";
 import { Button, DrillRow, InputField, SheetActions, TextAreaField } from "./controls";
-import { ColourRow, pickPicture, PictureSource } from "./picture";
+import { ColourRow, PictureSource, pickPicture } from "./picture";
 
 const DESCRIPTION_MAX = 4000;
 

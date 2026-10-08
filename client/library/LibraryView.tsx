@@ -2,13 +2,14 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { View, type LayoutRectangle } from "react-native";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type LayoutRectangle, View } from "react-native";
+import type { AppAccount, AppCard } from "../../shared/apps";
 import {
-  EMPTY_LIBRARY,
   type Bot,
   type BotMcpServer,
   type BotSettingsValues,
+  EMPTY_LIBRARY,
   type Library,
   type LibraryMcpServer,
   type LibrarySkill,
@@ -16,31 +17,33 @@ import {
 import {
   addMcpServers,
   forgetItem,
+  type LibraryKind,
   newMcpServerId,
   renameGrants,
   setBotUses,
   updateMcpServer,
   updateSkill,
   upsertSkills,
-  type LibraryKind,
 } from "../../shared/library";
 import { appsConnectRpc, skillDeleteRpc } from "../../shared/rpc";
-import type { LibraryTarget } from "../navigation";
 import { errorText, nativeTokens } from "../native";
+import type { LibraryTarget } from "../navigation";
 import { SlideOver } from "../ui/Columns";
 import { useMenu } from "../ui/Menu";
 import { AppPage } from "./AppPage";
-import { useAppsAccounts, useAppsCatalog, useAppsInvalidate, useAppsStatus } from "./apps";
 import { AppsPage } from "./AppsPage";
+import { useAppsAccounts, useAppsCatalog, useAppsInvalidate, useAppsStatus } from "./apps";
 import { LibraryList } from "./LibraryList";
 import { McpPage } from "./McpPage";
-import { BLANK_SERVER, ImportSheet, ServerSheet, type McpDraft } from "./McpSheets";
+import { BLANK_SERVER, ImportSheet, type McpDraft, ServerSheet } from "./McpSheets";
 import { BackBar, PAGE_STYLE } from "./parts";
+import { SkillPage, skillQueryKey } from "./SkillPage";
 import { ImportSkillsSheet, NewSkillSheet, type SavedSkill } from "./SkillSheets";
-import { skillQueryKey, SkillPage } from "./SkillPage";
 
 /** Settings sidebar width (constants/layout.ts SETTINGS_DESKTOP_SIDEBAR_WIDTH). */
 const LIST_WIDTH = 320;
+
+type Colors = PluginSurfaceProps["theme"]["colors"];
 
 type Sheet =
   | { kind: "import-skills" }
@@ -49,7 +52,7 @@ type Sheet =
   | { kind: "paste-servers" };
 
 interface LibraryViewProps {
-  colors: PluginSurfaceProps["theme"]["colors"];
+  colors: Colors;
   layout: PluginSurfaceProps["layout"];
   values: BotSettingsValues;
   commit(mutate: (values: BotSettingsValues) => BotSettingsValues): Promise<boolean>;
@@ -61,6 +64,45 @@ interface LibraryViewProps {
   /** The home indicator on phones, kept clear below lists and pages. */
   bottomInset: number;
 }
+
+type SetTarget = (target: LibraryTarget | null) => void;
+
+type SaveLibrary = (
+  mutate: (library: Library, bots: Bot[]) => { library?: Library; bots?: Bot[] },
+) => Promise<boolean>;
+
+interface PendingSignIn {
+  slug: string;
+  since: number;
+  known: string[];
+}
+
+interface AppConnections {
+  /** App whose sign-in is open in the browser. */
+  pending: string | null;
+  accounts: AppAccount[];
+  catalog: AppCard[];
+  startConnect(slug: string, alias?: string): Promise<void>;
+}
+
+interface LibraryActions {
+  save: SaveLibrary;
+  addSkills(skills: SavedSkill[]): Promise<void>;
+  addServers(drafts: BotMcpServer[]): Promise<void>;
+  createServer(draft: McpDraft): Promise<void>;
+  patchSkill(id: string, patch: Partial<LibrarySkill>): void;
+  patchServer(id: string, patch: Partial<LibraryMcpServer>): void;
+  toggleApp(slug: string, bot: Bot, on: boolean): void;
+  toggleBot(kind: LibraryKind, id: string, bot: Bot, on: boolean): void;
+  removeSkill(id: string): Promise<void>;
+  removeServer(id: string): Promise<void>;
+}
+
+type Selection =
+  | { kind: "skill"; skill: LibrarySkill }
+  | { kind: "mcp"; server: LibraryMcpServer }
+  | { kind: "app"; app: AppCard; accounts: AppAccount[] }
+  | { kind: "apps" };
 
 /**
  * Skills & Tools inside the Bots screen: the shared library of skills and MCP
@@ -80,104 +122,109 @@ export function LibraryView({
   bottomInset,
 }: LibraryViewProps) {
   const compact = layout.compact;
-  const toast = useToast();
-  const menu = useMenu();
-  const queryClient = useQueryClient();
-  const deleteSkillFiles = useRpc(skillDeleteRpc);
   const [query, setQuery] = useState("");
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const apps = useAppConnections(setTarget);
+  const actions = useLibraryActions(commit, setTarget);
+  const menus = useAddMenus(setSheet);
+  const library = values.library ?? EMPTY_LIBRARY;
+
+  // Desktop always shows a page, like Paseo's settings: the first item until one is picked.
+  const shown = target ?? (compact ? null : firstTarget(library));
+  const selection = resolveSelection({ library, shown, accounts: apps.accounts, catalog: apps.catalog });
+
+  const list = (
+    <LibraryList
+      colors={colors}
+      library={library}
+      query={query}
+      onQuery={setQuery}
+      selected={compact ? null : shown}
+      onSelect={setTarget}
+      onAddSkill={menus.openSkillMenu}
+      onAddServer={menus.openServerMenu}
+      touch={compact || layout.platform !== "web"}
+      onBack={compact ? undefined : onBack}
+      bottomInset={bottomInset}
+    />
+  );
+
+  const scrollPage = (
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={[PAGE_STYLE, { paddingBottom: PAGE_STYLE.paddingBottom + bottomInset }]}
+    >
+      <LibraryPage
+        colors={colors}
+        selection={selection}
+        library={library}
+        bots={values.bots}
+        compact={compact}
+        actions={actions}
+        apps={apps}
+        setTarget={setTarget}
+      />
+    </ScrollView>
+  );
+
+  return (
+    <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface0 }}>
+      {compact ? (
+        <CompactColumns
+          colors={colors}
+          list={list}
+          page={scrollPage}
+          open={shown !== null}
+          title={pageTitle(selection, shown)}
+          onBack={onBack}
+          onClose={() => setTarget(null)}
+        />
+      ) : (
+        <DesktopColumns colors={colors} list={list} page={scrollPage} />
+      )}
+
+      <LibrarySheets
+        colors={colors}
+        sheet={sheet}
+        library={library}
+        actions={actions}
+        onClose={() => setSheet(null)}
+      />
+    </View>
+  );
+}
+
+// ------------------------------------------------------------ actions
+
+/** Composio sign-ins started from the library, and the apps and accounts they lead to. */
+function useAppConnections(setTarget: SetTarget): AppConnections {
+  const toast = useToast();
   const connectApp = useRpc(appsConnectRpc);
   const invalidateApps = useAppsInvalidate();
   /** The app whose sign-in is open in the browser, since when, and the accounts it had before. */
-  const [pending, setPending] = useState<{ slug: string; since: number; known: string[] } | null>(null);
+  const [pending, setPending] = useState<PendingSignIn | null>(null);
   const appsStatus = useAppsStatus();
   const appsConfigured = appsStatus.data?.configured ?? false;
   const appAccounts = useAppsAccounts(appsConfigured, pending !== null);
   const appCatalog = useAppsCatalog(appsConfigured);
+  const accountsData = appAccounts.data;
+  const latestRef = useRef({ catalog: appCatalog.data?.apps, toast, setTarget, invalidateApps });
+  latestRef.current = { catalog: appCatalog.data?.apps, toast, setTarget, invalidateApps };
 
   // Finish a pending sign-in when Composio reports the account, or give up after five minutes.
   useEffect(() => {
     if (!pending) return;
-    // A new account: signing in to another account of a connected app mustn't finish at once.
-    const account = appAccounts.data?.accounts.find(
-      (entry) =>
-        entry.slug === pending.slug && entry.status === "connected" && !pending.known.includes(entry.id),
-    );
-    if (account) {
-      const name = appCatalog.data?.apps.find((app) => app.slug === pending.slug)?.name ?? pending.slug;
-      toast.show(`Connected ${name}`, { variant: "success" });
+    if (hasNewAccount(accountsData?.accounts ?? [], pending)) {
+      const latest = latestRef.current;
+      const name = latest.catalog?.find((app) => app.slug === pending.slug)?.name ?? pending.slug;
+      latest.toast.show(`Connected ${name}`, { variant: "success" });
       setPending(null);
-      setTarget({ kind: "app", id: pending.slug });
-      void invalidateApps();
+      latest.setTarget({ kind: "app", id: pending.slug });
+      void latest.invalidateApps();
     } else if (Date.now() - pending.since > 5 * 60_000) {
       setPending(null);
     }
-  }, [appAccounts.data, pending]);
-
-  const library = values.library ?? EMPTY_LIBRARY;
-  const bots = values.bots;
-
-  // ------------------------------------------------------------ actions
-
-  /** Changes the library and the bots together in one write. */
-  const save = (mutate: (library: Library, bots: Bot[]) => { library?: Library; bots?: Bot[] }) =>
-    commit((values) => {
-      const current = values.library ?? EMPTY_LIBRARY;
-      const next = mutate(current, values.bots);
-      return { ...values, library: next.library ?? current, bots: next.bots ?? values.bots };
-    });
-
-  const addSkills = async (skills: SavedSkill[]) => {
-    if (skills.length === 0) return;
-    if (!(await save((current) => ({ library: upsertSkills(current, skills) })))) return;
-    for (const skill of skills) void queryClient.invalidateQueries({ queryKey: skillQueryKey(skill.id) });
-    const unreviewed = skills.filter((skill) => !skill.reviewedSha).length;
-    toast.show(
-      `${skills.length === 1 ? `Added ${skills[0]!.id}` : `Added ${skills.length} skills`}${unreviewed ? `. Review ${unreviewed === 1 ? "it" : "them"} before bots use ${unreviewed === 1 ? "it" : "them"}.` : ""}`,
-      { variant: "success" },
-    );
-    setTarget({ kind: "skill", id: skills[0]!.id });
-  };
-
-  const addServers = async (drafts: BotMcpServer[]) => {
-    let ids: string[] = [];
-    const ok = await save((current) => {
-      const added = addMcpServers(current, drafts);
-      ids = added.ids;
-      return { library: added.library };
-    });
-    if (ok && ids[0]) setTarget({ kind: "mcp", id: ids[0] });
-  };
-
-  const createServer = async (draft: McpDraft) => {
-    const now = new Date().toISOString();
-    // Off until a test connects to it.
-    const server: LibraryMcpServer = {
-      ...draft,
-      id: newMcpServerId(),
-      enabled: false,
-      tools: null,
-      checkedAt: null,
-      checkError: null,
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (await save((current) => ({ library: { ...current, mcpServers: [...current.mcpServers, server] } })))
-      setTarget({ kind: "mcp", id: server.id });
-  };
-
-  const patchSkill = (id: string, patch: Partial<LibrarySkill>) =>
-    void save((current) => ({ library: updateSkill(current, id, patch) }));
-
-  const patchServer = (id: string, patch: Partial<LibraryMcpServer>) =>
-    void save((current, currentBots) => {
-      const before = current.mcpServers.find((server) => server.id === id);
-      const renamed = patch.name !== undefined && before && patch.name !== before.name;
-      return {
-        library: updateMcpServer(current, id, patch),
-        bots: renamed ? renameGrants(currentBots, before.name, patch.name!) : currentBots,
-      };
-    });
+  }, [accountsData, pending]);
 
   /** Opens Composio's sign-in page in the browser; the accounts query polls until it's done. */
   const startConnect = async (slug: string, alias?: string) => {
@@ -197,22 +244,95 @@ export function LibraryView({
     }
   };
 
-  const toggleApp = (slug: string, bot: Bot, on: boolean) =>
-    void save((_current, currentBots) => ({
-      bots: currentBots.map((entry) =>
-        entry.id !== bot.id
-          ? entry
-          : {
-              ...entry,
-              apps: on ? [...new Set([...entry.apps, slug])] : entry.apps.filter((app) => app !== slug),
-            },
-      ),
-    }));
+  return {
+    pending: pending?.slug ?? null,
+    accounts: appAccounts.data?.accounts ?? [],
+    catalog: appCatalog.data?.apps ?? [],
+    startConnect,
+  };
+}
 
-  const toggleBot = (kind: LibraryKind, id: string, bot: Bot, on: boolean) =>
-    void save((_current, currentBots) => ({
-      bots: currentBots.map((entry) => (entry.id === bot.id ? setBotUses(entry, kind, id, on) : entry)),
-    }));
+/** A new account: signing in to another account of a connected app mustn't finish at once. */
+function hasNewAccount(accounts: readonly AppAccount[], pending: PendingSignIn): boolean {
+  return accounts.some(
+    (entry) =>
+      entry.slug === pending.slug && entry.status === "connected" && !pending.known.includes(entry.id),
+  );
+}
+
+function useLibraryActions(commit: LibraryViewProps["commit"], setTarget: SetTarget): LibraryActions {
+  /** Changes the library and the bots together in one write. */
+  const save: SaveLibrary = (mutate) =>
+    commit((values) => {
+      const current = values.library ?? EMPTY_LIBRARY;
+      const next = mutate(current, values.bots);
+      return { ...values, library: next.library ?? current, bots: next.bots ?? values.bots };
+    });
+  const skillActions = useSkillActions(save, setTarget);
+
+  const addServers = async (drafts: BotMcpServer[]) => {
+    let ids: string[] = [];
+    const ok = await save((current) => {
+      const added = addMcpServers(current, drafts);
+      ids = added.ids;
+      return { library: added.library };
+    });
+    if (ok && ids[0]) setTarget({ kind: "mcp", id: ids[0] });
+  };
+
+  const createServer = async (draft: McpDraft) => {
+    const server = newLibraryServer(draft);
+    if (await save((current) => ({ library: { ...current, mcpServers: [...current.mcpServers, server] } })))
+      setTarget({ kind: "mcp", id: server.id });
+  };
+
+  const removeServer = async (id: string) => {
+    if (
+      await save((current, currentBots) => ({
+        library: { ...current, mcpServers: current.mcpServers.filter((server) => server.id !== id) },
+        bots: forgetItem(currentBots, "mcp", id),
+      }))
+    ) {
+      setTarget(null);
+    }
+  };
+
+  return {
+    ...skillActions,
+    save,
+    addServers,
+    createServer,
+    removeServer,
+    patchSkill: (id, patch) => void save((current) => ({ library: updateSkill(current, id, patch) })),
+    patchServer: (id, patch) =>
+      void save((current, currentBots) => patchedServer({ library: current, bots: currentBots, id, patch })),
+    toggleApp: (slug, bot, on) =>
+      void save((_current, currentBots) => ({
+        bots: withAppToggled(currentBots, { botId: bot.id, slug, on }),
+      })),
+    toggleBot: (kind, id, bot, on) =>
+      void save((_current, currentBots) => ({
+        bots: currentBots.map((entry) => (entry.id === bot.id ? setBotUses(entry, kind, id, on) : entry)),
+      })),
+  };
+}
+
+function useSkillActions(
+  save: SaveLibrary,
+  setTarget: SetTarget,
+): Pick<LibraryActions, "addSkills" | "removeSkill"> {
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const deleteSkillFiles = useRpc(skillDeleteRpc);
+
+  const addSkills = async (skills: SavedSkill[]) => {
+    const [first] = skills;
+    if (!first) return;
+    if (!(await save((current) => ({ library: upsertSkills(current, skills) })))) return;
+    for (const skill of skills) void queryClient.invalidateQueries({ queryKey: skillQueryKey(skill.id) });
+    toast.show(addedSkillsMessage(skills, first.id), { variant: "success" });
+    setTarget({ kind: "skill", id: first.id });
+  };
 
   const removeSkill = async (id: string) => {
     try {
@@ -231,16 +351,68 @@ export function LibraryView({
     }
   };
 
-  const removeServer = async (id: string) => {
-    if (
-      await save((current, currentBots) => ({
-        library: { ...current, mcpServers: current.mcpServers.filter((server) => server.id !== id) },
-        bots: forgetItem(currentBots, "mcp", id),
-      }))
-    ) {
-      setTarget(null);
-    }
+  return { addSkills, removeSkill };
+}
+
+function addedSkillsMessage(skills: readonly SavedSkill[], firstId: string): string {
+  const added = skills.length === 1 ? `Added ${firstId}` : `Added ${skills.length} skills`;
+  const unreviewed = skills.filter((skill) => !skill.reviewedSha).length;
+  if (!unreviewed) return added;
+  const them = unreviewed === 1 ? "it" : "them";
+  return `${added}. Review ${them} before bots use ${them}.`;
+}
+
+function newLibraryServer(draft: McpDraft): LibraryMcpServer {
+  const now = new Date().toISOString();
+  // Off until a test connects to it.
+  return {
+    ...draft,
+    id: newMcpServerId(),
+    enabled: false,
+    tools: null,
+    checkedAt: null,
+    checkError: null,
+    createdAt: now,
+    updatedAt: now,
   };
+}
+
+function patchedServer({
+  library,
+  bots,
+  id,
+  patch,
+}: {
+  library: Library;
+  bots: Bot[];
+  id: string;
+  patch: Partial<LibraryMcpServer>;
+}): { library: Library; bots: Bot[] } {
+  const before = library.mcpServers.find((server) => server.id === id);
+  const name = patch.name;
+  const renamed = name !== undefined && before !== undefined && name !== before.name;
+  return {
+    library: updateMcpServer(library, id, patch),
+    bots: renamed ? renameGrants(bots, before.name, name) : bots,
+  };
+}
+
+function withAppToggled(
+  bots: Bot[],
+  { botId, slug, on }: { botId: string; slug: string; on: boolean },
+): Bot[] {
+  return bots.map((entry) =>
+    entry.id !== botId
+      ? entry
+      : {
+          ...entry,
+          apps: on ? [...new Set([...entry.apps, slug])] : entry.apps.filter((app) => app !== slug),
+        },
+  );
+}
+
+function useAddMenus(setSheet: (sheet: Sheet) => void) {
+  const menu = useMenu();
 
   const openSkillMenu = (anchor: LayoutRectangle) =>
     menu.open({
@@ -270,194 +442,269 @@ export function LibraryView({
       ],
     });
 
-  // ------------------------------------------------------------ layout
+  return { openSkillMenu, openServerMenu };
+}
 
-  // Desktop always shows a page, like Paseo's settings: the first item until one is picked.
+// ------------------------------------------------------------ layout
+
+function firstTarget(library: Library): LibraryTarget {
   const firstSkill = library.skills.map((entry) => entry.id).sort((a, b) => a.localeCompare(b))[0];
+  if (firstSkill) return { kind: "skill", id: firstSkill };
   const firstServer = library.mcpServers.slice().sort((a, b) => a.name.localeCompare(b.name))[0];
-  const first: LibraryTarget = firstSkill
-    ? { kind: "skill", id: firstSkill }
-    : firstServer
-      ? { kind: "mcp", id: firstServer.id }
-      : { kind: "apps" };
-  const shown = target ?? (compact ? null : first);
-  const skill = shown?.kind === "skill" ? library.skills.find((entry) => entry.id === shown.id) : undefined;
-  const server =
-    shown?.kind === "mcp" ? library.mcpServers.find((entry) => entry.id === shown.id) : undefined;
-  const appAccountsFor =
-    shown?.kind === "app"
-      ? (appAccounts.data?.accounts ?? []).filter((account) => account.slug === shown.id)
-      : [];
-  const app =
-    shown?.kind === "app" && appAccountsFor.length
-      ? (appCatalog.data?.apps.find((entry) => entry.slug === shown.id) ?? {
-          slug: shown.id,
-          name: shown.id,
-          description: "",
-          logo: null,
-          domain: null,
-          noAuth: false,
-        })
-      : undefined;
-  const pageTitle = skill
-    ? skill.id
-    : server
-      ? server.name
-      : app
-        ? app.name
-        : shown?.kind === "apps"
-          ? "Connected apps"
-          : "";
+  if (firstServer) return { kind: "mcp", id: firstServer.id };
+  return { kind: "apps" };
+}
+
+function resolveSelection({
+  library,
+  shown,
+  accounts,
+  catalog,
+}: {
+  library: Library;
+  shown: LibraryTarget | null;
+  accounts: readonly AppAccount[];
+  catalog: readonly AppCard[];
+}): Selection {
+  if (shown?.kind === "skill") {
+    const skill = library.skills.find((entry) => entry.id === shown.id);
+    if (skill) return { kind: "skill", skill };
+  } else if (shown?.kind === "mcp") {
+    const server = library.mcpServers.find((entry) => entry.id === shown.id);
+    if (server) return { kind: "mcp", server };
+  } else if (shown?.kind === "app") {
+    return selectedApp(shown.id, accounts, catalog);
+  }
+  return { kind: "apps" };
+}
+
+function selectedApp(slug: string, accounts: readonly AppAccount[], catalog: readonly AppCard[]): Selection {
+  const appAccounts = accounts.filter((account) => account.slug === slug);
+  if (!appAccounts.length) return { kind: "apps" };
+  const app = catalog.find((entry) => entry.slug === slug) ?? {
+    slug,
+    name: slug,
+    description: "",
+    logo: null,
+    domain: null,
+    noAuth: false,
+  };
+  return { kind: "app", app, accounts: appAccounts };
+}
+
+function pageTitle(selection: Selection, shown: LibraryTarget | null): string {
+  switch (selection.kind) {
+    case "skill":
+      return selection.skill.id;
+    case "mcp":
+      return selection.server.name;
+    case "app":
+      return selection.app.name;
+    default:
+      return shown?.kind === "apps" ? "Connected apps" : "";
+  }
+}
+
+function LibraryPage({
+  colors,
+  selection,
+  library,
+  bots,
+  compact,
+  actions,
+  apps,
+  setTarget,
+}: {
+  colors: Colors;
+  selection: Selection;
+  library: Library;
+  bots: Bot[];
+  compact: boolean;
+  actions: LibraryActions;
+  apps: AppConnections;
+  setTarget: SetTarget;
+}) {
   const showTitle = !compact;
+  switch (selection.kind) {
+    case "skill": {
+      const { skill } = selection;
+      return (
+        <SkillPage
+          key={`skill:${skill.id}`}
+          colors={colors}
+          skill={skill}
+          bots={bots}
+          showTitle={showTitle}
+          onPatch={(patch) => actions.patchSkill(skill.id, patch)}
+          onToggleBot={(bot, on) => actions.toggleBot("skill", skill.id, bot, on)}
+          onImported={(skills) =>
+            void actions.save((current) => ({ library: upsertSkills(current, skills) }))
+          }
+          onDelete={() => void actions.removeSkill(skill.id)}
+        />
+      );
+    }
+    case "mcp": {
+      const { server } = selection;
+      return (
+        <McpPage
+          key={`mcp:${server.id}`}
+          colors={colors}
+          server={server}
+          bots={bots}
+          otherNames={library.mcpServers.filter((entry) => entry.id !== server.id).map((entry) => entry.name)}
+          showTitle={showTitle}
+          onPatch={(patch) => actions.patchServer(server.id, patch)}
+          onToggleBot={(bot, on) => actions.toggleBot("mcp", server.id, bot, on)}
+          onDelete={() => void actions.removeServer(server.id)}
+        />
+      );
+    }
+    case "app": {
+      const { app } = selection;
+      return (
+        <AppPage
+          key={`app:${app.slug}`}
+          colors={colors}
+          app={app}
+          accounts={selection.accounts}
+          bots={bots}
+          showTitle={showTitle}
+          onToggleBot={(bot, on) => actions.toggleApp(app.slug, bot, on)}
+          onDisconnected={() => setTarget(compact ? null : { kind: "apps" })}
+          onConnect={(alias) => apps.startConnect(app.slug, alias)}
+        />
+      );
+    }
+    default:
+      return (
+        <AppsPage
+          colors={colors}
+          showTitle={showTitle}
+          pending={apps.pending}
+          onConnect={(slug) => void apps.startConnect(slug)}
+        />
+      );
+  }
+}
 
-  const page = skill ? (
-    <SkillPage
-      key={`skill:${skill.id}`}
-      colors={colors}
-      skill={skill}
-      bots={bots}
-      showTitle={showTitle}
-      onPatch={(patch) => patchSkill(skill.id, patch)}
-      onToggleBot={(bot, on) => toggleBot("skill", skill.id, bot, on)}
-      onImported={(skills) => void save((current) => ({ library: upsertSkills(current, skills) }))}
-      onDelete={() => void removeSkill(skill.id)}
-    />
-  ) : server ? (
-    <McpPage
-      key={`mcp:${server.id}`}
-      colors={colors}
-      server={server}
-      bots={bots}
-      otherNames={library.mcpServers.filter((entry) => entry.id !== server.id).map((entry) => entry.name)}
-      showTitle={showTitle}
-      onPatch={(patch) => patchServer(server.id, patch)}
-      onToggleBot={(bot, on) => toggleBot("mcp", server.id, bot, on)}
-      onDelete={() => void removeServer(server.id)}
-    />
-  ) : app ? (
-    <AppPage
-      key={`app:${app.slug}`}
-      colors={colors}
-      app={app}
-      accounts={appAccountsFor}
-      bots={bots}
-      showTitle={showTitle}
-      onToggleBot={(bot, on) => toggleApp(app.slug, bot, on)}
-      onDisconnected={() => setTarget(compact ? null : { kind: "apps" })}
-      onConnect={(alias) => startConnect(app.slug, alias)}
-    />
-  ) : (
-    <AppsPage
-      colors={colors}
-      showTitle={showTitle}
-      pending={pending?.slug ?? null}
-      onConnect={(slug) => void startConnect(slug)}
-    />
-  );
-
-  const list = (
-    <LibraryList
-      colors={colors}
-      library={library}
-      query={query}
-      onQuery={setQuery}
-      selected={compact ? null : shown}
-      onSelect={setTarget}
-      onAddSkill={openSkillMenu}
-      onAddServer={openServerMenu}
-      touch={compact || layout.platform !== "web"}
-      onBack={compact ? undefined : onBack}
-      bottomInset={bottomInset}
-    />
-  );
-
-  const scrollPage = (
-    <ScrollView
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={[PAGE_STYLE, { paddingBottom: PAGE_STYLE.paddingBottom + bottomInset }]}
-    >
-      {page}
-    </ScrollView>
-  );
-
+function CompactColumns({
+  colors,
+  list,
+  page,
+  open,
+  title,
+  onBack,
+  onClose,
+}: {
+  colors: Colors;
+  list: ReactNode;
+  page: ReactNode;
+  open: boolean;
+  title: string;
+  onBack(): void;
+  onClose(): void;
+}) {
   return (
-    <View style={{ flex: 1, flexDirection: "row", backgroundColor: colors.surface0 }}>
-      {compact ? (
-        // Phones stack a page over the list, so a swipe or Back returns to it.
-        <View style={{ flex: 1 }}>
-          <View style={{ flex: 1, backgroundColor: nativeTokens(colors).surfaceSidebar }}>
-            <BackBar colors={colors} title="Skills & Tools" backLabel="Back to bots" onBack={onBack} />
-            {list}
+    // Phones stack a page over the list, so a swipe or Back returns to it.
+    <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: nativeTokens(colors).surfaceSidebar }}>
+        <BackBar colors={colors} title="Skills & Tools" backLabel="Back to bots" onBack={onBack} />
+        {list}
+      </View>
+      {open ? (
+        <SlideOver onClose={onClose}>
+          <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
+            <BackBar colors={colors} title={title} onBack={onClose} />
+            {page}
           </View>
-          {shown ? (
-            <SlideOver onClose={() => setTarget(null)}>
-              <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-                <BackBar colors={colors} title={pageTitle} onBack={() => setTarget(null)} />
-                {scrollPage}
-              </View>
-            </SlideOver>
-          ) : null}
-        </View>
-      ) : (
-        <>
-          <View
-            style={{
-              width: LIST_WIDTH,
-              borderRightWidth: 1,
-              borderRightColor: colors.border,
-              backgroundColor: nativeTokens(colors).surfaceSidebar,
-            }}
-          >
-            {list}
-          </View>
-          <View style={{ flex: 1, minWidth: 0 }}>{scrollPage}</View>
-        </>
-      )}
+        </SlideOver>
+      ) : null}
+    </View>
+  );
+}
 
-      {sheet?.kind === "import-skills" ? (
+function DesktopColumns({ colors, list, page }: { colors: Colors; list: ReactNode; page: ReactNode }) {
+  return (
+    <>
+      <View
+        style={{
+          width: LIST_WIDTH,
+          borderRightWidth: 1,
+          borderRightColor: colors.border,
+          backgroundColor: nativeTokens(colors).surfaceSidebar,
+        }}
+      >
+        {list}
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>{page}</View>
+    </>
+  );
+}
+
+function LibrarySheets({
+  colors,
+  sheet,
+  library,
+  actions,
+  onClose,
+}: {
+  colors: Colors;
+  sheet: Sheet | null;
+  library: Library;
+  actions: LibraryActions;
+  onClose(): void;
+}) {
+  switch (sheet?.kind) {
+    case "import-skills":
+      return (
         <ImportSkillsSheet
           colors={colors}
-          onClose={() => setSheet(null)}
+          onClose={onClose}
           onImported={(skills) => {
-            setSheet(null);
-            void addSkills(skills);
+            onClose();
+            void actions.addSkills(skills);
           }}
         />
-      ) : null}
-      {sheet?.kind === "new-skill" ? (
+      );
+    case "new-skill":
+      return (
         <NewSkillSheet
           colors={colors}
           taken={library.skills.map((entry) => entry.id)}
-          onClose={() => setSheet(null)}
+          onClose={onClose}
           onCreated={(created) => {
-            setSheet(null);
-            void addSkills([created]);
+            onClose();
+            void actions.addSkills([created]);
           }}
         />
-      ) : null}
-      {sheet?.kind === "new-server" ? (
+      );
+    case "new-server":
+      return (
         <ServerSheet
           colors={colors}
           initial={sheet.initial}
           isNew
           otherNames={library.mcpServers.map((entry) => entry.name)}
-          onClose={() => setSheet(null)}
+          onClose={onClose}
           onSave={(draft) => {
-            setSheet(null);
-            void createServer(draft);
+            onClose();
+            void actions.createServer(draft);
           }}
         />
-      ) : null}
-      {sheet?.kind === "paste-servers" ? (
+      );
+    case "paste-servers":
+      return (
         <ImportSheet
           colors={colors}
-          onClose={() => setSheet(null)}
+          onClose={onClose}
           onImport={(drafts) => {
-            setSheet(null);
-            void addServers(drafts);
+            onClose();
+            void actions.addServers(drafts);
           }}
         />
-      ) : null}
-    </View>
-  );
+      );
+    default:
+      return null;
+  }
 }

@@ -1,4 +1,4 @@
-import { lcsTable } from "./tools";
+import { lcsAlign } from "./tools";
 
 // A small line diff for the memory change journal: unified hunks with two
 // lines of context, like `diff -U2`, plus the added and removed line counts.
@@ -14,23 +14,31 @@ function splitLines(text: string): string[] {
   return text.replace(/\n$/, "").split("\n");
 }
 
-/** The edit script for the lines between the shared prefix and suffix. */
-function editScript(a: readonly string[], b: readonly string[]): Op[] {
-  const table = lcsTable(a, b);
-  const ops: Op[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      ops.push({ kind: " ", line: a[i]! });
-      i++;
-      j++;
-    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) ops.push({ kind: "-", line: a[i++]! });
-    else ops.push({ kind: "+", line: b[j++]! });
+function nextChangeAfterContext(ops: readonly Op[], end: number): number {
+  let next = end;
+  while (next < ops.length && ops[next].kind === " ") next++;
+  return next;
+}
+
+function hunkEnd(ops: readonly Op[], index: number): number {
+  let end = index;
+  // Extend over changes that are close enough to share context.
+  while (end < ops.length) {
+    if (ops[end].kind !== " ") {
+      end++;
+      continue;
+    }
+    const next = nextChangeAfterContext(ops, end);
+    if (next < ops.length && next - end <= CONTEXT * 2) end = next;
+    else break;
   }
-  while (i < a.length) ops.push({ kind: "-", line: a[i++]! });
-  while (j < b.length) ops.push({ kind: "+", line: b[j++]! });
-  return ops;
+  return end;
+}
+
+function hunkHeader(slice: readonly Op[], first: { old: number; new: number }): string {
+  const oldCount = slice.filter((op) => op.kind !== "+").length;
+  const newCount = slice.filter((op) => op.kind !== "-").length;
+  return `@@ -${oldCount ? first.old : first.old - 1},${oldCount} +${newCount ? first.new : first.new - 1},${newCount} @@`;
 }
 
 function hunks(ops: readonly Op[]): string {
@@ -45,31 +53,14 @@ function hunks(ops: readonly Op[]): string {
     return at;
   });
   while (index < ops.length) {
-    if (ops[index]!.kind === " ") {
+    if (ops[index].kind === " ") {
       index++;
       continue;
     }
     const start = Math.max(0, index - CONTEXT);
-    let end = index;
-    // Extend over changes that are close enough to share context.
-    while (end < ops.length) {
-      if (ops[end]!.kind !== " ") {
-        end++;
-        continue;
-      }
-      let next = end;
-      while (next < ops.length && ops[next]!.kind === " ") next++;
-      if (next < ops.length && next - end <= CONTEXT * 2) end = next;
-      else break;
-    }
-    const stop = Math.min(ops.length, end + CONTEXT);
+    const stop = Math.min(ops.length, hunkEnd(ops, index) + CONTEXT);
     const slice = ops.slice(start, stop);
-    const oldCount = slice.filter((op) => op.kind !== "+").length;
-    const newCount = slice.filter((op) => op.kind !== "-").length;
-    const first = lineNumbers[start]!;
-    out.push(
-      `@@ -${oldCount ? first.old : first.old - 1},${oldCount} +${newCount ? first.new : first.new - 1},${newCount} @@`,
-    );
+    out.push(hunkHeader(slice, lineNumbers[start]));
     for (const op of slice) out.push(`${op.kind}${op.line}`);
     index = stop;
   }
@@ -99,7 +90,8 @@ export function lineDiff(
   }
   const ops: Op[] = [
     ...a.slice(0, prefix).map((line) => ({ kind: " " as const, line })),
-    ...editScript(middleA, middleB),
+    // The edit script for the lines between the shared prefix and suffix.
+    ...lcsAlign(middleA, middleB).map(({ kind, value }) => ({ kind, line: value })),
     ...a.slice(a.length - suffix).map((line) => ({ kind: " " as const, line })),
   ];
   const diff = hunks(ops);

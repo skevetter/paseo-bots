@@ -1,8 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useState, type ReactNode } from "react";
-import { ActivityIndicator, Image, Platform, Pressable, Text, View, useWindowDimensions } from "react-native";
-import { getFileTypeLabel, type ComposerAttachment } from "../shared/attachments";
+import { type ReactNode, useState } from "react";
+import { ActivityIndicator, Image, Platform, Pressable, Text, useWindowDimensions, View } from "react-native";
+import { type ComposerAttachment, getFileTypeLabel } from "../shared/attachments";
 import { MONO_FONT, MONO_PROPS, nativeTokens } from "./native";
 import { code, codeLine, ui } from "./typography";
 import { tooltip } from "./ui/Tooltip";
@@ -37,7 +37,6 @@ export function AttachmentPill({
   const showRemove = (alwaysShowRemove ?? Platform.OS !== "web") || bodyHovered || closeHovered;
   const canOpen = attachment.kind !== "file";
   const openLabel = attachment.kind === "image" ? "Open image attachment" : `Open ${attachment.name}`;
-  const removeLabel = attachment.kind === "image" ? "Remove image attachment" : "Remove file attachment";
 
   return (
     <View style={{ position: "relative" }}>
@@ -50,53 +49,87 @@ export function AttachmentPill({
         onHoverOut={() => setBodyHovered(false)}
         style={frameStyle(colors)}
       >
-        {attachment.kind === "image" ? (
-          <Image
-            source={{ uri: imageUri(attachment) }}
-            style={{ width: CONTENT_HEIGHT, height: CONTENT_HEIGHT }}
-          />
-        ) : (
-          <AttachmentLabel
-            colors={colors}
-            icon={<Icon name="FileText" size={14} color={colors.foregroundMuted} />}
-            title={attachment.name}
-            subtitle={subtitleFor(attachment)}
-          />
-        )}
+        <AttachmentBody colors={colors} attachment={attachment} />
       </Pressable>
       {onRemove ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={removeLabel}
-          {...tooltip("Remove")}
-          onPress={onRemove}
+        <RemoveAttachmentButton
+          colors={colors}
+          label={attachment.kind === "image" ? "Remove image attachment" : "Remove file attachment"}
+          onRemove={onRemove}
           disabled={disabled || !showRemove}
-          onHoverIn={() => setCloseHovered(true)}
-          onHoverOut={() => setCloseHovered(false)}
-          hitSlop={8}
-          style={{
-            position: "absolute",
-            top: -8,
-            left: -8,
-            width: 24,
-            height: 24,
-            borderRadius: 12,
-            alignItems: "center",
-            justifyContent: "center",
-            backgroundColor: colors.surface2,
-            borderWidth: 1,
-            borderColor: colors.border,
-            zIndex: 1,
-            opacity: showRemove ? 1 : 0,
-          }}
-        >
-          <Icon name="X" size={12} color={colors.foregroundMuted} />
-        </Pressable>
+          visible={showRemove}
+          onHoverChange={setCloseHovered}
+        />
       ) : null}
       {open ? (
         <AttachmentPreview colors={colors} attachment={attachment} onClose={() => setOpen(false)} />
       ) : null}
     </View>
+  );
+}
+
+function AttachmentBody({ colors, attachment }: { colors: Colors; attachment: ComposerAttachment }) {
+  if (attachment.kind === "image") {
+    return (
+      <Image
+        source={{ uri: imageUri(attachment) }}
+        style={{ width: CONTENT_HEIGHT, height: CONTENT_HEIGHT }}
+      />
+    );
+  }
+  return (
+    <AttachmentLabel
+      colors={colors}
+      icon={<Icon name="FileText" size={14} color={colors.foregroundMuted} />}
+      title={attachment.name}
+      subtitle={subtitleFor(attachment)}
+    />
+  );
+}
+
+function RemoveAttachmentButton({
+  colors,
+  label,
+  onRemove,
+  disabled,
+  visible,
+  onHoverChange,
+}: {
+  colors: Colors;
+  label: string;
+  onRemove(): void;
+  disabled: boolean | undefined;
+  visible: boolean;
+  onHoverChange(hovered: boolean): void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      {...tooltip("Remove")}
+      onPress={onRemove}
+      disabled={disabled}
+      onHoverIn={() => onHoverChange(true)}
+      onHoverOut={() => onHoverChange(false)}
+      hitSlop={8}
+      style={{
+        position: "absolute",
+        top: -8,
+        left: -8,
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: colors.surface2,
+        borderWidth: 1,
+        borderColor: colors.border,
+        zIndex: 1,
+        opacity: visible ? 1 : 0,
+      }}
+    >
+      <Icon name="X" size={12} color={colors.foregroundMuted} />
+    </Pressable>
   );
 }
 

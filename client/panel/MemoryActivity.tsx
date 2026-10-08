@@ -7,11 +7,11 @@ import { ActivityIndicator, Text, View } from "react-native";
 import { dayName, journalSource, journalSummary } from "../../shared/activity";
 import type { Bot } from "../../shared/bot";
 import {
+  type JournalRow,
   memoryJournalRpc,
   memoryLogDeleteRpc,
   memoryLogRpc,
   memoryUndoRpc,
-  type JournalRow,
 } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
 import { ToolCallDetailsContent } from "../chat/stream/details";
@@ -78,51 +78,14 @@ export function ChangesSheet({
   };
 
   if (open) {
-    const file = open.file === "MEMORY.md" ? open.file : `memory/${open.file}`;
     return (
-      <Modal
-        title={journalSummary(open, bot.name)}
-        open
-        onOpenChange={(value) => !value && !busy && onClose()}
-      >
-        <Modal.Content>
-          <Text
-            style={{ fontSize: ui(14), color: colors.foregroundMuted }}
-          >{`${file} · ${relativeTime(open.at)} · ${journalSource(open)}`}</Text>
-          {open.diff ? (
-            <ToolCallDetailsContent
-              colors={colors}
-              detail={{ type: "edit", filePath: file, unifiedDiff: open.diff }}
-              maxHeight={420}
-            />
-          ) : (
-            <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
-              {open.kind === "deleted" ? "The file was deleted." : "Too large to show."}
-            </Text>
-          )}
-          {!open.canUndo ? (
-            <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
-              The earlier version was too large to keep, so this can't be undone.
-            </Text>
-          ) : null}
-          <SheetActions>
-            <Button
-              colors={colors}
-              variant="ghost"
-              label="Back"
-              disabled={busy}
-              onPress={() => setOpen(null)}
-            />
-            <Button
-              colors={colors}
-              variant="default"
-              label={busy ? "Undoing..." : "Undo"}
-              disabled={!open.canUndo || busy}
-              onPress={() => void revert(open)}
-            />
-          </SheetActions>
-        </Modal.Content>
-      </Modal>
+      <ChangeDetail
+        colors={colors}
+        bot={bot}
+        row={open}
+        busy={busy}
+        actions={{ onBack: () => setOpen(null), onUndo: () => void revert(open), onClose }}
+      />
     );
   }
 
@@ -153,6 +116,68 @@ export function ChangesSheet({
         </SettingsCard>
       </Modal.Content>
     </Modal>
+  );
+}
+
+function ChangeDetail({
+  colors,
+  bot,
+  row,
+  busy,
+  actions,
+}: {
+  colors: Colors;
+  bot: Bot;
+  row: JournalRow;
+  busy: boolean;
+  actions: { onBack(): void; onUndo(): void; onClose(): void };
+}) {
+  const file = row.file === "MEMORY.md" ? row.file : `memory/${row.file}`;
+  return (
+    <Modal
+      title={journalSummary(row, bot.name)}
+      open
+      onOpenChange={(value) => !value && !busy && actions.onClose()}
+    >
+      <Modal.Content>
+        <Text
+          style={{ fontSize: ui(14), color: colors.foregroundMuted }}
+        >{`${file} · ${relativeTime(row.at)} · ${journalSource(row)}`}</Text>
+        <ChangeDiff colors={colors} row={row} file={file} />
+        {!row.canUndo ? (
+          <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
+            The earlier version was too large to keep, so this can't be undone.
+          </Text>
+        ) : null}
+        <SheetActions>
+          <Button colors={colors} variant="ghost" label="Back" disabled={busy} onPress={actions.onBack} />
+          <Button
+            colors={colors}
+            variant="default"
+            label={busy ? "Undoing..." : "Undo"}
+            disabled={!row.canUndo || busy}
+            onPress={actions.onUndo}
+          />
+        </SheetActions>
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+function ChangeDiff({ colors, row, file }: { colors: Colors; row: JournalRow; file: string }) {
+  if (row.diff) {
+    return (
+      <ToolCallDetailsContent
+        colors={colors}
+        detail={{ type: "edit", filePath: file, unifiedDiff: row.diff }}
+        maxHeight={420}
+      />
+    );
+  }
+  return (
+    <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+      {row.kind === "deleted" ? "The file was deleted." : "Too large to show."}
+    </Text>
   );
 }
 

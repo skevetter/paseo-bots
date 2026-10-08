@@ -4,7 +4,7 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { View } from "react-native";
-import { accountLabel, type AppAccount, type AppCard } from "../../shared/apps";
+import { type AppAccount, type AppCard, accountLabel } from "../../shared/apps";
 import type { Bot } from "../../shared/bot";
 import { appsDisconnectRpc, appsRenameRpc } from "../../shared/rpc";
 import { RenameDialog } from "../BotDialogs";

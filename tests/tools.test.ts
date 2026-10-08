@@ -1,15 +1,14 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { withPluginCommands } from "../client/chat/composer/logic";
 import { buildAgentConfig, EMPTY_LIBRARY } from "../shared/bot";
 import { botToolName, supportsToolGrants } from "../shared/bot-tools";
-import { withPluginCommands } from "../client/chat/composer/logic";
 import { proposalIdOf } from "../shared/proposals";
-import { permissionInput, permissionToolName } from "../shared/tool-name";
 import { expandLearn, sanitizeSkillName } from "../shared/skills";
+import { permissionInput, permissionToolName } from "../shared/tool-name";
 import { newUuid } from "../shared/uuid";
-import { fakeHost, makeBot } from "./helpers";
+import { defined, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
 
 describe("tool names and grants", () => {
   it("recognises the plugin's tools whatever the provider calls them", () => {
@@ -26,8 +25,11 @@ describe("tool names and grants", () => {
     expect(supportsToolGrants("opencode")).toBe(true);
     expect(supportsToolGrants("gemini")).toBe(false);
     const tools = { type: "http" as const, url: "http://127.0.0.1:1/bots/b/a", headers: {} };
-    const claude = buildAgentConfig(makeBot({ alwaysAllow: ["bots/ask_bot"] }), EMPTY_LIBRARY, "m", "", {
-      tools,
+    const claude = buildAgentConfig(makeBot({ alwaysAllow: ["bots/ask_bot"] }), {
+      library: EMPTY_LIBRARY,
+      model: "m",
+      systemPrompt: "",
+      plugin: { tools },
     });
     expect(claude.mcpServers).toEqual({ bots: tools });
     expect(claude.toolPolicy?.preapproved.map((grant) => grant.tool)).toEqual([
@@ -43,16 +45,17 @@ describe("tool names and grants", () => {
     ]);
     // Paseo refuses a chat whose provider can't take grants, so none are sent.
     expect(
-      buildAgentConfig(
-        makeBot({ provider: "gemini", alwaysAllow: ["bots/ask_bot"] }),
-        EMPTY_LIBRARY,
-        "m",
-        "",
-        { tools },
-      ),
+      buildAgentConfig(makeBot({ provider: "gemini", alwaysAllow: ["bots/ask_bot"] }), {
+        library: EMPTY_LIBRARY,
+        model: "m",
+        systemPrompt: "",
+        plugin: { tools },
+      }),
     ).not.toHaveProperty("toolPolicy");
   });
+});
 
+describe("commands and proposals", () => {
   it("expands /learn and lists it before provider commands", () => {
     expect(expandLearn("/learn")).toContain("propose_skill");
     expect(expandLearn("  /learn the invoice part ")).toContain("Focus on: the invoice part.");
@@ -121,7 +124,9 @@ describe("tool names and grants", () => {
       }),
     ).toBeNull();
   });
+});
 
+describe("permission requests and ids", () => {
   it("reads the tool and arguments of an ACP provider's permission request from its title and raw request", () => {
     const rawRequest = {
       sessionId: "s",
@@ -155,15 +160,7 @@ describe("tool names and grants", () => {
 });
 
 describe("the bots MCP server", () => {
-  let home: string;
-  beforeAll(async () => {
-    home = await mkdtemp(join(tmpdir(), "paseo-bots-tools-"));
-    process.env.PASEO_HOME = home;
-  });
-  afterAll(async () => {
-    delete process.env.PASEO_HOME;
-    await rm(home, { recursive: true, force: true });
-  });
+  useTempPaseoHome("paseo-bots-tools-");
 
   it("serves the MCP handshake, lists its tools and runs them for one chat", async () => {
     const { Relay } = await import("../server/relay");
@@ -181,7 +178,8 @@ describe("the bots MCP server", () => {
         headers: Record<string, string>;
       };
       expect(mount.url).toContain(`/bots/bot-a/${agentId}`);
-      const post = (body: unknown, token = mount.headers.Authorization!, url = mount.url) =>
+      const authorization = defined(mount.headers.Authorization, "Authorization header");
+      const post = (body: unknown, token = authorization, url = mount.url) =>
         fetch(url, {
           method: "POST",
           headers: { authorization: token, "content-type": "application/json" },
@@ -198,7 +196,7 @@ describe("the bots MCP server", () => {
         result: { tools: { name: string; inputSchema: { type: string } }[] };
       };
       expect(list.result.tools.map((tool) => tool.name)).toContain("list_bots");
-      expect(list.result.tools[0]!.inputSchema.type).toBe("object");
+      expect(list.result.tools[0]?.inputSchema.type).toBe("object");
 
       const call = (await (
         await post({
@@ -208,7 +206,7 @@ describe("the bots MCP server", () => {
           params: { name: "list_bots", arguments: {} },
         })
       ).json()) as { result: { content: { text: string }[] } };
-      expect(call.result.content[0]!.text).toBe("- Inbox (id: bot-b): Email triage");
+      expect(call.result.content[0]?.text).toBe("- Inbox (id: bot-b): Email triage");
 
       // A token for another chat, or another bot's URL, is refused.
       expect((await post({ jsonrpc: "2.0", id: 4, method: "tools/list" }, "Bearer nope")).status).toBe(401);
@@ -216,7 +214,7 @@ describe("the bots MCP server", () => {
         (
           await post(
             { jsonrpc: "2.0", id: 5, method: "tools/list" },
-            mount.headers.Authorization!,
+            authorization,
             mount.url.replace(agentId, newUuid()),
           )
         ).status,
@@ -229,6 +227,10 @@ describe("the bots MCP server", () => {
       relay.stop();
     }
   });
+});
+
+describe("skill proposals", () => {
+  useTempPaseoHome("paseo-bots-tools-");
 
   it("proposes a skill that the user saves or dismisses once", async () => {
     const { proposeSkill } = await import("../server/tools/skills");
@@ -240,10 +242,13 @@ describe("the bots MCP server", () => {
       { name: "Weekly Report!", description: "Use for the\nweekly report", instructions: "1. Collect PRs." },
       caller,
     );
-    const id = proposalIdOf({ name: "bots.propose_skill", status: "completed", detail: { output: reply } })!;
+    const id = defined(
+      proposalIdOf({ name: "bots.propose_skill", status: "completed", detail: { output: reply } }),
+      "proposal id",
+    );
     expect(id).toMatch(/^p-[a-z0-9]{10}$/);
 
-    const proposal = await getProposal(id);
+    const proposal = defined(await getProposal(id), "proposal");
     expect(proposal).toMatchObject({
       botId: "bot-a",
       agentId: caller.agentId,
@@ -251,7 +256,7 @@ describe("the bots MCP server", () => {
       status: "pending",
       data: { name: "weekly-report", description: "Use for the weekly report" },
     });
-    expect(proposal!.kind === "skill" && proposal!.data.text).toBe(
+    expect(proposal.kind === "skill" && proposal.data.text).toBe(
       "---\nname: weekly-report\ndescription: Use for the weekly report\n---\n\n1. Collect PRs.\n",
     );
 
@@ -259,16 +264,21 @@ describe("the bots MCP server", () => {
     expect(accepted.proposal.status).toBe("accepted");
     expect(accepted.skill).toMatchObject({ id: "weekly-report", description: "Use for the weekly report" });
     expect(await readFile(join(librarySkillPath("weekly-report"), "SKILL.md"), "utf8")).toBe(
-      proposal!.kind === "skill" ? proposal!.data.text : "",
+      proposal.kind === "skill" ? proposal.data.text : "",
     );
     await expect(acceptProposal(id)).rejects.toThrow("already saved");
     await expect(dismissProposal(id)).rejects.toThrow("already saved");
 
-    const other = proposalIdOf({
-      name: "bots.propose_skill",
-      status: "completed",
-      detail: { output: await proposeSkill.run({ name: "x", description: "y", instructions: "z" }, caller) },
-    })!;
+    const other = defined(
+      proposalIdOf({
+        name: "bots.propose_skill",
+        status: "completed",
+        detail: {
+          output: await proposeSkill.run({ name: "x", description: "y", instructions: "z" }, caller),
+        },
+      }),
+      "proposal id",
+    );
     expect((await dismissProposal(other)).status).toBe("dismissed");
     await expect(acceptProposal(other)).rejects.toThrow("dismissed");
     await expect(acceptProposal("p-0000000000")).rejects.toThrow("no longer available");

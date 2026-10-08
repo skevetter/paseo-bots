@@ -48,6 +48,17 @@ export const BUCKET_LABELS: Record<ChatBucket, string> = {
 /** Paseo's useLimitedSidebarGroup: groups longer than this get "Show more". */
 export const SIDEBAR_GROUP_LIMIT = 20;
 
+function storedKeysPresent<T>(byKey: ReadonlyMap<string, T>, storedOrder: readonly string[]): string[] {
+  const pruned: string[] = [];
+  const seen = new Set<string>();
+  for (const key of storedOrder) {
+    if (!byKey.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    pruned.push(key);
+  }
+  return pruned;
+}
+
 /**
  * Paseo's applyStoredOrdering: items keep their base order, except that the
  * items named in `storedOrder` fill their own slots in the stored order. New
@@ -62,14 +73,9 @@ export function applyStoredOrdering<T>(
   if (items.length <= 1 || storedOrder.length === 0) return [...items];
   const byKey = new Map<string, T>();
   for (const item of items) byKey.set(getKey(item), item);
-  const pruned: string[] = [];
-  const seen = new Set<string>();
-  for (const key of storedOrder) {
-    if (!byKey.has(key) || seen.has(key)) continue;
-    seen.add(key);
-    pruned.push(key);
-  }
+  const pruned = storedKeysPresent(byKey, storedOrder);
   if (pruned.length === 0) return [...items];
+  const seen = new Set(pruned);
   const ordered: T[] = [];
   let index = 0;
   for (const item of items) {
@@ -113,9 +119,10 @@ export function orderChats<T extends OrderableChat>(
 export function moveKey(keys: readonly string[], key: string, delta: -1 | 1): string[] | null {
   const index = keys.indexOf(key);
   const target = index + delta;
-  if (index === -1 || target < 0 || target >= keys.length) return null;
+  const swapped = keys[target];
+  if (index === -1 || swapped === undefined) return null;
   const next = [...keys];
-  next[index] = keys[target]!;
+  next[index] = swapped;
   next[target] = key;
   return next;
 }

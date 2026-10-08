@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef, useState } from "react";
-import { Pressable, Text, View, type LayoutRectangle } from "react-native";
+import { type LayoutRectangle, Pressable, Text, View } from "react-native";
 import type { toWire } from "../shared/attachments";
 import type { Bot } from "../shared/bot";
 import { displayTitle } from "../shared/chat";
@@ -12,9 +12,9 @@ import type { BotHost } from "./data";
 import { nativeTokens, useHover } from "./native";
 import { ui } from "./typography";
 import { measureAnchor } from "./ui/Menu";
-import { listenForFind } from "./web";
-import type { ChatState } from "./useChat";
 import { tooltip } from "./ui/Tooltip";
+import type { ChatState } from "./useChat";
+import { listenForFind } from "./web";
 
 type Colors = PluginTheme["colors"];
 
@@ -63,15 +63,15 @@ export function ChatPane({
   onOpenChat,
 }: ChatPaneProps) {
   const running = chat.agent?.status === "running" || chat.agent?.status === "initializing";
-  const empty =
-    chat.entries.length === 0 &&
-    !chat.loading &&
-    !chat.error &&
-    (chat.agent?.pendingPermissions.length ?? 0) === 0;
+  const empty = isChatEmpty(chat);
   const title = chatId ? displayTitle(chat.agent?.title) : "New chat";
   const canFind = chatId !== null && !empty;
   const [findOpen, setFindOpen] = useState(false);
-  useEffect(() => setFindOpen(false), [chatId]);
+  const [findChatId, setFindChatId] = useState(chatId);
+  if (findChatId !== chatId) {
+    setFindChatId(chatId);
+    setFindOpen(false);
+  }
   // ⌘F / Ctrl+F finds in the open chat on the desktop.
   useEffect(() => (canFind ? listenForFind(() => setFindOpen(true)) : undefined), [canFind]);
 
@@ -90,17 +90,7 @@ export function ChatPane({
         onFind={canFind ? () => setFindOpen((open) => !open) : undefined}
       />
       {chatId === null || empty ? (
-        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
-          <Avatar avatar={bot.avatar} size={56} />
-          <Text style={{ color: colors.foreground, fontSize: ui(18), fontWeight: "500" }}>{bot.name}</Text>
-          {bot.description ? (
-            <Text
-              style={{ color: colors.foregroundMuted, fontSize: ui(14), textAlign: "center", maxWidth: 420 }}
-            >
-              {bot.description}
-            </Text>
-          ) : null}
-        </View>
+        <BotIntro colors={colors} bot={bot} />
       ) : (
         <ChatStream
           key={chatId}
@@ -129,6 +119,29 @@ export function ChatPane({
         keyboardOpen={keyboardOpen}
         onStart={onStart}
       />
+    </View>
+  );
+}
+
+function isChatEmpty(chat: ChatState): boolean {
+  return (
+    chat.entries.length === 0 &&
+    !chat.loading &&
+    !chat.error &&
+    (chat.agent?.pendingPermissions.length ?? 0) === 0
+  );
+}
+
+function BotIntro({ colors, bot }: { colors: Colors; bot: Bot }) {
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 }}>
+      <Avatar avatar={bot.avatar} size={56} />
+      <Text style={{ color: colors.foreground, fontSize: ui(18), fontWeight: "500" }}>{bot.name}</Text>
+      {bot.description ? (
+        <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), textAlign: "center", maxWidth: 420 }}>
+          {bot.description}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -166,10 +179,8 @@ function Header({
   onTogglePanel,
   onFind,
 }: HeaderProps) {
-  const tokens = nativeTokens(colors);
   const menuButton = useRef<View>(null);
   const openMenu = () => void measureAnchor(menuButton).then(onMenu);
-  const separator = <Text style={{ fontSize: ui(12), color: tokens.foregroundExtraMuted }}> · </Text>;
   return (
     <View
       style={{
@@ -183,50 +194,14 @@ function Header({
         backgroundColor: colors.surface0,
       }}
     >
-      {onBack ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back to bots"
-          onPress={onBack}
-          style={({ pressed }) => ({
-            padding: compact ? 12 : 8,
-            borderRadius: 8,
-            backgroundColor: pressed ? tokens.interactionHighlight : "transparent",
-          })}
-        >
-          <Icon name="ArrowLeft" size={20} color={colors.foregroundMuted} />
-        </Pressable>
-      ) : null}
-      {compact ? (
-        <View style={{ flexShrink: 1, gap: 2 }}>
-          <Text numberOfLines={1} style={{ fontSize: ui(14), fontWeight: "400", color: colors.foreground }}>
-            {title}
-          </Text>
-          <Text numberOfLines={1} style={{ fontSize: ui(12), color: colors.foregroundMuted }}>
-            {subtitle}
-            {hostBadge ? separator : null}
-            {hostBadge}
-          </Text>
-        </View>
-      ) : (
-        <>
-          <Text
-            numberOfLines={1}
-            style={{ flexShrink: 1, fontSize: ui(14), fontWeight: "300", color: colors.foreground }}
-          >
-            {title}
-          </Text>
-          {subtitle !== title ? (
-            <Text
-              numberOfLines={1}
-              style={{ flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted }}
-            >
-              {subtitle}
-              {hostBadge ? ` · ${hostBadge}` : ""}
-            </Text>
-          ) : null}
-        </>
-      )}
+      {onBack ? <BackButton colors={colors} compact={compact} onBack={onBack} /> : null}
+      <HeaderTitle
+        colors={colors}
+        title={title}
+        subtitle={subtitle}
+        hostBadge={hostBadge}
+        compact={compact}
+      />
       {compact ? null : (
         <View ref={menuButton} collapsable={false}>
           <HeaderButton
@@ -259,6 +234,66 @@ function Header({
         />
       ) : null}
     </View>
+  );
+}
+
+function BackButton({ colors, compact, onBack }: { colors: Colors; compact: boolean; onBack(): void }) {
+  const tokens = nativeTokens(colors);
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Back to bots"
+      onPress={onBack}
+      style={({ pressed }) => ({
+        padding: compact ? 12 : 8,
+        borderRadius: 8,
+        backgroundColor: pressed ? tokens.interactionHighlight : "transparent",
+      })}
+    >
+      <Icon name="ArrowLeft" size={20} color={colors.foregroundMuted} />
+    </Pressable>
+  );
+}
+
+function HeaderTitle({
+  colors,
+  title,
+  subtitle,
+  hostBadge,
+  compact,
+}: Pick<HeaderProps, "colors" | "title" | "subtitle" | "hostBadge" | "compact">) {
+  const tokens = nativeTokens(colors);
+  if (compact) {
+    return (
+      <View style={{ flexShrink: 1, gap: 2 }}>
+        <Text numberOfLines={1} style={{ fontSize: ui(14), fontWeight: "400", color: colors.foreground }}>
+          {title}
+        </Text>
+        <Text numberOfLines={1} style={{ fontSize: ui(12), color: colors.foregroundMuted }}>
+          {subtitle}
+          {hostBadge ? (
+            <Text style={{ fontSize: ui(12), color: tokens.foregroundExtraMuted }}> · </Text>
+          ) : null}
+          {hostBadge}
+        </Text>
+      </View>
+    );
+  }
+  return (
+    <>
+      <Text
+        numberOfLines={1}
+        style={{ flexShrink: 1, fontSize: ui(14), fontWeight: "300", color: colors.foreground }}
+      >
+        {title}
+      </Text>
+      {subtitle !== title ? (
+        <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted }}>
+          {subtitle}
+          {hostBadge ? ` · ${hostBadge}` : ""}
+        </Text>
+      ) : null}
+    </>
   );
 }
 

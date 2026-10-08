@@ -39,14 +39,14 @@ describe("avatar pictures", () => {
 
   it("draws with the key and returns a data URL, without echoing error bodies", async () => {
     const images = await import("../server/images");
-    const requests: { url: string; body: Record<string, unknown>; auth: string }[] = [];
+    const requests: { url: string; body: Record<string, unknown>; auth: string | undefined }[] = [];
     const reply =
       (status: number, body: unknown) =>
       async (url: string, init: { body: string; headers: Record<string, string> }) => {
         requests.push({
           url,
           body: JSON.parse(init.body) as Record<string, unknown>,
-          auth: init.headers.authorization!,
+          auth: init.headers.authorization,
         });
         return new Response(JSON.stringify(body), { status });
       };

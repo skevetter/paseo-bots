@@ -66,12 +66,10 @@ export interface TeamDraft {
 /** Creates (null id) or updates a team; its members leave any other team they were on. */
 export function saveTeam(
   groups: readonly BotGroup[],
-  id: string | null,
-  draft: TeamDraft,
-  newId: string,
-  now: string,
+  save: { id: string | null; newId: string; draft: TeamDraft; now: string },
 ): BotGroup[] {
-  const teamId = id ?? newId;
+  const { draft, now } = save;
+  const teamId = save.id ?? save.newId;
   const joining = new Set(draft.memberIds);
   const existing = groups.find((group) => group.id === teamId);
   const team: BotGroup = {

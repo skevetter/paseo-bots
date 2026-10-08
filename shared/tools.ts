@@ -61,11 +61,11 @@ function isPaseoTool(name: string): boolean {
     return (
       segments.length >= 3 &&
       segments[0] === "mcp" &&
-      (segments[1] === "paseo" || segments[1]!.startsWith("paseo_"))
+      (segments[1] === "paseo" || segments[1].startsWith("paseo_"))
     );
   }
   if (normalized.includes(".")) {
-    const first = normalized.split(".")[0]!;
+    const first = normalized.split(".")[0];
     return first === "paseo" || first.startsWith("paseo_");
   }
   return false;
@@ -268,19 +268,21 @@ export interface ToolCallPresentation extends ToolCallDisplayModel {
 
 export type PlanOutcome = "pending" | "approved" | "rejected" | "canceled";
 
+function planOutcomeFor(input: ToolCallDisplayInput, running: boolean): PlanOutcome | undefined {
+  if (input.detail.type !== "plan") return undefined;
+  if (input.status === "canceled") return "canceled";
+  if (input.metadata?.approved === false) return "rejected";
+  if (input.metadata?.approved === true) return "approved";
+  return running ? "pending" : undefined;
+}
+
 /** Paseo's buildToolCallPresentation (tool-calls/presentation.ts). */
 export function buildToolCallPresentation(input: ToolCallDisplayInput): ToolCallPresentation {
   const model = buildToolCallDisplayModel(input);
   const running = input.status === "running";
   const isLoadingDetails = running && input.error == null && !hasMeaningfulToolCallDetail(input.detail);
   const hasDetails = Boolean(input.error) || hasMeaningfulToolCallDetail(input.detail);
-  let planOutcome: PlanOutcome | undefined;
-  if (input.detail.type === "plan") {
-    if (input.status === "canceled") planOutcome = "canceled";
-    else if (input.metadata?.approved === false) planOutcome = "rejected";
-    else if (input.metadata?.approved === true) planOutcome = "approved";
-    else if (running) planOutcome = "pending";
-  }
+  const planOutcome = planOutcomeFor(input, running);
   return {
     ...model,
     icon: toolIcon(input.name, input.detail),
@@ -315,37 +317,48 @@ function normalizeTaskToolName(name: string): string {
 
 const TASK_STATUSES = new Set(["pending", "in_progress", "completed"]);
 
+function isTodo(todo: unknown): todo is Record<string, unknown> & { content: string; status: string } {
+  return (
+    isRecord(todo) &&
+    typeof todo.content === "string" &&
+    typeof todo.status === "string" &&
+    TASK_STATUSES.has(todo.status)
+  );
+}
+
+function isPlanStep(entry: unknown): entry is Record<string, unknown> & { step: string } {
+  return isRecord(entry) && typeof entry.step === "string";
+}
+
+function todoWriteEntries(input: unknown): TaskEntry[] | null {
+  if (!isRecord(input) || !Array.isArray(input.todos)) return null;
+  const tasks: TaskEntry[] = [];
+  for (const todo of input.todos) {
+    if (!isTodo(todo)) return null;
+    const text = (typeof todo.activeForm === "string" ? todo.activeForm.trim() : "") || todo.content.trim();
+    tasks.push({ text: text.length ? text : todo.content, completed: todo.status === "completed" });
+  }
+  return tasks;
+}
+
+function updatePlanEntries(input: unknown): TaskEntry[] | null {
+  if (!isRecord(input) || !Array.isArray(input.plan)) return null;
+  const tasks: TaskEntry[] = [];
+  for (const entry of input.plan) {
+    if (!isPlanStep(entry)) return null;
+    const status =
+      typeof entry.status === "string" && TASK_STATUSES.has(entry.status) ? entry.status : "pending";
+    const text = entry.step.trim();
+    if (text) tasks.push({ text, completed: status === "completed" });
+  }
+  return tasks;
+}
+
 /** Claude's TodoWrite and Codex's update_plan render as task lists (tool-call-parsers.ts). */
 export function extractTaskEntriesFromToolCall(name: string, input: unknown): TaskEntry[] | null {
   const normalized = normalizeTaskToolName(name);
-  if (normalized === "todowrite" || normalized === "todo_write") {
-    if (!isRecord(input) || !Array.isArray(input.todos)) return null;
-    const tasks: TaskEntry[] = [];
-    for (const todo of input.todos) {
-      if (
-        !isRecord(todo) ||
-        typeof todo.content !== "string" ||
-        typeof todo.status !== "string" ||
-        !TASK_STATUSES.has(todo.status)
-      )
-        return null;
-      const text = (typeof todo.activeForm === "string" ? todo.activeForm.trim() : "") || todo.content.trim();
-      tasks.push({ text: text.length ? text : todo.content, completed: todo.status === "completed" });
-    }
-    return tasks;
-  }
-  if (normalized === "update_plan") {
-    if (!isRecord(input) || !Array.isArray(input.plan)) return null;
-    const tasks: TaskEntry[] = [];
-    for (const entry of input.plan) {
-      if (!isRecord(entry) || typeof entry.step !== "string") return null;
-      const status =
-        typeof entry.status === "string" && TASK_STATUSES.has(entry.status) ? entry.status : "pending";
-      const text = entry.step.trim();
-      if (text) tasks.push({ text, completed: status === "completed" });
-    }
-    return tasks;
-  }
+  if (normalized === "todowrite" || normalized === "todo_write") return todoWriteEntries(input);
+  if (normalized === "update_plan") return updatePlanEntries(input);
   return null;
 }
 
@@ -411,46 +424,72 @@ function splitWords(text: string): string[] {
 }
 
 /** Longest-common-subsequence lengths: table[i][j] covers a[i..] and b[j..]. */
-export function lcsTable<T>(a: readonly T[], b: readonly T[]): number[][] {
+function lcsTable<T>(a: readonly T[], b: readonly T[]): number[][] {
   const table: number[][] = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
-      table[i]![j] =
-        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+      table[i][j] = a[i] === b[j] ? table[i + 1][j + 1] + 1 : Math.max(table[i + 1][j], table[i][j + 1]);
     }
   }
   return table;
+}
+
+export interface LcsStep<T> {
+  kind: " " | "-" | "+";
+  value: T;
+}
+
+/** The edit script turning a into b: kept (" "), removed ("-") and added ("+") items in order. */
+export function lcsAlign<T>(a: readonly T[], b: readonly T[]): LcsStep<T>[] {
+  const table = lcsTable(a, b);
+  const steps: LcsStep<T>[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      steps.push({ kind: " ", value: a[i] });
+      i++;
+      j++;
+    } else if (table[i + 1][j] >= table[i][j + 1]) steps.push({ kind: "-", value: a[i++] });
+    else steps.push({ kind: "+", value: b[j++] });
+  }
+  while (i < a.length) steps.push({ kind: "-", value: a[i++] });
+  while (j < b.length) steps.push({ kind: "+", value: b[j++] });
+  return steps;
+}
+
+function sideSegments(steps: readonly LcsStep<string>[], changedKind: "-" | "+"): DiffSegment[] {
+  const segments: DiffSegment[] = [];
+  for (const { kind, value } of steps) {
+    if (kind !== " " && kind !== changedKind) continue;
+    const changed = kind === changedKind;
+    const last = segments.at(-1);
+    if (last && last.changed === changed) last.text += value;
+    else segments.push({ text: value, changed });
+  }
+  return segments;
 }
 
 function wordDiff(
   oldLine: string,
   newLine: string,
 ): { oldSegments: DiffSegment[]; newSegments: DiffSegment[] } {
-  const a = splitWords(oldLine);
-  const b = splitWords(newLine);
-  const table = lcsTable(a, b);
-  const inA = new Set<number>();
-  const inB = new Set<number>();
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      inA.add(i++);
-      inB.add(j++);
-    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) i++;
-    else j++;
+  const steps = lcsAlign(splitWords(oldLine), splitWords(newLine));
+  return { oldSegments: sideSegments(steps, "-"), newSegments: sideSegments(steps, "+") };
+}
+
+const DIFF_LINE_TYPES = { " ": "context", "-": "remove", "+": "add" } as const;
+
+function attachWordSegments(diff: readonly DiffLine[]): void {
+  for (let index = 0; index < diff.length - 1; index++) {
+    const current = diff[index];
+    const next = diff[index + 1];
+    if (current.type === "remove" && next.type === "add") {
+      const { oldSegments, newSegments } = wordDiff(current.content.slice(1), next.content.slice(1));
+      current.segments = oldSegments;
+      next.segments = newSegments;
+    }
   }
-  const build = (words: string[], kept: Set<number>) => {
-    const segments: DiffSegment[] = [];
-    words.forEach((word, index) => {
-      const changed = !kept.has(index);
-      const last = segments[segments.length - 1];
-      if (last && last.changed === changed) last.text += word;
-      else segments.push({ text: word, changed });
-    });
-    return segments;
-  };
-  return { oldSegments: build(a, inA), newSegments: build(b, inB) };
 }
 
 /** Line diff of an edit's old and new strings, with word-level segments on replaced lines. */
@@ -465,44 +504,29 @@ export function buildLineDiff(original: string, updated: string): DiffLine[] {
       ...b.map((line) => ({ type: "add" as const, content: `+${line}` })),
     ];
   }
-  const table = lcsTable(a, b);
-  const diff: DiffLine[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) {
-      diff.push({ type: "context", content: ` ${a[i]}` });
-      i++;
-      j++;
-    } else if (table[i + 1]![j]! >= table[i]![j + 1]!) diff.push({ type: "remove", content: `-${a[i++]}` });
-    else diff.push({ type: "add", content: `+${b[j++]}` });
-  }
-  while (i < a.length) diff.push({ type: "remove", content: `-${a[i++]}` });
-  while (j < b.length) diff.push({ type: "add", content: `+${b[j++]}` });
-  for (let index = 0; index < diff.length - 1; index++) {
-    const current = diff[index]!;
-    const next = diff[index + 1]!;
-    if (current.type === "remove" && next.type === "add") {
-      const { oldSegments, newSegments } = wordDiff(current.content.slice(1), next.content.slice(1));
-      current.segments = oldSegments;
-      next.segments = newSegments;
-    }
-  }
+  const diff: DiffLine[] = lcsAlign(a, b).map(({ kind, value }) => ({
+    type: DIFF_LINE_TYPES[kind],
+    content: `${kind}${value}`,
+  }));
+  attachWordSegments(diff);
   return diff;
+}
+
+const SKIPPED_UNIFIED_PREFIXES = ["+++", "---", "diff --git", "index "];
+
+function unifiedDiffLine(line: string): DiffLine | null {
+  if (SKIPPED_UNIFIED_PREFIXES.some((prefix) => line.startsWith(prefix))) return null;
+  if (line.startsWith("@@") || line.startsWith("\\ No newline")) return { type: "header", content: line };
+  if (line.startsWith("+")) return { type: "add", content: line };
+  if (line.startsWith("-")) return { type: "remove", content: line };
+  return { type: "context", content: line };
 }
 
 export function parseUnifiedDiff(text?: string): DiffLine[] {
   const diff: DiffLine[] = [];
   for (const line of splitLines(text ?? "")) {
-    if (!line.length) diff.push({ type: "context", content: line });
-    else if (line.startsWith("@@")) diff.push({ type: "header", content: line });
-    else if (line.startsWith("+")) {
-      if (!line.startsWith("+++")) diff.push({ type: "add", content: line });
-    } else if (line.startsWith("-")) {
-      if (!line.startsWith("---")) diff.push({ type: "remove", content: line });
-    } else if (line.startsWith("diff --git") || line.startsWith("index ")) continue;
-    else if (line.startsWith("\\ No newline")) diff.push({ type: "header", content: line });
-    else diff.push({ type: "context", content: line });
+    const parsed = unifiedDiffLine(line);
+    if (parsed) diff.push(parsed);
   }
   return diff;
 }

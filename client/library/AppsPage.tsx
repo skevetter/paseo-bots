@@ -1,10 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
+import type { UseQueryResult } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
+import type { AppCard } from "../../shared/apps";
 import { matchesQuery } from "../../shared/library";
 import { appsRemoveKeyRpc, appsSetKeyRpc } from "../../shared/rpc";
+import { errorText } from "../native";
 import {
   Button,
   CardNote,
@@ -17,7 +20,6 @@ import {
 } from "../panel/controls";
 import { useAppsAccounts, useAppsCatalog, useAppsInvalidate, useAppsStatus } from "./apps";
 import { AppLogo, DangerZone, PageTitle } from "./parts";
-import { errorText } from "../native";
 
 type Colors = PluginTheme["colors"];
 
@@ -138,7 +140,6 @@ function Catalog({
       .map((account) => account.slug),
   );
   const matches = apps.filter((app) => matchesQuery(query, app.name, app.slug, app.description));
-  const shown = matches.slice(0, SHOWN);
 
   return (
     <>
@@ -153,52 +154,15 @@ function Catalog({
           ) : undefined
         }
       >
-        <SettingsCard>
-          {catalog.isLoading ? <CardNote colors={colors} loading text="Loading apps..." /> : null}
-          {catalog.isError ? (
-            <SettingsRow
-              label="Couldn't load the apps"
-              error={catalog.error instanceof Error ? catalog.error.message : String(catalog.error)}
-            />
-          ) : null}
-          {!catalog.isLoading && !catalog.isError && matches.length === 0 ? (
-            <CardNote colors={colors} text={query.trim() ? `No apps match "${query.trim()}"` : "No apps"} />
-          ) : null}
-          {shown.map((app) => (
-            <View
-              key={app.slug}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 12,
-                paddingVertical: 12,
-                paddingHorizontal: 16,
-                minHeight: 56,
-              }}
-            >
-              <AppLogo colors={colors} app={app} />
-              <RowText colors={colors} label={app.name} hint={app.description || null} hintLines={1} />
-              {connected.has(app.slug) ? (
-                <StatusBadge colors={colors} label="Connected" variant="success" />
-              ) : (
-                <Button
-                  colors={colors}
-                  variant="outline"
-                  label={pending === app.slug ? "Waiting..." : "Connect"}
-                  loading={pending === app.slug}
-                  disabled={pending !== null && pending !== app.slug}
-                  onPress={() => onConnect(app.slug)}
-                />
-              )}
-            </View>
-          ))}
-          {matches.length > SHOWN ? (
-            <CardNote
-              colors={colors}
-              text={`Showing ${SHOWN} of ${matches.length.toLocaleString()}. Search to find more.`}
-            />
-          ) : null}
-        </SettingsCard>
+        <CatalogCard
+          colors={colors}
+          catalog={catalog}
+          query={query}
+          matches={matches}
+          connected={connected}
+          pending={pending}
+          onConnect={onConnect}
+        />
       </SettingsSection>
       <DangerZone
         label="Composio key"
@@ -209,5 +173,96 @@ function Catalog({
         onConfirm={() => void removeKey({}).then(invalidate)}
       />
     </>
+  );
+}
+
+function CatalogCard({
+  colors,
+  catalog,
+  query,
+  matches,
+  connected,
+  pending,
+  onConnect,
+}: {
+  colors: Colors;
+  catalog: Pick<UseQueryResult, "isLoading" | "isError" | "error">;
+  query: string;
+  matches: AppCard[];
+  connected: ReadonlySet<string>;
+  pending: string | null;
+  onConnect(slug: string): void;
+}) {
+  return (
+    <SettingsCard>
+      {catalog.isLoading ? <CardNote colors={colors} loading text="Loading apps..." /> : null}
+      {catalog.isError ? (
+        <SettingsRow
+          label="Couldn't load the apps"
+          error={catalog.error instanceof Error ? catalog.error.message : String(catalog.error)}
+        />
+      ) : null}
+      {!catalog.isLoading && !catalog.isError && matches.length === 0 ? (
+        <CardNote colors={colors} text={query.trim() ? `No apps match "${query.trim()}"` : "No apps"} />
+      ) : null}
+      {matches.slice(0, SHOWN).map((app) => (
+        <CatalogRow
+          key={app.slug}
+          colors={colors}
+          app={app}
+          connected={connected.has(app.slug)}
+          pending={pending}
+          onConnect={onConnect}
+        />
+      ))}
+      {matches.length > SHOWN ? (
+        <CardNote
+          colors={colors}
+          text={`Showing ${SHOWN} of ${matches.length.toLocaleString()}. Search to find more.`}
+        />
+      ) : null}
+    </SettingsCard>
+  );
+}
+
+function CatalogRow({
+  colors,
+  app,
+  connected,
+  pending,
+  onConnect,
+}: {
+  colors: Colors;
+  app: AppCard;
+  connected: boolean;
+  pending: string | null;
+  onConnect(slug: string): void;
+}) {
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 12,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        minHeight: 56,
+      }}
+    >
+      <AppLogo colors={colors} app={app} />
+      <RowText colors={colors} label={app.name} hint={app.description || null} hintLines={1} />
+      {connected ? (
+        <StatusBadge colors={colors} label="Connected" variant="success" />
+      ) : (
+        <Button
+          colors={colors}
+          variant="outline"
+          label={pending === app.slug ? "Waiting..." : "Connect"}
+          loading={pending === app.slug}
+          disabled={pending !== null && pending !== app.slug}
+          onPress={() => onConnect(app.slug)}
+        />
+      )}
+    </View>
   );
 }

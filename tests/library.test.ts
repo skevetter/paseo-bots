@@ -1,9 +1,8 @@
-import { createServer } from "node:http";
-import { mkdtemp, readFile, readlink, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile, readlink, writeFile } from "node:fs/promises";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { EMPTY_LIBRARY, parseMcpJson, type Bot, type BotMcpServer, type Library } from "../shared/bot";
+import { describe, expect, it } from "vitest";
+import { type Bot, type BotMcpServer, EMPTY_LIBRARY, type Library, parseMcpJson } from "../shared/bot";
 import {
   addMcpServers,
   forgetItem,
@@ -14,6 +13,7 @@ import {
   setBotUses,
   upsertSkills,
 } from "../shared/library";
+import { defined, useTempPaseoHome } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";
 
@@ -73,8 +73,9 @@ describe("addMcpServers", () => {
 
   it("adds servers switched off until a test connects", () => {
     const { library } = addMcpServers(EMPTY_LIBRARY, [fetchDraft]);
-    expect(library.mcpServers[0]!.enabled).toBe(false);
-    expect(mcpServerTested(library.mcpServers[0]!)).toBe(false);
+    const server = defined(library.mcpServers[0], "added server");
+    expect(server.enabled).toBe(false);
+    expect(mcpServerTested(server)).toBe(false);
     expect(mcpServerTested({ tools: [], checkError: null })).toBe(true);
     expect(mcpServerTested({ tools: [], checkError: "refused" })).toBe(false);
   });
@@ -138,8 +139,8 @@ describe("bot references", () => {
       "fetch",
       "web",
     );
-    expect(renamed!.alwaysAllow).toEqual(["web/get", "fetcher/x"]);
-    expect(untouched!.alwaysAllow).toEqual([]);
+    expect(renamed?.alwaysAllow).toEqual(["web/get", "fetcher/x"]);
+    expect(untouched?.alwaysAllow).toEqual([]);
   });
 });
 
@@ -155,21 +156,28 @@ describe("display helpers", () => {
 
 // ---------------------------------------------------------------- server
 
+function answerMcp(request: IncomingMessage, response: ServerResponse, body: string, seen: string[]) {
+  if (request.method !== "POST") return response.writeHead(200).end();
+  seen.push(`${request.headers["mcp-session-id"] ?? "-"} ${request.headers.authorization ?? "-"}`);
+  const msg = JSON.parse(body) as { id?: number; method: string };
+  if (msg.id === undefined) return response.writeHead(202).end();
+  if (msg.method === "initialize") {
+    response.writeHead(200, { "Content-Type": "application/json", "Mcp-Session-Id": "s1" });
+    return response.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }));
+  }
+  response.writeHead(200, { "Content-Type": "text/event-stream" });
+  response.end(
+    `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "search", description: "Find" }] } })}\n\n`,
+  );
+}
+
 describe("server library", () => {
-  let home: string;
-  beforeAll(async () => {
-    home = await mkdtemp(join(tmpdir(), "paseo-bots-lib-"));
-    process.env.PASEO_HOME = home;
-  });
-  afterAll(async () => {
-    delete process.env.PASEO_HOME;
-    await rm(home, { recursive: true, force: true });
-  });
+  useTempPaseoHome("paseo-bots-lib-");
 
   it("moves the old paseo-bot data folder to the new name and links it", async () => {
     const { migrateRenamedPluginData, pluginDataPath } = await import("../server/bot-home");
     const { mkdir, readlink, readFile } = await import("node:fs/promises");
-    const legacy = join(home, "plugin-data", "paseo-bot");
+    const legacy = join(defined(process.env.PASEO_HOME, "PASEO_HOME"), "plugin-data", "paseo-bot");
     await mkdir(legacy, { recursive: true });
     await writeFile(join(legacy, "composio.json"), "{}");
     migrateRenamedPluginData();
@@ -196,12 +204,11 @@ describe("server library", () => {
     });
     const names = async (reviewedSha: string | null | undefined) =>
       (
-        await promptContext(
-          bot("gate-bot", { skillIds: ["gated"] }),
-          true,
-          { skills: [skill(reviewedSha)], mcpServers: [] },
-          false,
-        )
+        await promptContext(bot("gate-bot", { skillIds: ["gated"] }), {
+          local: true,
+          library: { skills: [skill(reviewedSha)], mcpServers: [] },
+          paseoTools: false,
+        })
       ).skills.map((entry) => entry.name);
     expect(await names(sha256(text))).toEqual(["gated"]);
     expect(await names(undefined)).toEqual(["gated"]);
@@ -231,10 +238,14 @@ describe("server library", () => {
     const paths = await linkBotSkills("bot-x", ["a", "b"]);
     expect(paths.get("a")).toBe(join(botDataPath("bot-x"), "skills", "a", "SKILL.md"));
     expect(await readlink(join(botDataPath("bot-x"), "skills", "a"))).toBe(librarySkillPath("a"));
-    expect(await readFile(paths.get("b")!, "utf8")).toContain("description: B");
+    expect(await readFile(defined(paths.get("b"), "link for b"), "utf8")).toContain("description: B");
     await linkBotSkills("bot-x", ["b"]);
     await expect(readlink(join(botDataPath("bot-x"), "skills", "a"))).rejects.toThrow();
   });
+});
+
+describe("server library migration and sharing", () => {
+  useTempPaseoHome("paseo-bots-lib-");
 
   it("moves skills that lived in a bot's folder into the library", async () => {
     const { migrateBotSkills, readSkill } = await import("../server/library");
@@ -355,20 +366,7 @@ describe("probeMcpServer", () => {
     const http = createServer((request, response) => {
       let body = "";
       request.on("data", (chunk: Buffer) => (body += chunk.toString()));
-      request.on("end", () => {
-        if (request.method !== "POST") return response.writeHead(200).end();
-        seen.push(`${request.headers["mcp-session-id"] ?? "-"} ${request.headers.authorization ?? "-"}`);
-        const msg = JSON.parse(body) as { id?: number; method: string };
-        if (msg.id === undefined) return response.writeHead(202).end();
-        if (msg.method === "initialize") {
-          response.writeHead(200, { "Content-Type": "application/json", "Mcp-Session-Id": "s1" });
-          return response.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }));
-        }
-        response.writeHead(200, { "Content-Type": "text/event-stream" });
-        response.end(
-          `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "search", description: "Find" }] } })}\n\n`,
-        );
-      });
+      request.on("end", () => answerMcp(request, response, body, seen));
     });
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const { port } = http.address() as { port: number };
@@ -405,7 +403,9 @@ describe("MCP servers on this computer", () => {
       const { mcpSources } = await import("../server/mcp-sources");
       const { sources } = await mcpSources();
       expect(sources.map((source) => [source.label, source.count])).toEqual([["Claude Code", 1]]);
-      expect(parseMcpJson(sources[0]!.json).map((server) => server.name)).toEqual(["fetch"]);
+      expect(
+        parseMcpJson(defined(sources[0], "Claude Code source").json).map((server) => server.name),
+      ).toEqual(["fetch"]);
     } finally {
       process.env.HOME = previous;
       await rm(home, { recursive: true, force: true });

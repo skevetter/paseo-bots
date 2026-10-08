@@ -2,22 +2,22 @@ import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promis
 import { dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
 import {
+  type Bot,
+  type BotGroup,
+  type BotMcpServer,
   BotMcpServerSchema,
   BotSchema,
   botMcpServers,
   botSkills,
+  type Library,
   newBotId,
   newRoutineId,
-  TeamFileTeamSchema,
-  type Bot,
-  type BotGroup,
-  type BotMcpServer,
-  type Library,
   type TeamFileTeam,
+  TeamFileTeamSchema,
 } from "../shared/bot";
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
-import { librarySkillPath, type ImportedSkill } from "./library";
+import { type ImportedSkill, librarySkillPath } from "./library";
 
 const FORMAT = "paseo-bots";
 /** Files exported before the plugin was renamed. */
@@ -90,22 +90,17 @@ function redact(servers: BotMcpServer[]): BotMcpServer[] {
 async function collect(root: string, include: (path: string) => boolean): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   const walk = async (dir: string) => {
-    let names: string[];
-    try {
-      names = await readdir(dir);
-    } catch {
-      return;
-    }
+    const names = await readdir(dir).catch(() => [] as string[]);
     for (const name of names) {
       if (Object.keys(files).length >= MAX_FILES) return;
       const path = join(dir, name);
-      const info = await stat(path);
-      if (info.isDirectory()) await walk(path);
-      else {
-        const key = relative(root, path).split(sep).join("/");
-        if (include(key)) files[key] = await readFile(path, "utf8");
-      }
+      if ((await stat(path)).isDirectory()) await walk(path);
+      else await addFile(path);
     }
+  };
+  const addFile = async (path: string) => {
+    const key = relative(root, path).split(sep).join("/");
+    if (include(key)) files[key] = await readFile(path, "utf8");
   };
   await walk(root);
   return files;
@@ -185,6 +180,15 @@ async function exists(path: string): Promise<boolean> {
   return (await lstat(path).catch(() => null)) !== null;
 }
 
+function importTarget(path: string, root: string, fresh: Set<string>): string | null {
+  if (path.includes("..")) return null;
+  if (path === "MEMORY.md" || path.startsWith("memory/")) return join(root, ...path.split("/"));
+  if (!path.startsWith("skills/")) return null;
+  const [, id, ...rest] = path.split("/");
+  const clean = id ? sanitizeSkillName(id) : "";
+  return fresh.has(clean) && rest.length > 0 ? join(librarySkillPath(clean), ...rest) : null;
+}
+
 /**
  * Writes an exported bot's memory for `botId` and its skills into the library
  * (a skill already in the library is kept as is). Returns the bot fields to
@@ -204,14 +208,7 @@ export async function importBot({
 
   const root = botDataPath(botId);
   for (const [path, text] of Object.entries(parsed.files)) {
-    if (path.includes("..")) continue;
-    let target: string | null = null;
-    if (path === "MEMORY.md" || path.startsWith("memory/")) target = join(root, ...path.split("/"));
-    else if (path.startsWith("skills/")) {
-      const [, id, ...rest] = path.split("/");
-      const clean = id ? sanitizeSkillName(id) : "";
-      if (fresh.has(clean) && rest.length > 0) target = join(librarySkillPath(clean), ...rest);
-    }
+    const target = importTarget(path, root, fresh);
     if (!target) continue;
     await mkdir(dirname(target), { recursive: true });
     await writeFile(target, text, "utf8");

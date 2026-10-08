@@ -190,6 +190,15 @@ function isAttachment(value: unknown): value is ComposerAttachment {
   return false;
 }
 
+function parseDraftEntry(value: unknown): ComposerDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = value as Record<string, unknown>;
+  const text = typeof entry.text === "string" ? entry.text : "";
+  const attachments = Array.isArray(entry.attachments) ? entry.attachments.filter(isAttachment) : [];
+  const updatedAt = typeof entry.updatedAt === "number" ? entry.updatedAt : 0;
+  return isDraftEmpty({ text, attachments }) ? null : { text, attachments, updatedAt };
+}
+
 export function parseDrafts(raw: string | null | undefined): Record<string, ComposerDraft> {
   if (!raw) return {};
   try {
@@ -197,12 +206,8 @@ export function parseDrafts(raw: string | null | undefined): Record<string, Comp
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     const drafts: Record<string, ComposerDraft> = {};
     for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (!value || typeof value !== "object") continue;
-      const entry = value as Record<string, unknown>;
-      const text = typeof entry.text === "string" ? entry.text : "";
-      const attachments = Array.isArray(entry.attachments) ? entry.attachments.filter(isAttachment) : [];
-      const updatedAt = typeof entry.updatedAt === "number" ? entry.updatedAt : 0;
-      if (!isDraftEmpty({ text, attachments })) drafts[key] = { text, attachments, updatedAt };
+      const draft = parseDraftEntry(value);
+      if (draft) drafts[key] = draft;
     }
     return drafts;
   } catch {
@@ -226,7 +231,9 @@ export function serializeDrafts(
     .slice(0, maxDrafts);
   let json = JSON.stringify(Object.fromEntries(entries));
   for (let index = entries.length - 1; index >= 0 && json.length > maxBytes; index--) {
-    const [key, draft] = entries[index]!;
+    const entry = entries[index];
+    if (!entry) continue;
+    const [key, draft] = entry;
     if (!draft.attachments.some((attachment) => attachment.kind === "image")) continue;
     entries[index] = [
       key,
@@ -334,7 +341,7 @@ export interface SlashCommand {
 /** The partial command name while the draft is a lone `/word` being typed, else null. */
 export function commandQuery(text: string): string | null {
   const match = /^\/([^\s/]*)$/.exec(text);
-  return match ? match[1]!.toLowerCase() : null;
+  return match?.[1]?.toLowerCase() ?? null;
 }
 
 /** The plugin's own commands first; a provider command with the same name is hidden (Paseo's mergeSlashCommandSources). */

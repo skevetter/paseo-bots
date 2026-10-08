@@ -1,38 +1,49 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, type TextStyle } from "react-native";
 import { createTextMeasurer, domNode, observeWidth, type TextMeasurer } from "../../web";
 import { clampHeight } from "./logic";
 
 const web = Platform.OS === "web";
 
+interface InputHeightOptions {
+  inputRef: RefObject<unknown>;
+  text: string;
+  minHeight: number;
+  maxHeight: number;
+  fontSize: number;
+}
+
 /**
  * Paseo's composer height (composer/input/height.web.ts / height.native.ts): on web the
  * textarea is sized to its measured content between min and max and only scrolls once it
  * hits max; on phones the native input grows by itself within the same bounds.
  */
-export function useInputHeight(
-  inputRef: RefObject<unknown>,
-  text: string,
-  minHeight: number,
-  maxHeight: number,
-  fontSize: number,
-): { style: TextStyle; scrollEnabled: boolean } {
+export function useInputHeight({ inputRef, text, minHeight, maxHeight, fontSize }: InputHeightOptions): {
+  style: TextStyle;
+  scrollEnabled: boolean;
+} {
   const [height, setHeight] = useState(minHeight);
   const measurer = useRef<TextMeasurer | null>(null);
   const textRef = useRef(text);
   textRef.current = text;
 
-  const measure = useCallback(() => {
-    const measured = measurer.current?.measure(domNode(inputRef.current), textRef.current);
-    if (measured === null || measured === undefined) return;
-    const next = clampHeight(measured, minHeight, maxHeight);
-    setHeight((current) => (Math.abs(current - next) < 1 ? current : next));
-  }, [inputRef, minHeight, maxHeight]);
+  const measureText = useCallback(
+    (value: string) => {
+      const measured = measurer.current?.measure(domNode(inputRef.current), value);
+      if (measured === null || measured === undefined) return;
+      const next = clampHeight(measured, minHeight, maxHeight);
+      setHeight((current) => (Math.abs(current - next) < 1 ? current : next));
+    },
+    [inputRef, minHeight, maxHeight],
+  );
+  const measure = useCallback(() => measureText(textRef.current), [measureText]);
+  const latestMeasure = useRef(measure);
+  latestMeasure.current = measure;
 
   useEffect(() => {
     if (!web) return;
     measurer.current = createTextMeasurer();
-    measure();
+    latestMeasure.current();
     return () => {
       measurer.current?.dispose();
       measurer.current = null;
@@ -40,9 +51,10 @@ export function useInputHeight(
     // The mirror lives as long as the input.
   }, []);
 
+  const layout = useMemo(() => ({ text, fontSize }), [text, fontSize]);
   useLayoutEffect(() => {
-    if (web) measure();
-  }, [text, fontSize, measure]);
+    if (web) measureText(layout.text);
+  }, [layout, measureText]);
 
   useEffect(() => (web ? observeWidth(domNode(inputRef.current), measure) : undefined), [inputRef, measure]);
 

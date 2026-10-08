@@ -3,13 +3,13 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef } from "react";
 import {
   ActivityIndicator,
+  type NativeSyntheticEvent,
   Platform,
   Pressable,
   Text,
   TextInput,
-  View,
-  type NativeSyntheticEvent,
   type TextInputKeyPressEventData,
+  View,
 } from "react-native";
 import { CONTENT_MAX_WIDTH, nativeTokens, useHover } from "../native";
 import { ui } from "../typography";

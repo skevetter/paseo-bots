@@ -1,17 +1,17 @@
 import {
-  EMPTY_LIBRARY,
-  joinArgs,
-  newGroupId,
-  numberedName,
-  RESERVED_MCP_NAMES,
-  uniqueName,
   type Bot,
   type BotMcpServer,
   type BotSettingsValues,
+  EMPTY_LIBRARY,
+  joinArgs,
   type Library,
   type LibraryMcpServer,
   type LibrarySkill,
+  newGroupId,
+  numberedName,
+  RESERVED_MCP_NAMES,
   type TeamFileTeam,
+  uniqueName,
 } from "./bot";
 import { saveTeam } from "./groups";
 
@@ -19,7 +19,7 @@ import { saveTeam } from "./groups";
 // helpers keep the ids, names and bot references consistent.
 
 export function newMcpServerId(): string {
-  return "mcp-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export type LibraryKind = "skill" | "mcp";
@@ -89,7 +89,8 @@ export function upsertSkills(
   const next = [...library.skills];
   for (const { reviewedSha, ...skill } of skills) {
     const index = next.findIndex((entry) => entry.id === skill.id);
-    if (index === -1)
+    const existing = next[index];
+    if (!existing)
       next.push({
         ...skill,
         enabled: !!reviewedSha,
@@ -99,9 +100,9 @@ export function upsertSkills(
       });
     else
       next[index] = {
-        ...next[index]!,
+        ...existing,
         description: skill.description,
-        source: skill.source || next[index]!.source,
+        source: skill.source || existing.source,
         reviewedSha: reviewedSha ?? null,
         updatedAt: now,
       };
@@ -217,7 +218,7 @@ export function addImportedBots(
       memberIds,
       instructions: team.instructions,
     };
-    return memberIds.length ? saveTeam(current, null, draft, newGroupId(), now) : current;
+    return memberIds.length ? saveTeam(current, { id: null, newId: newGroupId(), draft, now }) : current;
   }, values.groups ?? []);
   return { ...values, bots, library, groups };
 }

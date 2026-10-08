@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Routine } from "../shared/bot";
 import { upcomingRuns } from "../shared/routines";
-import { fakeHost, makeBot } from "./helpers";
+import { defined, fakeHost, makeBot } from "./helpers";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
 
@@ -163,14 +163,14 @@ describe("the routine scheduler", () => {
 
       // The run's turn ends: it's recorded and its card updated in place (same id).
       await scheduler.finished("rt-hook", "run-chat-2", { kind: "completed" }, "Shipped order 42 to Acme.");
-      const last = appended.at(-1)!;
-      expect(last.item.id).toBe(appended.at(-2)!.item.id);
+      const last = defined(appended.at(-1), "updated card");
+      expect(last.item.id).toBe(defined(appended.at(-2), "posted card").item.id);
       expect(last.item.data).toMatchObject({ status: "succeeded", output: "Shipped order 42 to Acme." });
       const { routines } = await scheduler.status();
-      expect(routines["rt-hook"]!.runs.map((run) => [run.trigger, run.status])).toEqual([
+      expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, run.status])).toEqual([
         ["webhook", "succeeded"],
       ]);
-      expect(routines["rt-1"]!.runs.map((run) => run.status)).toEqual(["running", "skipped-busy"]);
+      expect(routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running", "skipped-busy"]);
 
       // A rotated URL retires the old one.
       const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);

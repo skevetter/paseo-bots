@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Animated, Dimensions, Easing, PanResponder, Platform, View } from "react-native";
 
 // This plugin typechecks without the DOM library. Declare only what this module uses.

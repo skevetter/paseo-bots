@@ -1,4 +1,4 @@
-import { z, type ZodType } from "zod";
+import { type ZodType, z } from "zod";
 import type { Bot } from "../../shared/bot";
 import type { BotToolName } from "../../shared/bot-tools";
 import { PLUGIN_VERSION } from "../../shared/version";
@@ -56,70 +56,88 @@ function issues(error: z.ZodError): string {
   return error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("; ");
 }
 
-/** Answers one JSON-RPC message; null for notifications, which get no answer. */
-export async function answerMcp(
+type Answer = { result: unknown } | { error: { code: number; message: string } };
+
+async function offeredTools(tools: readonly BotTool[], caller: ToolCaller): Promise<BotTool[]> {
+  const list: BotTool[] = [];
+  for (const tool of tools) if (!tool.available || (await tool.available(caller))) list.push(tool);
+  return list;
+}
+
+async function callTool(
+  params: JsonRpcRequest["params"],
+  tools: readonly BotTool[],
+  caller: ToolCaller,
+): Promise<Answer> {
+  const tool = (await offeredTools(tools, caller)).find((entry) => entry.name === params?.name);
+  if (!tool) return { error: { code: -32602, message: `Unknown tool ${String(params?.name)}` } };
+  const parsed = tool.input.safeParse(params?.arguments ?? {});
+  if (!parsed.success)
+    return {
+      result: {
+        content: [{ type: "text", text: `Invalid arguments. ${issues(parsed.error)}` }],
+        isError: true,
+      },
+    };
+  try {
+    return { result: { content: [{ type: "text", text: await tool.run(parsed.data, caller) }] } };
+  } catch (error) {
+    return {
+      result: {
+        content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+        isError: true,
+      },
+    };
+  }
+}
+
+async function answer(
   message: JsonRpcRequest,
   tools: readonly BotTool[],
   caller: ToolCaller,
-): Promise<JsonRpcResponse | null> {
-  const id = message.id ?? null;
-  if (message.id === undefined || message.id === null) {
-    // Notifications (notifications/initialized, cancellations) need no reply.
-    if (message.method?.startsWith("notifications/")) return null;
-  }
-  const ok = (result: unknown): JsonRpcResponse => ({ jsonrpc: "2.0", id, result });
-  const fail = (code: number, text: string): JsonRpcResponse => ({
-    jsonrpc: "2.0",
-    id,
-    error: { code, message: text },
-  });
-  const offered = async () => {
-    const list: BotTool[] = [];
-    for (const tool of tools) if (!tool.available || (await tool.available(caller))) list.push(tool);
-    return list;
-  };
-
+): Promise<Answer> {
   switch (message.method) {
     case "initialize": {
       const requested =
         typeof message.params?.protocolVersion === "string"
           ? message.params.protocolVersion
           : PROTOCOL_VERSION;
-      return ok({
-        protocolVersion: requested,
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "paseo-bots", version: PLUGIN_VERSION },
-      });
+      return {
+        result: {
+          protocolVersion: requested,
+          capabilities: { tools: { listChanged: false } },
+          serverInfo: { name: "paseo-bots", version: PLUGIN_VERSION },
+        },
+      };
     }
     case "ping":
-      return ok({});
+      return { result: {} };
     case "tools/list":
-      return ok({
-        tools: (await offered()).map((tool) => ({
-          name: tool.name,
-          description: tool.description,
-          inputSchema: inputSchema(tool.input),
-        })),
-      });
-    case "tools/call": {
-      const tool = (await offered()).find((entry) => entry.name === message.params?.name);
-      if (!tool) return fail(-32602, `Unknown tool ${String(message.params?.name)}`);
-      const parsed = tool.input.safeParse(message.params?.arguments ?? {});
-      if (!parsed.success)
-        return ok({
-          content: [{ type: "text", text: `Invalid arguments. ${issues(parsed.error)}` }],
-          isError: true,
-        });
-      try {
-        return ok({ content: [{ type: "text", text: await tool.run(parsed.data, caller) }] });
-      } catch (error) {
-        return ok({
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          isError: true,
-        });
-      }
-    }
+      return {
+        result: {
+          tools: (await offeredTools(tools, caller)).map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: inputSchema(tool.input),
+          })),
+        },
+      };
+    case "tools/call":
+      return callTool(message.params, tools, caller);
     default:
-      return fail(-32601, `Method not found: ${String(message.method)}`);
+      return { error: { code: -32601, message: `Method not found: ${String(message.method)}` } };
   }
+}
+
+/** Answers one JSON-RPC message; null for notifications, which get no answer. */
+export async function answerMcp(
+  message: JsonRpcRequest,
+  tools: readonly BotTool[],
+  caller: ToolCaller,
+): Promise<JsonRpcResponse | null> {
+  if (message.id === undefined || message.id === null) {
+    // Notifications (notifications/initialized, cancellations) need no reply.
+    if (message.method?.startsWith("notifications/")) return null;
+  }
+  return { jsonrpc: "2.0", id: message.id ?? null, ...(await answer(message, tools, caller)) };
 }

@@ -10,8 +10,9 @@ const AcpPermissionMetadata = z.object({
 });
 
 function titleToolName(title: string): string | null {
-  const head = title.split(": ", 1)[0]!.trim();
-  return /^[\w.-]+$/.test(head) ? head : null;
+  const [head = ""] = title.split(": ", 1);
+  const trimmed = head.trim();
+  return /^[\w.-]+$/.test(trimmed) ? trimmed : null;
 }
 
 /** The tool a timeline tool call ran: its name, or for ACP providers the tool its title starts with. */
@@ -45,5 +46,6 @@ export function permissionInput(request: {
  */
 export function serverToolName(name: string, server: string): string | null {
   const match = /^(?:mcp__)?([A-Za-z0-9-]+?)(?:__|\.|_| \/ )(\w+)$/.exec(name.trim());
-  return match?.[1] === server ? match[2]! : null;
+  const [, matchedServer, tool] = match ?? [];
+  return matchedServer === server && tool ? tool : null;
 }

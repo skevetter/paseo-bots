@@ -1,7 +1,8 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, useRevealedText } from "@getpaseo/plugin/client/react-native";
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
+import { appSignIns } from "../../../shared/apps";
 import type { ComposerAttachment } from "../../../shared/attachments";
 import {
   capMessageForRender,
@@ -9,7 +10,6 @@ import {
   formatMessageTimestamp,
   utf8ByteLength,
 } from "../../../shared/markdown";
-import { appSignIns } from "../../../shared/apps";
 import { proposalIdOf } from "../../../shared/proposals";
 import {
   buildToolCallPresentation,
@@ -22,12 +22,12 @@ import { AttachmentPill } from "../../AttachmentPill";
 import { Markdown } from "../../Markdown";
 import { CONTENT_MAX_WIDTH, nativeTokens } from "../../native";
 import { canSpeak } from "../../speech";
-import { scrollIntoView } from "../../web";
 import { content, contentLine, ui } from "../../typography";
+import { scrollIntoView } from "../../web";
+import { ConnectCard } from "./ConnectCard";
 import { ToolCallDetailsContent } from "./details";
 import type { StreamRow, TurnFooterInfo } from "./model";
 import { PlanCard } from "./PlanCard";
-import { ConnectCard } from "./ConnectCard";
 import { ProposalCard } from "./ProposalCard";
 import { RoutineRunCard } from "./RoutineRunCard";
 import { CopyButton, ExpandableBadge, isWeb, SpeakButton, Spinner } from "./ui";
@@ -169,6 +169,93 @@ export function RowContent({
 
 // ---------------------------------------------------------------- user
 
+function UserAttachments({
+  colors,
+  attachments,
+  hasText,
+  onOpenImage,
+}: {
+  colors: Colors;
+  attachments: ComposerAttachment[];
+  hasText: boolean;
+  onOpenImage(image: ImageAttachment): void;
+}) {
+  const images = attachments.filter(
+    (attachment): attachment is ImageAttachment => attachment.kind === "image",
+  );
+  const files = attachments.filter((attachment) => attachment.kind !== "image");
+  return (
+    <>
+      {images.length > 0 ? (
+        <View
+          style={{
+            flexDirection: "row",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: hasText || files.length > 0 ? 8 : 0,
+          }}
+        >
+          {images.map((image) => (
+            <Pressable
+              key={image.id}
+              accessibilityRole="button"
+              accessibilityLabel="Open image"
+              onPress={() => onOpenImage(image)}
+            >
+              <AttachmentPill colors={colors} attachment={image} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+      {files.length > 0 ? (
+        <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: hasText ? 8 : 0 }}>
+          {files.map((file) => (
+            <AttachmentPill key={file.id} colors={colors} attachment={file} />
+          ))}
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+function UserMessageTrailing({
+  colors,
+  text,
+  timestamp,
+  visible,
+}: {
+  colors: Colors;
+  text: string;
+  timestamp: number;
+  visible: boolean;
+}) {
+  const getText = useCallback(() => text, [text]);
+  return (
+    <View
+      pointerEvents={visible ? "auto" : "none"}
+      style={{
+        alignSelf: "flex-end",
+        flexDirection: "row",
+        alignItems: "center",
+        height: 24,
+        gap: 8,
+        marginTop: 8,
+        opacity: visible ? 1 : 0,
+      }}
+    >
+      <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE }}>
+        {formatMessageTimestamp(new Date(timestamp))}
+      </Text>
+      <CopyButton
+        colors={colors}
+        getContent={getText}
+        label="Copy message"
+        style={{ alignSelf: "center", marginRight: -4 }}
+      />
+    </View>
+  );
+}
+
 const UserMessage = memo(function UserMessage({
   colors,
   compact,
@@ -185,12 +272,7 @@ const UserMessage = memo(function UserMessage({
   const [hovered, setHovered] = useState(false);
   const [lightbox, setLightbox] = useState<ImageAttachment | null>(null);
   const hasText = text.trim().length > 0;
-  const images = attachments.filter(
-    (attachment): attachment is ImageAttachment => attachment.kind === "image",
-  );
-  const files = attachments.filter((attachment) => attachment.kind !== "image");
   const showTrailing = hasText && (compact || !isWeb || hovered);
-  const getText = useCallback(() => text, [text]);
   return (
     <View
       style={{
@@ -212,34 +294,12 @@ const UserMessage = memo(function UserMessage({
             flexShrink: 1,
           }}
         >
-          {images.length > 0 ? (
-            <View
-              style={{
-                flexDirection: "row",
-                gap: 8,
-                flexWrap: "wrap",
-                marginBottom: hasText || files.length > 0 ? 8 : 0,
-              }}
-            >
-              {images.map((image) => (
-                <Pressable
-                  key={image.id}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open image"
-                  onPress={() => setLightbox(image)}
-                >
-                  <AttachmentPill colors={colors} attachment={image} />
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
-          {files.length > 0 ? (
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: hasText ? 8 : 0 }}>
-              {files.map((file) => (
-                <AttachmentPill key={file.id} colors={colors} attachment={file} />
-              ))}
-            </View>
-          ) : null}
+          <UserAttachments
+            colors={colors}
+            attachments={attachments}
+            hasText={hasText}
+            onOpenImage={setLightbox}
+          />
           {hasText ? (
             <Text
               selectable
@@ -255,28 +315,7 @@ const UserMessage = memo(function UserMessage({
           ) : null}
         </View>
         {hasText ? (
-          <View
-            pointerEvents={showTrailing ? "auto" : "none"}
-            style={{
-              alignSelf: "flex-end",
-              flexDirection: "row",
-              alignItems: "center",
-              height: 24,
-              gap: 8,
-              marginTop: 8,
-              opacity: showTrailing ? 1 : 0,
-            }}
-          >
-            <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE }}>
-              {formatMessageTimestamp(new Date(timestamp))}
-            </Text>
-            <CopyButton
-              colors={colors}
-              getContent={getText}
-              label="Copy message"
-              style={{ alignSelf: "center", marginRight: -4 }}
-            />
-          </View>
+          <UserMessageTrailing colors={colors} text={text} timestamp={timestamp} visible={showTrailing} />
         ) : null}
       </HoverArea>
       {lightbox ? <Lightbox colors={colors} image={lightbox} onClose={() => setLightbox(null)} /> : null}
@@ -559,16 +598,29 @@ const TodoListCard = memo(function TodoListCard({
   );
 });
 
+const TASK_ICONS = { completed: "CircleCheck", running: "CircleDot", pending: "Circle" } as const;
+
+function taskState(task: TaskEntry): keyof typeof TASK_ICONS {
+  if (task.completed || task.status === "completed") return "completed";
+  return task.status === "in_progress" ? "running" : "pending";
+}
+
 /** Paseo's TaskListRow: Circle / CircleDot / CircleCheck 16, finished tasks struck through. */
 function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
   const tokens = nativeTokens(colors);
-  const completed = task.completed || task.status === "completed";
-  const running = !completed && task.status === "in_progress";
+  const state = taskState(task);
+  const completed = state === "completed";
+  const running = state === "running";
   const text = running && task.activeForm ? task.activeForm : task.text;
+  const textColors = {
+    completed: tokens.foregroundExtraMuted,
+    running: colors.foreground,
+    pending: colors.foregroundMuted,
+  };
   return (
     <View accessibilityLabel={text} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
       <Icon
-        name={completed ? "CircleCheck" : running ? "CircleDot" : "Circle"}
+        name={TASK_ICONS[state]}
         size={16}
         color={running ? tokens.statusDotRunning : tokens.foregroundExtraMuted}
       />
@@ -579,11 +631,7 @@ function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
           flexShrink: 1,
           minWidth: 0,
           fontSize: ui(14),
-          color: completed
-            ? tokens.foregroundExtraMuted
-            : running
-              ? colors.foreground
-              : colors.foregroundMuted,
+          color: textColors[state],
           ...(completed ? { textDecorationLine: "line-through" as const } : {}),
         }}
       >
@@ -707,6 +755,59 @@ function TurnFooterRow({ children }: { children: ReactNode }) {
   );
 }
 
+function useTimestampReveal(canSwap: boolean) {
+  const [revealed, setRevealed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const press = () => {
+    if (isWeb || !canSwap) return;
+    clearTimeout(timer.current);
+    setRevealed((value) => !value);
+    timer.current = setTimeout(() => {
+      setRevealed(false);
+      timer.current = undefined;
+    }, TIMESTAMP_REVEAL_MS);
+  };
+  return { revealed, press };
+}
+
+function turnTimeLabels(footer: TurnFooterInfo) {
+  const durationLabel = footer.durationMs !== null ? `Worked for ${formatDuration(footer.durationMs)}` : "";
+  const timestampLabel =
+    footer.completedAt !== null ? formatMessageTimestamp(new Date(footer.completedAt)) : "";
+  return { durationLabel, timestampLabel };
+}
+
+function TurnTimeLabel({ colors, footer }: { colors: Colors; footer: TurnFooterInfo }) {
+  const [hovered, setHovered] = useState(false);
+  const { durationLabel, timestampLabel } = turnTimeLabels(footer);
+  const primary = durationLabel || timestampLabel;
+  const canSwap = Boolean(durationLabel && timestampLabel);
+  const { revealed, press } = useTimestampReveal(canSwap);
+  const showTimestamp = canSwap && (isWeb ? hovered : revealed);
+  const labelStyle = { color: colors.foregroundMuted, fontSize: METADATA_SIZE };
+  if (!primary) return null;
+  return (
+    <Pressable
+      onPress={press}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      accessibilityRole={canSwap ? "button" : undefined}
+      accessibilityLabel={canSwap ? `${durationLabel}, ended ${timestampLabel}` : primary}
+    >
+      <View style={{ position: "relative" }}>
+        {/* Sizer keeps the width stable while the labels swap. */}
+        <Text aria-hidden style={[labelStyle, { opacity: 0 }]}>
+          {primary.length >= timestampLabel.length ? primary : timestampLabel}
+        </Text>
+        <Text style={[labelStyle, { position: "absolute", top: 0, left: 0 }]}>
+          {showTimestamp ? timestampLabel : primary}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
 /** Paseo's AssistantTurnFooter: copy, then "Worked for 2m 12s", swapping to the end time on hover or tap. */
 export const CompletedTurnFooter = memo(function CompletedTurnFooter({
   colors,
@@ -717,27 +818,7 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({
   footer: TurnFooterInfo;
   voice?: string | null;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
-  const durationLabel = footer.durationMs !== null ? `Worked for ${formatDuration(footer.durationMs)}` : "";
-  const timestampLabel =
-    footer.completedAt !== null ? formatMessageTimestamp(new Date(footer.completedAt)) : "";
-  const primary = durationLabel || timestampLabel;
-  const canSwap = Boolean(durationLabel && timestampLabel);
-  const showTimestamp = canSwap && (isWeb ? hovered : revealed);
   const getContent = useCallback(() => footer.copy, [footer.copy]);
-  const press = () => {
-    if (isWeb || !canSwap) return;
-    if (timer.current) clearTimeout(timer.current);
-    setRevealed((value) => !value);
-    timer.current = setTimeout(() => {
-      setRevealed(false);
-      timer.current = null;
-    }, TIMESTAMP_REVEAL_MS);
-  };
-  const labelStyle = { color: colors.foregroundMuted, fontSize: METADATA_SIZE };
   return (
     <TurnFooterRow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -745,25 +826,7 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({
         {canSpeak && voice !== undefined && footer.copy ? (
           <SpeakButton colors={colors} text={footer.copy} voice={voice} />
         ) : null}
-        {primary ? (
-          <Pressable
-            onPress={press}
-            onHoverIn={() => setHovered(true)}
-            onHoverOut={() => setHovered(false)}
-            accessibilityRole={canSwap ? "button" : undefined}
-            accessibilityLabel={canSwap ? `${durationLabel}, ended ${timestampLabel}` : primary}
-          >
-            <View style={{ position: "relative" }}>
-              {/* Sizer keeps the width stable while the labels swap. */}
-              <Text aria-hidden style={[labelStyle, { opacity: 0 }]}>
-                {primary.length >= timestampLabel.length ? primary : timestampLabel}
-              </Text>
-              <Text style={[labelStyle, { position: "absolute", top: 0, left: 0 }]}>
-                {showTimestamp ? timestampLabel : primary}
-              </Text>
-            </View>
-          </Pressable>
-        ) : null}
+        <TurnTimeLabel colors={colors} footer={footer} />
       </View>
     </TurnFooterRow>
   );
@@ -799,15 +862,16 @@ export function WorkingIndicator({
 }
 
 function LiveElapsed({ colors, startedAt }: { colors: Colors; startedAt: number }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [elapsed, setElapsed] = useState(() => Math.max(0, Date.now() - startedAt));
   useEffect(() => {
-    setNow(Date.now());
-    const handle = setInterval(() => setNow(Date.now()), 1000);
+    const tick = () => setElapsed(Math.max(0, Date.now() - startedAt));
+    tick();
+    const handle = setInterval(tick, 1000);
     return () => clearInterval(handle);
   }, [startedAt]);
   return (
     <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE, fontVariant: ["tabular-nums"] }}>
-      {formatDuration(Math.max(0, now - startedAt))}
+      {formatDuration(elapsed)}
     </Text>
   );
 }

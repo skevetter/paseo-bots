@@ -6,7 +6,7 @@ import type { Bot, BotGroup } from "../../shared/bot";
 import { groupBots } from "../../shared/groups";
 import { aggregateBuckets, chatBucket } from "../../shared/sidebar";
 import { Avatar, TeamLogo } from "../Avatar";
-import { useBotChats, useBotHost, type LocalHost } from "../data";
+import { type LocalHost, useBotChats, useBotHost } from "../data";
 import { CONTENT_MAX_WIDTH, nativeTokens, useHover } from "../native";
 import { Button } from "../panel/controls";
 import { ui } from "../typography";
@@ -43,7 +43,6 @@ export function TeamMap({
   onEditTeam(group: BotGroup): void;
   onOpenBot(bot: Bot): void;
 }) {
-  const tokens = nativeTokens(colors);
   const live = bots.filter((bot) => !bot.archived);
   const teamed = new Set(
     groups.flatMap((group) => [...group.memberIds, ...(group.leadId ? [group.leadId] : [])]),
@@ -62,41 +61,7 @@ export function TeamMap({
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-      <View
-        style={{
-          height: compact ? 56 : 36,
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 8,
-          paddingHorizontal: compact ? 4 : 12,
-          borderBottomWidth: 1,
-          borderBottomColor: colors.border,
-        }}
-      >
-        {onBack ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Back to bots"
-            {...tooltip("Back to bots", "bottom")}
-            onPress={onBack}
-            style={({ pressed }) => ({
-              padding: 12,
-              borderRadius: 8,
-              backgroundColor: pressed ? tokens.interactionHighlight : "transparent",
-            })}
-          >
-            <Icon name="ArrowLeft" size={20} color={colors.foregroundMuted} />
-          </Pressable>
-        ) : null}
-        <Text style={{ fontSize: ui(14), fontWeight: "300", color: colors.foreground }}>Team map</Text>
-        {compact ? null : (
-          <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
-            Your bots, their teams and who leads them
-          </Text>
-        )}
-        <View style={{ flex: 1 }} />
-        <Button colors={colors} variant="ghost" label="New team" icon="Plus" onPress={onNewTeam} />
-      </View>
+      <MapHeader colors={colors} compact={compact} onBack={onBack} onNewTeam={onNewTeam} />
       <ScrollView
         style={{ flex: 1 }}
         contentContainerStyle={{
@@ -106,64 +71,18 @@ export function TeamMap({
         }}
       >
         <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, gap: 16 }}>
-          {groups.length === 0 ? (
-            <View
-              style={{
-                padding: 24,
-                borderRadius: 12,
-                backgroundColor: colors.surface1,
-                alignItems: "center",
-                gap: 12,
-              }}
-            >
-              <Text style={{ fontSize: ui(14), color: colors.foreground }}>No teams yet</Text>
-              <Text
-                style={{
-                  fontSize: ui(14),
-                  color: colors.foregroundMuted,
-                  textAlign: "center",
-                  maxWidth: 420,
-                }}
-              >
-                A team is a few bots with a Chief of Staff, who takes your requests and hands parts to the
-                others.
-              </Text>
-              <Button colors={colors} variant="default" label="New team" icon="Plus" onPress={onNewTeam} />
-            </View>
-          ) : null}
-          {groups.map((group) => {
-            const { lead, members } = groupBots(group, live);
-            return (
-              <Tile
-                key={group.id}
-                colors={colors}
-                logo={<TeamLogo group={group} size={24} />}
-                title={group.name || "Untitled team"}
-                meta={`${members.length + (lead ? 1 : 0)} ${members.length + (lead ? 1 : 0) === 1 ? "bot" : "bots"}`}
-                onEdit={() => onEditTeam(group)}
-              >
-                <View style={compact ? { gap: 8 } : { flexDirection: "row", alignItems: "center", gap: 12 }}>
-                  <View style={compact ? undefined : { width: 240 }}>
-                    {lead ? card(lead, true) : <Placeholder colors={colors} text="No Chief of Staff yet" />}
-                  </View>
-                  <View style={{ alignItems: "center" }}>
-                    <Icon
-                      name={compact ? "ArrowDown" : "ArrowRight"}
-                      size={16}
-                      color={colors.foregroundMuted}
-                    />
-                  </View>
-                  <View style={{ flex: compact ? undefined : 1, gap: 8 }}>
-                    {members.length ? (
-                      members.map((bot) => card(bot))
-                    ) : (
-                      <Placeholder colors={colors} text="No other members" />
-                    )}
-                  </View>
-                </View>
-              </Tile>
-            );
-          })}
+          {groups.length === 0 ? <NoTeams colors={colors} onNewTeam={onNewTeam} /> : null}
+          {groups.map((group) => (
+            <TeamTile
+              key={group.id}
+              colors={colors}
+              group={group}
+              live={live}
+              compact={compact}
+              card={card}
+              onEdit={() => onEditTeam(group)}
+            />
+          ))}
           {groups.length > 0 && loose.length > 0 ? (
             <Tile
               colors={colors}
@@ -176,6 +95,128 @@ export function TeamMap({
         </View>
       </ScrollView>
     </View>
+  );
+}
+
+function MapHeader({
+  colors,
+  compact,
+  onBack,
+  onNewTeam,
+}: {
+  colors: Colors;
+  compact: boolean;
+  onBack?: () => void;
+  onNewTeam(): void;
+}) {
+  const tokens = nativeTokens(colors);
+  return (
+    <View
+      style={{
+        height: compact ? 56 : 36,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: compact ? 4 : 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      }}
+    >
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to bots"
+          {...tooltip("Back to bots", "bottom")}
+          onPress={onBack}
+          style={({ pressed }) => ({
+            padding: 12,
+            borderRadius: 8,
+            backgroundColor: pressed ? tokens.interactionHighlight : "transparent",
+          })}
+        >
+          <Icon name="ArrowLeft" size={20} color={colors.foregroundMuted} />
+        </Pressable>
+      ) : null}
+      <Text style={{ fontSize: ui(14), fontWeight: "300", color: colors.foreground }}>Team map</Text>
+      {compact ? null : (
+        <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+          Your bots, their teams and who leads them
+        </Text>
+      )}
+      <View style={{ flex: 1 }} />
+      <Button colors={colors} variant="ghost" label="New team" icon="Plus" onPress={onNewTeam} />
+    </View>
+  );
+}
+
+function NoTeams({ colors, onNewTeam }: { colors: Colors; onNewTeam(): void }) {
+  return (
+    <View
+      style={{
+        padding: 24,
+        borderRadius: 12,
+        backgroundColor: colors.surface1,
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      <Text style={{ fontSize: ui(14), color: colors.foreground }}>No teams yet</Text>
+      <Text
+        style={{
+          fontSize: ui(14),
+          color: colors.foregroundMuted,
+          textAlign: "center",
+          maxWidth: 420,
+        }}
+      >
+        A team is a few bots with a Chief of Staff, who takes your requests and hands parts to the others.
+      </Text>
+      <Button colors={colors} variant="default" label="New team" icon="Plus" onPress={onNewTeam} />
+    </View>
+  );
+}
+
+function TeamTile({
+  colors,
+  group,
+  live,
+  compact,
+  card,
+  onEdit,
+}: {
+  colors: Colors;
+  group: BotGroup;
+  live: readonly Bot[];
+  compact: boolean;
+  card(bot: Bot, lead?: boolean): ReactNode;
+  onEdit(): void;
+}) {
+  const { lead, members } = groupBots(group, live);
+  const size = members.length + (lead ? 1 : 0);
+  return (
+    <Tile
+      colors={colors}
+      logo={<TeamLogo group={group} size={24} />}
+      title={group.name || "Untitled team"}
+      meta={`${size} ${size === 1 ? "bot" : "bots"}`}
+      onEdit={onEdit}
+    >
+      <View style={compact ? { gap: 8 } : { flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={compact ? undefined : { width: 240 }}>
+          {lead ? card(lead, true) : <Placeholder colors={colors} text="No Chief of Staff yet" />}
+        </View>
+        <View style={{ alignItems: "center" }}>
+          <Icon name={compact ? "ArrowDown" : "ArrowRight"} size={16} color={colors.foregroundMuted} />
+        </View>
+        <View style={{ flex: compact ? undefined : 1, gap: 8 }}>
+          {members.length ? (
+            members.map((bot) => card(bot))
+          ) : (
+            <Placeholder colors={colors} text="No other members" />
+          )}
+        </View>
+      </View>
+    </Tile>
   );
 }
 

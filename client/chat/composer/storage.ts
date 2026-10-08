@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AppState, NativeModules, Platform, TurboModuleRegistry } from "react-native";
-import { parseSendBehavior, DEFAULT_SEND_BEHAVIOR, type SendBehavior } from "./logic";
+import { DEFAULT_SEND_BEHAVIOR, parseSendBehavior, type SendBehavior } from "./logic";
 
 // Persistence for the composer, the same way typography.ts reads Paseo's settings:
 // localStorage on web and desktop, the app's AsyncStorage TurboModule on phones.

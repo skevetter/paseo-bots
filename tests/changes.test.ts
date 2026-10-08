@@ -1,20 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { BotGroup, BotSettingsValues } from "../shared/bot";
 import {
+  type ApplyContext,
   applyChanges,
   botDetails,
-  changeWarnings,
+  type Change,
   ChangesSchema,
+  changeWarnings,
   describeChange,
+  type ProviderInfo,
   providerInfo,
   readyProvider,
   resolveChanges,
   setupOverview,
-  type ApplyContext,
-  type Change,
-  type ProviderInfo,
 } from "../shared/changes";
-import { makeBot, NOW } from "./helpers";
+import { defined, makeBot, NOW } from "./helpers";
 
 const PROVIDERS: ProviderInfo[] = [
   {
@@ -122,7 +122,10 @@ describe("setup changes", () => {
         instructions: "Ship on Fridays.",
       },
     ]);
-    const juno = next.bots.find((bot) => bot.name === "Juno")!;
+    const juno = defined(
+      next.bots.find((bot) => bot.name === "Juno"),
+      "Juno",
+    );
     expect(juno).toMatchObject({
       title: "Producer",
       provider: "claude",
@@ -133,10 +136,17 @@ describe("setup changes", () => {
     });
     expect(juno.soul).toMatch(/keep the user's week on track/i);
     expect(juno.playbooks.map((playbook) => playbook.name)).toEqual(["Standup"]);
-    expect(next.bots.find((bot) => bot.name === "Mika")!.soul).toBe("Draw sprites.");
-    const studio = next.groups!.find((group) => group.name === "Studio")!;
+    const mika = defined(
+      next.bots.find((bot) => bot.name === "Mika"),
+      "Mika",
+    );
+    expect(mika.soul).toBe("Draw sprites.");
+    const studio = defined(
+      next.groups?.find((group) => group.name === "Studio"),
+      "Studio team",
+    );
     expect(studio.leadId).toBe(juno.id);
-    expect(studio.memberIds).toEqual([juno.id, next.bots.find((bot) => bot.name === "Mika")!.id, "solo"]);
+    expect(studio.memberIds).toEqual([juno.id, mika.id, "solo"]);
     expect(studio.logo?.seed).toBeTruthy();
     expect(studio.instructions).toBe("Ship on Fridays.");
   });
@@ -153,7 +163,10 @@ describe("setup changes", () => {
         archived: true,
       },
     ]);
-    const scout = next.bots.find((bot) => bot.id === "scout")!;
+    const scout = defined(
+      next.bots.find((bot) => bot.id === "scout"),
+      "scout",
+    );
     expect(scout).toMatchObject({
       provider: "codex",
       model: null,
@@ -167,7 +180,9 @@ describe("setup changes", () => {
     });
     expect(next.history.map((entry) => [entry.botId, entry.snapshot.model])).toEqual([["scout", "haiku"]]);
   });
+});
 
+describe("setup change checks", () => {
   it("checks providers, models, modes and thinking", () => {
     expect(() => apply([{ type: "update_bot", bot: "Scout", provider: "gemini" }])).toThrow(
       'Change 1 (update_bot): There\'s no provider "gemini". Use one of: claude, codex.',
@@ -204,14 +219,17 @@ describe("setup changes", () => {
   it("keeps the review and connection-test gates", () => {
     expect(() => apply([{ type: "set_skill", skill: "fetched", enabled: true }])).toThrow("needs a review");
     expect(
-      apply([{ type: "set_skill", skill: "weekly-report", enabled: false }]).library!.skills[0]!.enabled,
+      apply([{ type: "set_skill", skill: "weekly-report", enabled: false }]).library?.skills[0]?.enabled,
     ).toBe(false);
     expect(() => apply([{ type: "set_mcp_server", server: "github", enabled: true }])).toThrow(
       "hasn't passed a connection test",
     );
-    const added = apply([
-      { type: "add_mcp_server", name: "files", command: "npx", args: ["-y", "files-mcp"] },
-    ]).library!.mcpServers.find((server) => server.name === "files")!;
+    const added = defined(
+      apply([
+        { type: "add_mcp_server", name: "files", command: "npx", args: ["-y", "files-mcp"] },
+      ]).library?.mcpServers.find((server) => server.name === "files"),
+      "files server",
+    );
     expect(added).toMatchObject({
       enabled: false,
       tools: null,
@@ -224,7 +242,9 @@ describe("setup changes", () => {
       apply([{ type: "add_mcp_server", name: "both", url: "https://x.dev", command: "x" }]),
     ).toThrow("either a command");
   });
+});
 
+describe("setup changes to teams, routines and presets", () => {
   it("updates and deletes teams, routines and bots", () => {
     const next = apply([
       {
@@ -245,13 +265,13 @@ describe("setup changes", () => {
       { type: "update_routine", bot: "Solo", routine: "digest", enabled: false },
       { type: "delete_bot", bot: "Chief" },
     ]);
-    expect(next.groups![0]).toMatchObject({
+    expect(next.groups?.[0]).toMatchObject({
       leadId: "scout",
       memberIds: ["scout", "solo"],
       logo: { seed: "t1", palette: 3, imageUrl: null },
     });
     expect(next.bots.map((bot) => bot.id)).toEqual(["scout", "solo"]);
-    expect(next.bots[1]!.routines[0]).toMatchObject({
+    expect(next.bots[1]?.routines[0]).toMatchObject({
       name: "Digest",
       enabled: false,
       schedule: { kind: "daily", time: "18:00", weekdays: [1, 2, 3, 4, 5] },
@@ -271,10 +291,12 @@ describe("setup changes", () => {
       thinkingOptionId: null,
       contactBots: "off",
     });
-    expect(next.presets!.map((preset) => preset.name)).toEqual(["Scout"]);
+    expect(next.presets?.map((preset) => preset.name)).toEqual(["Scout"]);
     expect(apply([{ type: "delete_preset", preset: "scout" }], next).presets).toEqual([]);
   });
+});
 
+describe("setup changes on the host", () => {
   it("resolves app accounts by name on the host", () => {
     const accounts = [{ id: "ca_1", slug: "gmail", names: ["work"] }];
     const changes = resolveChanges(
@@ -284,7 +306,7 @@ describe("setup changes", () => {
       { ...context, accounts },
     );
     expect(changes[0]).toMatchObject({ add_apps: [{ app: "gmail", account: "ca_1" }] });
-    expect(applyChanges(setup(), changes, { now: NOW, provider: "" }).bots[2]!.appRules).toEqual({
+    expect(applyChanges(setup(), changes, { now: NOW, provider: "" }).bots[2]?.appRules).toEqual({
       gmail: { tools: "all", account: "ca_1" },
     });
     expect(() =>
@@ -298,7 +320,7 @@ describe("setup changes", () => {
   });
 
   it("gives new bots the defaults' provider, else the host's pick", () => {
-    expect(apply([{ type: "create_bot", name: "Juno" }]).bots[3]!.provider).toBe("claude");
+    expect(apply([{ type: "create_bot", name: "Juno" }]).bots[3]?.provider).toBe("claude");
     const withDefaults = setup({
       defaults: { provider: "codex", model: "gpt", modeId: null, thinkingOptionId: null, contactBots: "off" },
     });
@@ -308,7 +330,9 @@ describe("setup changes", () => {
       contactBots: "off",
     });
   });
+});
 
+describe("setup descriptions", () => {
   it("describes changes plainly and flags more access", () => {
     const changes = ChangesSchema.parse([
       { type: "create_team", name: "Studio", lead: "Juno", members: ["Juno", "Mika"] },

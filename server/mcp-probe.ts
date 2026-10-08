@@ -35,22 +35,43 @@ async function listTools(request: Request, notify: Notify): Promise<McpTool[]> {
   const tools: McpTool[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES && tools.length < MAX_TOOLS; page++) {
-    const result = (await request("tools/list", cursor ? { cursor } : {})) as {
-      tools?: { name?: unknown; description?: unknown }[];
-      nextCursor?: string;
-    };
-    for (const tool of result.tools ?? []) {
-      if (typeof tool.name === "string")
-        tools.push({
-          name: tool.name,
-          description:
-            typeof tool.description === "string" ? tool.description.split("\n")[0]!.slice(0, 300) : "",
-        });
-    }
+    const result = (await request("tools/list", cursor ? { cursor } : {})) as ToolsPage;
+    tools.push(...pageTools(result));
     cursor = result.nextCursor;
     if (!cursor) break;
   }
   return tools.slice(0, MAX_TOOLS);
+}
+
+interface ToolsPage {
+  tools?: { name?: unknown; description?: unknown }[];
+  nextCursor?: string;
+}
+
+function pageTools(page: ToolsPage): McpTool[] {
+  const tools: McpTool[] = [];
+  for (const tool of page.tools ?? []) {
+    if (typeof tool.name !== "string") continue;
+    const description =
+      typeof tool.description === "string" ? tool.description.split("\n")[0].slice(0, 300) : "";
+    tools.push({ name: tool.name, description });
+  }
+  return tools;
+}
+
+function completePieces(buffer: string, separator: string): { pieces: string[]; rest: string } {
+  const pieces = buffer.split(separator);
+  const rest = pieces.pop() ?? "";
+  return { pieces, rest };
+}
+
+function parseMessage(line: string): JsonRpcResponse | null {
+  if (!line) return null;
+  try {
+    return JSON.parse(line) as JsonRpcResponse;
+  } catch {
+    return null;
+  }
 }
 
 function rpcError(response: JsonRpcResponse): Error {
@@ -99,28 +120,23 @@ function probeStdio(
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-4000);
     });
+    const deliver = (message: JsonRpcResponse) => {
+      const waiter = typeof message.id === "number" ? pending.get(message.id) : undefined;
+      if (!waiter) return;
+      pending.delete(message.id as number);
+      if (message.error) waiter.reject(rpcError(message));
+      else waiter.resolve(message.result);
+    };
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString("utf8");
-      let index: number;
-      while ((index = stdout.indexOf("\n")) !== -1) {
-        const line = stdout.slice(0, index).trim();
-        stdout = stdout.slice(index + 1);
-        if (!line) continue;
-        let message: JsonRpcResponse;
-        try {
-          message = JSON.parse(line) as JsonRpcResponse;
-        } catch {
-          continue;
-        }
-        const waiter = typeof message.id === "number" ? pending.get(message.id) : undefined;
-        if (!waiter) continue;
-        pending.delete(message.id as number);
-        if (message.error) waiter.reject(rpcError(message));
-        else waiter.resolve(message.result);
+      const { pieces, rest } = completePieces(stdout + chunk.toString("utf8"), "\n");
+      stdout = rest;
+      for (const line of pieces) {
+        const message = parseMessage(line.trim());
+        if (message) deliver(message);
       }
     });
 
-    const write = (payload: object) => child.stdin.write(JSON.stringify(payload) + "\n");
+    const write = (payload: object) => child.stdin.write(`${JSON.stringify(payload)}\n`);
     const request: Request = (method, params) =>
       new Promise((resolveRequest, rejectRequest) => {
         const id = nextId++;
@@ -155,23 +171,53 @@ async function* serverEvents(
     for (;;) {
       const { value, done } = await reader.read();
       if (done) return;
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-      let index: number;
-      while ((index = buffer.indexOf("\n\n")) !== -1) {
-        const block = buffer.slice(0, index);
-        buffer = buffer.slice(index + 2);
-        let event = "message";
-        const data: string[] = [];
-        for (const line of block.split("\n")) {
-          if (line.startsWith("event:")) event = line.slice(6).trim();
-          else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
-        }
-        if (data.length) yield { event, data: data.join("\n") };
+      const { pieces, rest } = completePieces(
+        buffer + decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n"),
+        "\n\n",
+      );
+      buffer = rest;
+      for (const block of pieces) {
+        const parsed = parseEvent(block);
+        if (parsed) yield parsed;
       }
     }
   } finally {
     reader.cancel().catch(() => {});
   }
+}
+
+function parseEvent(block: string): { event: string; data: string } | null {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) data.push(line.slice(5).replace(/^ /, ""));
+  }
+  return data.length ? { event, data: data.join("\n") } : null;
+}
+
+async function readAnswer(response: Response, id: number): Promise<JsonRpcResponse | undefined> {
+  const streamed = (response.headers.get("content-type") ?? "").includes("text/event-stream");
+  if (!streamed || !response.body) return (await response.json()) as JsonRpcResponse;
+  for await (const { data } of serverEvents(response.body)) {
+    const parsed = JSON.parse(data) as JsonRpcResponse;
+    if (parsed.id === id) return parsed;
+  }
+  return undefined;
+}
+
+async function awaitAnswer(
+  events: AsyncGenerator<{ event: string; data: string }>,
+  id: number,
+): Promise<unknown> {
+  for await (const { event, data } of events) {
+    if (event !== "message") continue;
+    const parsed = JSON.parse(data) as JsonRpcResponse;
+    if (parsed.id !== id) continue;
+    if (parsed.error) throw rpcError(parsed);
+    return parsed.result;
+  }
+  throw new Error("The server closed the connection without answering.");
 }
 
 async function httpFailure(response: Response): Promise<Error> {
@@ -208,18 +254,7 @@ async function probeHttp(
     const response = await post({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
     if (!response.ok) throw await httpFailure(response);
     sessionId = response.headers.get("mcp-session-id") ?? sessionId;
-    let message: JsonRpcResponse | undefined;
-    if ((response.headers.get("content-type") ?? "").includes("text/event-stream") && response.body) {
-      for await (const { data } of serverEvents(response.body)) {
-        const parsed = JSON.parse(data) as JsonRpcResponse;
-        if (parsed.id === id) {
-          message = parsed;
-          break;
-        }
-      }
-    } else {
-      message = (await response.json()) as JsonRpcResponse;
-    }
+    const message = await readAnswer(response, id);
     if (!message) throw new Error("The server closed the connection without answering.");
     if (message.error) throw rpcError(message);
     return message.result;
@@ -275,14 +310,7 @@ async function probeSse(
     const request: Request = async (method, params) => {
       const id = nextId++;
       await send({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) });
-      for await (const { event, data } of events) {
-        if (event !== "message") continue;
-        const parsed = JSON.parse(data) as JsonRpcResponse;
-        if (parsed.id !== id) continue;
-        if (parsed.error) throw rpcError(parsed);
-        return parsed.result;
-      }
-      throw new Error("The server closed the connection without answering.");
+      return awaitAnswer(events, id);
     };
     return await listTools(request, (method) => send({ jsonrpc: "2.0", method }));
   } finally {
@@ -300,25 +328,26 @@ function redact(text: string, config: McpServerConfig): string {
   return secrets.reduce((out, secret) => out.split(secret).join("•••"), text);
 }
 
+function probe(config: McpServerConfig, signal: AbortSignal): Promise<McpTool[]> {
+  if (config.type === "stdio") return probeStdio(config, signal);
+  if (config.type === "http") return probeHttp(config, signal);
+  return probeSse(config, signal);
+}
+
+function failureMessage(error: unknown, aborted: boolean): string {
+  const ownTimeout = error instanceof Error && error.message.startsWith("No answer");
+  if (aborted && !ownTimeout) return `No answer within ${TIMEOUT_MS / 1000} seconds.`;
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function probeMcpServer({ config }: { config: McpServerConfig }): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const tools =
-      config.type === "stdio"
-        ? await probeStdio(config, controller.signal)
-        : config.type === "http"
-          ? await probeHttp(config, controller.signal)
-          : await probeSse(config, controller.signal);
+    const tools = await probe(config, controller.signal);
     return { ok: true, tools };
   } catch (error) {
-    const message =
-      controller.signal.aborted && !(error instanceof Error && error.message.startsWith("No answer"))
-        ? `No answer within ${TIMEOUT_MS / 1000} seconds.`
-        : error instanceof Error
-          ? error.message
-          : String(error);
-    return { ok: false, error: redact(message, config) };
+    return { ok: false, error: redact(failureMessage(error, controller.signal.aborted), config) };
   } finally {
     clearTimeout(timer);
   }

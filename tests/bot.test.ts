@@ -1,24 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { pixelAvatar, SPRITE_NAMES, SPRITE_SIZE } from "../shared/avatar";
 import {
+  type Bot,
   botProblems,
   botSettings,
   buildAgentConfig,
   defaultModelId,
   EMPTY_LIBRARY,
-  migrateV2,
-  promptSections,
   formatPairs,
   joinArgs,
-  parseMcpJson,
-  parsePairs,
-  splitArgs,
-  type Bot,
   type Library,
   type LibraryMcpServer,
+  migrateV2,
+  parseMcpJson,
+  parsePairs,
+  promptSections,
+  splitArgs,
 } from "../shared/bot";
 import { BOT_TEMPLATES } from "../shared/templates";
 import { relativeTime } from "../shared/time";
+import { defined } from "./helpers";
 
 function bot(patch: Partial<Bot> = {}): Bot {
   return {
@@ -96,7 +97,11 @@ function server(id: string, name: string, patch: Partial<LibraryMcpServer> = {})
 
 describe("buildAgentConfig", () => {
   it("passes provider/model and the mode, and leaves out empty extras", () => {
-    const config = buildAgentConfig(bot({ modeId: "default" }), EMPTY_LIBRARY, "claude-opus-5-5", "PROMPT");
+    const config = buildAgentConfig(bot({ modeId: "default" }), {
+      library: EMPTY_LIBRARY,
+      model: "claude-opus-5-5",
+      systemPrompt: "PROMPT",
+    });
     expect(config.provider).toBe("claude/claude-opus-5-5");
     expect(config.modeId).toBe("default");
     expect(config.systemPrompt).toBe("PROMPT");
@@ -109,12 +114,11 @@ describe("buildAgentConfig", () => {
       skills: [],
       mcpServers: [server("a", "fetch"), server("b", "off", { enabled: false }), server("c", "unused")],
     };
-    const config = buildAgentConfig(
-      bot({ provider: "opencode", mcpServerIds: ["a", "b", "missing"] }),
+    const config = buildAgentConfig(bot({ provider: "opencode", mcpServerIds: ["a", "b", "missing"] }), {
       library,
-      "opencode-go/glm-5.1",
-      "",
-    );
+      model: "opencode-go/glm-5.1",
+      systemPrompt: "",
+    });
     expect(config.provider).toBe("opencode/opencode-go/glm-5.1");
     expect(Object.keys(config.mcpServers ?? {})).toEqual(["fetch"]);
     expect(config.mcpServers?.fetch).toEqual({ type: "stdio", command: "uvx", args: ["fetch"], env: {} });
@@ -130,14 +134,16 @@ describe("buildAgentConfig", () => {
         mcpServerIds: ["a", "p", "o"],
         alwaysAllow: ["fetch/get", "paseo/create_agent", "off/x", "gone/y"],
       }),
-      library,
-      "m",
-      "",
+      { library, model: "m", systemPrompt: "" },
     );
     expect(Object.keys(config.mcpServers ?? {})).toEqual(["fetch"]);
     expect(config.toolPolicy).toEqual({ preapproved: [{ kind: "mcp", server: "fetch", tool: "get" }] });
     expect(
-      buildAgentConfig(bot({ alwaysAllow: ["paseo/create_agent"] }), library, "m", ""),
+      buildAgentConfig(bot({ alwaysAllow: ["paseo/create_agent"] }), {
+        library,
+        model: "m",
+        systemPrompt: "",
+      }),
     ).not.toHaveProperty("toolPolicy");
   });
 });
@@ -163,15 +169,15 @@ describe("promptSections", () => {
       "Bot tools",
       "Paseo tools",
     ]);
-    expect(sections[5]!.text).toContain("propose_routine");
-    expect(sections[6]!.text).toContain('MCP server "paseo"');
-    expect(sections[3]!.text).toContain('you said: "Done."');
-    expect(sections[0]!.text).toBe(
+    expect(sections[5]?.text).toContain("propose_routine");
+    expect(sections[6]?.text).toContain('MCP server "paseo"');
+    expect(sections[3]?.text).toContain('you said: "Done."');
+    expect(sections[0]?.text).toBe(
       "You are Email Manager, a personal bot running inside Paseo.\nRole: Inbox triage\nAbout: Triages the inbox.",
     );
-    expect(sections[1]!.text).toContain("BEGIN STANDING INSTRUCTIONS\nBe brief.");
-    expect(sections[2]!.text).toContain("likes tea");
-    expect(sections[4]!.text).toContain('- pdf: PDFs. Read "/m/skills/pdf/SKILL.md"');
+    expect(sections[1]?.text).toContain("BEGIN STANDING INSTRUCTIONS\nBe brief.");
+    expect(sections[2]?.text).toContain("likes tea");
+    expect(sections[4]?.text).toContain('- pdf: PDFs. Read "/m/skills/pdf/SKILL.md"');
   });
 
   it("leaves out memory and skills when the bot has no local folder", () => {
@@ -314,13 +320,13 @@ describe("migrateV2", () => {
       }),
     );
     expect(migrated.library?.mcpServers.map((entry) => entry.name)).toEqual(["fetch", "fetch-2"]);
-    expect(migrated.bots[1]!.mcpServerIds).toEqual(["mcp-fetch-2"]);
-    expect(migrated.bots[1]!.alwaysAllow).toEqual(["fetch-2/get", "gmail/send"]);
+    expect(migrated.bots[1]?.mcpServerIds).toEqual(["mcp-fetch-2"]);
+    expect(migrated.bots[1]?.alwaysAllow).toEqual(["fetch-2/get", "gmail/send"]);
   });
 
   it("converts history snapshots and runs after the v1 migration", () => {
     const parsed = botSettings.schema.parse(
-      botSettings.migrate!(
+      defined(botSettings.migrate, "botSettings.migrate")(
         {
           bots: [
             {
@@ -334,15 +340,15 @@ describe("migrateV2", () => {
         1,
       ),
     );
-    expect(parsed.bots[0]!.soul).toBe("Hi");
-    expect(parsed.bots[0]!.mcpServerIds).toEqual(["mcp-fetch"]);
+    expect(parsed.bots[0]?.soul).toBe("Hi");
+    expect(parsed.bots[0]?.mcpServerIds).toEqual(["mcp-fetch"]);
     const withHistory = botSettings.schema.parse(
       migrateV2({
         bots: [],
         history: [{ botId: "a", at: NOW, snapshot: legacy("a", { mcpServers: [fetchServer] }) }],
       }),
     );
-    expect(withHistory.history[0]!.snapshot.mcpServerIds).toEqual(["mcp-fetch"]);
+    expect(withHistory.history[0]?.snapshot.mcpServerIds).toEqual(["mcp-fetch"]);
   });
 });
 

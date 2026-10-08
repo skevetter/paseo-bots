@@ -6,16 +6,16 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import {
+  type BotMcpServer,
   formatPairs,
   joinArgs,
+  type LibraryMcpServer,
   MCP_NAME,
-  RESERVED_MCP_NAMES,
+  type McpServerConfig,
   parseMcpJson,
   parsePairs,
+  RESERVED_MCP_NAMES,
   splitArgs,
-  type BotMcpServer,
-  type LibraryMcpServer,
-  type McpServerConfig,
 } from "../../shared/bot";
 import { PASEO_MCP_NAME } from "../../shared/paseo-tools";
 import { mcpSourcesRpc } from "../../shared/rpc";
@@ -47,36 +47,10 @@ interface ServerSheetProps {
 
 /** Adds or edits one MCP server: name, how to start or reach it, and its env vars or headers. */
 export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSave }: ServerSheetProps) {
-  const [server, setServer] = useState<McpDraft>(() => JSON.parse(JSON.stringify(initial)) as McpDraft);
-  const { config } = server;
-  const [pairsText, setPairsText] = useState(() =>
-    formatPairs(config.type === "stdio" ? config.env : config.headers),
-  );
-  const setConfig = (next: McpServerConfig) => setServer({ ...server, config: next });
-  const setType = (type: McpServerConfig["type"]) => {
-    if (type === config.type) return;
-    const next: McpServerConfig =
-      type === "stdio"
-        ? { type, command: "", args: [], env: {} }
-        : {
-            type,
-            url: config.type === "stdio" ? "" : config.url,
-            headers: config.type === "stdio" ? {} : config.headers,
-          };
-    setConfig(next);
-    setPairsText(formatPairs(next.type === "stdio" ? next.env : next.headers));
-  };
-
+  const draft = useServerDraft(initial);
+  const { server, config } = draft;
   const name = server.name.trim();
-  const nameError = !name
-    ? null
-    : !MCP_NAME.test(name)
-      ? "Use letters, numbers, dashes and underscores"
-      : RESERVED_MCP_NAMES.includes(name)
-        ? `"${name}" is taken by ${name === PASEO_MCP_NAME ? "Paseo's own tools" : "connected apps"}`
-        : otherNames.includes(name)
-          ? `"${name}" is already in the library`
-          : null;
+  const nameError = serverNameError(name, otherNames);
   const urlError =
     config.type !== "stdio" && config.url.trim() && !URL_PATTERN.test(config.url.trim())
       ? "Use an http:// or https:// URL"
@@ -92,90 +66,7 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
     >
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <View style={{ marginBottom: 24 }}>
-          <SettingsCard>
-            <InputField
-              colors={colors}
-              label="Name"
-              hint="Agents see its tools as name/tool"
-              error={nameError}
-              initialValue={server.name}
-              placeholder="gmail"
-              onChangeText={(text) => setServer({ ...server, name: text })}
-            />
-            <InputField
-              colors={colors}
-              label="Description"
-              initialValue={server.description}
-              placeholder="What it's for"
-              onChangeText={(description) => setServer({ ...server, description })}
-            />
-            <SettingsSelect
-              label="Transport"
-              value={config.type}
-              options={[
-                { label: "Local command (stdio)", value: "stdio" },
-                { label: "Streamable HTTP", value: "http" },
-                { label: "SSE", value: "sse" },
-              ]}
-              onValueChange={setType}
-            />
-            {config.type === "stdio" ? (
-              <InputField
-                colors={colors}
-                key="command"
-                label="Command"
-                monospace
-                autoCapitalize="none"
-                autoCorrect={false}
-                initialValue={config.command}
-                placeholder="npx"
-                onChangeText={(command) => setConfig({ ...config, command })}
-              />
-            ) : (
-              <InputField
-                colors={colors}
-                key={`url-${config.type}`}
-                label="URL"
-                error={urlError}
-                initialValue={config.url}
-                placeholder="https://example.com/mcp"
-                onChangeText={(url) => setConfig({ ...config, url: url.trim() })}
-              />
-            )}
-            {config.type === "stdio" ? (
-              <InputField
-                colors={colors}
-                key="args"
-                label="Arguments"
-                monospace
-                autoCapitalize="none"
-                autoCorrect={false}
-                hint="Separated by spaces. Quote arguments that contain spaces."
-                initialValue={joinArgs(config.args)}
-                placeholder="-y @modelcontextprotocol/server-memory"
-                onChangeText={(text) => setConfig({ ...config, args: splitArgs(text) })}
-              />
-            ) : null}
-            <TextAreaField
-              key={config.type === "stdio" ? "env" : "headers"}
-              colors={colors}
-              monospace
-              label={config.type === "stdio" ? "Environment" : "Headers"}
-              hint="KEY=value, one per line"
-              value={pairsText}
-              onChangeText={(text) => {
-                setPairsText(text);
-                const pairs = parsePairs(text);
-                setConfig(
-                  config.type === "stdio" ? { ...config, env: pairs } : { ...config, headers: pairs },
-                );
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              minHeight={72}
-              placeholder={config.type === "stdio" ? "API_KEY=..." : "Authorization=Bearer ..."}
-            />
-          </SettingsCard>
+          <ServerFields colors={colors} draft={draft} nameError={nameError} urlError={urlError} />
         </View>
         <SheetFooter>
           <Button colors={colors} size="md" label="Cancel" onPress={onClose} style={{ flex: 1 }} />
@@ -191,6 +82,162 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
         </SheetFooter>
       </Modal.Content>
     </Modal>
+  );
+}
+
+interface ServerDraft {
+  server: McpDraft;
+  config: McpServerConfig;
+  pairsText: string;
+  setServer(server: McpDraft): void;
+  setConfig(config: McpServerConfig): void;
+  setType(type: McpServerConfig["type"]): void;
+  setPairs(text: string): void;
+}
+
+function useServerDraft(initial: McpDraft): ServerDraft {
+  const [server, setServer] = useState<McpDraft>(() => JSON.parse(JSON.stringify(initial)) as McpDraft);
+  const { config } = server;
+  const [pairsText, setPairsText] = useState(() =>
+    formatPairs(config.type === "stdio" ? config.env : config.headers),
+  );
+  const setConfig = (next: McpServerConfig) => setServer({ ...server, config: next });
+  const setType = (type: McpServerConfig["type"]) => {
+    if (type === config.type) return;
+    const next = configForType(type, config);
+    setConfig(next);
+    setPairsText(formatPairs(next.type === "stdio" ? next.env : next.headers));
+  };
+  const setPairs = (text: string) => {
+    setPairsText(text);
+    const pairs = parsePairs(text);
+    setConfig(config.type === "stdio" ? { ...config, env: pairs } : { ...config, headers: pairs });
+  };
+  return { server, config, pairsText, setServer, setConfig, setType, setPairs };
+}
+
+function configForType(type: McpServerConfig["type"], config: McpServerConfig): McpServerConfig {
+  if (type === "stdio") return { type, command: "", args: [], env: {} };
+  return {
+    type,
+    url: config.type === "stdio" ? "" : config.url,
+    headers: config.type === "stdio" ? {} : config.headers,
+  };
+}
+
+function serverNameError(name: string, otherNames: readonly string[]): string | null {
+  if (!name) return null;
+  if (!MCP_NAME.test(name)) return "Use letters, numbers, dashes and underscores";
+  if (RESERVED_MCP_NAMES.includes(name))
+    return `"${name}" is taken by ${name === PASEO_MCP_NAME ? "Paseo's own tools" : "connected apps"}`;
+  return otherNames.includes(name) ? `"${name}" is already in the library` : null;
+}
+
+function ServerFields({
+  colors,
+  draft,
+  nameError,
+  urlError,
+}: {
+  colors: Colors;
+  draft: ServerDraft;
+  nameError: string | null;
+  urlError: string | null;
+}) {
+  const { server, config, setServer, setConfig } = draft;
+  return (
+    <SettingsCard>
+      <InputField
+        colors={colors}
+        label="Name"
+        hint="Agents see its tools as name/tool"
+        error={nameError}
+        initialValue={server.name}
+        placeholder="gmail"
+        onChangeText={(text) => setServer({ ...server, name: text })}
+      />
+      <InputField
+        colors={colors}
+        label="Description"
+        initialValue={server.description}
+        placeholder="What it's for"
+        onChangeText={(description) => setServer({ ...server, description })}
+      />
+      <SettingsSelect
+        label="Transport"
+        value={config.type}
+        options={[
+          { label: "Local command (stdio)", value: "stdio" },
+          { label: "Streamable HTTP", value: "http" },
+          { label: "SSE", value: "sse" },
+        ]}
+        onValueChange={draft.setType}
+      />
+      <EndpointField colors={colors} config={config} urlError={urlError} setConfig={setConfig} />
+      {config.type === "stdio" ? (
+        <InputField
+          colors={colors}
+          key="args"
+          label="Arguments"
+          monospace
+          autoCapitalize="none"
+          autoCorrect={false}
+          hint="Separated by spaces. Quote arguments that contain spaces."
+          initialValue={joinArgs(config.args)}
+          placeholder="-y @modelcontextprotocol/server-memory"
+          onChangeText={(text) => setConfig({ ...config, args: splitArgs(text) })}
+        />
+      ) : null}
+      <TextAreaField
+        key={config.type === "stdio" ? "env" : "headers"}
+        colors={colors}
+        monospace
+        label={config.type === "stdio" ? "Environment" : "Headers"}
+        hint="KEY=value, one per line"
+        value={draft.pairsText}
+        onChangeText={draft.setPairs}
+        autoCapitalize="none"
+        autoCorrect={false}
+        minHeight={72}
+        placeholder={config.type === "stdio" ? "API_KEY=..." : "Authorization=Bearer ..."}
+      />
+    </SettingsCard>
+  );
+}
+
+function EndpointField({
+  colors,
+  config,
+  urlError,
+  setConfig,
+}: {
+  colors: Colors;
+  config: McpServerConfig;
+  urlError: string | null;
+  setConfig(config: McpServerConfig): void;
+}) {
+  return config.type === "stdio" ? (
+    <InputField
+      colors={colors}
+      key="command"
+      label="Command"
+      monospace
+      autoCapitalize="none"
+      autoCorrect={false}
+      initialValue={config.command}
+      placeholder="npx"
+      onChangeText={(command) => setConfig({ ...config, command })}
+    />
+  ) : (
+    <InputField
+      colors={colors}
+      key={`url-${config.type}`}
+      label="URL"
+      error={urlError}
+      initialValue={config.url}
+      placeholder="https://example.com/mcp"
+      onChangeText={(url) => setConfig({ ...config, url: url.trim() })}
+    />
   );
 }
 

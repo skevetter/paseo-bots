@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  type Block,
   capMessageForRender,
   formatDuration,
+  type Inline,
   parseInline,
   parseMarkdown,
   utf8ByteLength,
-  type Block,
-  type Inline,
 } from "../shared/markdown";
 
 const text = (value: string): Inline => ({ kind: "text", text: value });
@@ -61,7 +61,7 @@ describe("parseMarkdown blocks", () => {
 
   it("strips closing hashes from ATX headings", () => {
     expect(parseMarkdown("## Hello ##")).toEqual([{ kind: "heading", level: 2, inlines: [text("Hello")] }]);
-    expect(parseMarkdown("#hashtag")[0]!.kind).toBe("paragraph");
+    expect(parseMarkdown("#hashtag")[0]?.kind).toBe("paragraph");
   });
 
   it("parses a multi-line blockquote as one block", () => {
@@ -80,8 +80,8 @@ describe("parseMarkdown blocks", () => {
     expect(list).toMatchObject({ kind: "list", ordered: true, start: 3, tight: true });
     const items = (list as Extract<Block, { kind: "list" }>).items;
     expect(items.map((item) => item.marker)).toEqual(["3.", "4."]);
-    expect(items[0]!.blocks.map((block) => block.kind)).toEqual(["paragraph", "list"]);
-    expect(items[0]!.blocks[1]).toMatchObject({
+    expect(items[0]?.blocks.map((block) => block.kind)).toEqual(["paragraph", "list"]);
+    expect(items[0]?.blocks[1]).toMatchObject({
       kind: "list",
       ordered: false,
       items: [{ marker: "•" }, { marker: "•" }],
@@ -104,7 +104,7 @@ describe("parseMarkdown blocks", () => {
     const block = table as Extract<Block, { kind: "table" }>;
     expect(block.header).toEqual([[text("Name")], [text("Size")]]);
     expect(block.rows).toHaveLength(2);
-    expect(block.rows[0]![1]).toEqual([{ kind: "code", text: "1|2" }]);
+    expect(block.rows[0]?.[1]).toEqual([{ kind: "code", text: "1|2" }]);
   });
 
   it("resolves reference links", () => {

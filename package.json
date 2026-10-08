@@ -12,6 +12,7 @@
     "shared/"
   ],
   "scripts": {
+    "lint": "biome check .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

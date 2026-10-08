@@ -4,33 +4,37 @@ export type SkillSource =
 
 const trimSlashes = (path: string) => path.replace(/^\/+|\/+$/g, "");
 
+function parseGitHubUrl(url: URL): SkillSource {
+  const [owner, repo, mode, ref, ...rest] = trimSlashes(url.pathname).split("/");
+  if (!owner || !repo) throw new Error("That GitHub URL doesn't name a repository.");
+  const repoName = repo.replace(/\.git$/, "");
+  if (mode !== "blob" && mode !== "tree")
+    return { kind: "github", owner, repo: repoName, ref: null, path: "" };
+  let path = rest.join("/");
+  if (mode === "blob") path = path.replace(/\/?SKILL\.md$/i, "");
+  return { kind: "github", owner, repo: repoName, ref: ref ?? null, path };
+}
+
+function parseSkillUrl(source: string): SkillSource {
+  const url = new URL(source);
+  if (url.hostname === "github.com") return parseGitHubUrl(url);
+  if (/SKILL\.md$/i.test(url.pathname)) return { kind: "raw", url: source };
+  throw new Error("Use a GitHub repository, a GitHub folder, or a link to a SKILL.md file.");
+}
+
 /** Accepts "owner/repo", "owner/repo/path", github.com URLs (repo, tree, blob) and raw SKILL.md URLs. */
 export function parseSkillSource(input: string): SkillSource {
   const source = input.trim();
-  if (/^https?:\/\//i.test(source)) {
-    const url = new URL(source);
-    if (url.hostname === "github.com") {
-      const [owner, repo, mode, ref, ...rest] = trimSlashes(url.pathname).split("/");
-      if (!owner || !repo) throw new Error("That GitHub URL doesn't name a repository.");
-      if (mode === "blob" || mode === "tree") {
-        let path = rest.join("/");
-        if (mode === "blob") path = path.replace(/\/?SKILL\.md$/i, "");
-        return { kind: "github", owner, repo: repo.replace(/\.git$/, ""), ref: ref ?? null, path };
-      }
-      return { kind: "github", owner, repo: repo.replace(/\.git$/, ""), ref: null, path: "" };
-    }
-    if (/SKILL\.md$/i.test(url.pathname)) return { kind: "raw", url: source };
-    throw new Error("Use a GitHub repository, a GitHub folder, or a link to a SKILL.md file.");
-  }
+  if (/^https?:\/\//i.test(source)) return parseSkillUrl(source);
   const parts = trimSlashes(source).split("/");
-  if (parts.length < 2 || parts.some((part) => !/^[A-Za-z0-9._-]+$/.test(part))) {
+  const [owner, repo, ...rest] = parts;
+  if (!owner || !repo || parts.some((part) => !/^[A-Za-z0-9._-]+$/.test(part))) {
     throw new Error('Use "owner/repo", "owner/repo/path/to/skill" or a GitHub URL.');
   }
-  const [owner, repo, ...rest] = parts;
   return {
     kind: "github",
-    owner: owner!,
-    repo: repo!,
+    owner,
+    repo,
     ref: null,
     path: rest.join("/").replace(/\/?SKILL\.md$/i, ""),
   };

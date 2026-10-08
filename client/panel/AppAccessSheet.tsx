@@ -2,10 +2,10 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
-import { useQuery } from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
-import { accountLabel, type AppAccount } from "../../shared/apps";
+import { type AppAccount, type AppTool, accountLabel } from "../../shared/apps";
 import type { AppRule } from "../../shared/bot";
 import { appsToolsRpc } from "../../shared/rpc";
 import { APPS_KEY } from "../library/apps";
@@ -14,6 +14,24 @@ import { Button, CardNote, SearchField, SectionMeta, SheetActions } from "./cont
 
 type Colors = PluginTheme["colors"];
 type Mode = "all" | "read" | "chosen";
+type ToolsQuery = UseQueryResult<{ tools: AppTool[] }>;
+
+function initialAccount(rule: AppRule | undefined, accounts: readonly AppAccount[]): string | null {
+  if (!rule) return null;
+  return accounts.some((entry) => entry.id === rule.account) ? rule.account : null;
+}
+
+function initialMode(rule: AppRule | undefined): Mode {
+  if (Array.isArray(rule?.tools)) return "chosen";
+  return rule?.tools ?? "all";
+}
+
+function filterTools(list: readonly AppTool[], needle: string): readonly AppTool[] {
+  if (!needle) return list;
+  return list.filter(
+    (tool) => tool.name.toLowerCase().includes(needle) || tool.slug.toLowerCase().includes(needle),
+  );
+}
 
 /**
  * How one bot may use one connected app: the account it's kept to, and all of
@@ -43,18 +61,10 @@ export function AppAccessSheet({
   });
   const list = tools.data?.tools ?? [];
   // An account that has since been disconnected reads as any account.
-  const [account, setAccount] = useState(
-    accounts.some((entry) => entry.id === rule?.account) ? rule!.account : null,
-  );
-  const [mode, setMode] = useState<Mode>(Array.isArray(rule?.tools) ? "chosen" : (rule?.tools ?? "all"));
+  const [account, setAccount] = useState(initialAccount(rule, accounts));
+  const [mode, setMode] = useState<Mode>(initialMode(rule));
   const [chosen, setChosen] = useState<string[]>(Array.isArray(rule?.tools) ? rule.tools : []);
   const [query, setQuery] = useState("");
-  const needle = query.trim().toLowerCase();
-  const shown = needle
-    ? list.filter(
-        (tool) => tool.name.toLowerCase().includes(needle) || tool.slug.toLowerCase().includes(needle),
-      )
-    : list;
   const readOnly = list.filter((tool) => tool.readOnly);
 
   const pick = (next: Mode) => {
@@ -67,78 +77,23 @@ export function AppAccessSheet({
     <Modal title={app.name} open onOpenChange={(open) => !open && onClose()}>
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         {accounts.length > 1 ? (
-          <SettingsSection title="Account" info="With any account, the bot picks one by its name.">
-            <SettingsCard>
-              <SettingsSelect
-                label="Account"
-                value={account ?? ""}
-                options={[
-                  { label: "Any account", value: "" },
-                  ...accounts.map((entry) => ({ label: accountLabel(entry, app.name), value: entry.id })),
-                ]}
-                onValueChange={(value) => setAccount(value || null)}
-              />
-            </SettingsCard>
-          </SettingsSection>
+          <AccountSection appName={app.name} accounts={accounts} account={account} onChange={setAccount} />
         ) : null}
-        <SettingsSection
-          title="Tools"
-          info="Read-only allows the tools Composio marks as only reading, including ones it adds later."
-        >
-          <SettingsCard>
-            <SettingsSelect
-              label="Allowed tools"
-              hint={mode === "read" && tools.data ? `${readOnly.length} of ${list.length} tools` : undefined}
-              value={mode}
-              options={[
-                { label: "All tools", value: "all" },
-                { label: "Read-only", value: "read" },
-                { label: "Chosen tools", value: "chosen" },
-              ]}
-              onValueChange={(value) => pick(value as Mode)}
-            />
-          </SettingsCard>
-        </SettingsSection>
+        <ToolsModeSection
+          mode={mode}
+          hint={mode === "read" && tools.data ? `${readOnly.length} of ${list.length} tools` : undefined}
+          onPick={pick}
+        />
         {mode === "chosen" ? (
-          <SettingsSection
-            title="Chosen tools"
-            trailing={
-              tools.data ? (
-                <SectionMeta colors={colors} text={`${chosen.length} of ${list.length}`} />
-              ) : undefined
-            }
-          >
-            {list.length > 12 ? (
-              <View style={{ marginBottom: 12 }}>
-                <SearchField
-                  colors={colors}
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder={`Search ${app.name} tools`}
-                />
-              </View>
-            ) : null}
-            <SettingsCard>
-              {tools.isLoading ? <CardNote colors={colors} loading text="Loading tools..." /> : null}
-              {tools.error ? <CardNote colors={colors} text={errorText(tools.error)} /> : null}
-              {tools.data && shown.length === 0 ? (
-                <CardNote colors={colors} text={needle ? "No tools match" : "This app has no tools"} />
-              ) : null}
-              {shown.map((tool) => (
-                <SettingsSwitch
-                  key={tool.slug}
-                  label={tool.name}
-                  hint={tool.readOnly ? `${tool.slug} · read-only` : tool.slug}
-                  value={chosen.includes(tool.slug)}
-                  onValueChange={(on) =>
-                    setChosen((current) =>
-                      on ? [...current, tool.slug] : current.filter((slug) => slug !== tool.slug),
-                    )
-                  }
-                />
-              ))}
-            </SettingsCard>
-          </SettingsSection>
+          <ChosenToolsSection
+            colors={colors}
+            appName={app.name}
+            tools={tools}
+            chosen={chosen}
+            onChosenChange={setChosen}
+            query={query}
+            onQueryChange={setQuery}
+          />
         ) : null}
         <SheetActions>
           <Button colors={colors} variant="ghost" label="Cancel" onPress={onClose} />
@@ -152,5 +107,149 @@ export function AppAccessSheet({
         </SheetActions>
       </Modal.Content>
     </Modal>
+  );
+}
+
+function AccountSection({
+  appName,
+  accounts,
+  account,
+  onChange,
+}: {
+  appName: string;
+  accounts: readonly AppAccount[];
+  account: string | null;
+  onChange(account: string | null): void;
+}) {
+  return (
+    <SettingsSection title="Account" info="With any account, the bot picks one by its name.">
+      <SettingsCard>
+        <SettingsSelect
+          label="Account"
+          value={account ?? ""}
+          options={[
+            { label: "Any account", value: "" },
+            ...accounts.map((entry) => ({ label: accountLabel(entry, appName), value: entry.id })),
+          ]}
+          onValueChange={(value) => onChange(value || null)}
+        />
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function ToolsModeSection({
+  mode,
+  hint,
+  onPick,
+}: {
+  mode: Mode;
+  hint: string | undefined;
+  onPick(mode: Mode): void;
+}) {
+  return (
+    <SettingsSection
+      title="Tools"
+      info="Read-only allows the tools Composio marks as only reading, including ones it adds later."
+    >
+      <SettingsCard>
+        <SettingsSelect
+          label="Allowed tools"
+          hint={hint}
+          value={mode}
+          options={[
+            { label: "All tools", value: "all" },
+            { label: "Read-only", value: "read" },
+            { label: "Chosen tools", value: "chosen" },
+          ]}
+          onValueChange={(value) => onPick(value as Mode)}
+        />
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function ChosenToolsSection({
+  colors,
+  appName,
+  tools,
+  chosen,
+  onChosenChange,
+  query,
+  onQueryChange,
+}: {
+  colors: Colors;
+  appName: string;
+  tools: ToolsQuery;
+  chosen: string[];
+  onChosenChange(update: (current: string[]) => string[]): void;
+  query: string;
+  onQueryChange(query: string): void;
+}) {
+  const list = tools.data?.tools ?? [];
+  const needle = query.trim().toLowerCase();
+  const shown = filterTools(list, needle);
+
+  return (
+    <SettingsSection
+      title="Chosen tools"
+      trailing={
+        tools.data ? <SectionMeta colors={colors} text={`${chosen.length} of ${list.length}`} /> : undefined
+      }
+    >
+      {list.length > 12 ? (
+        <View style={{ marginBottom: 12 }}>
+          <SearchField
+            colors={colors}
+            value={query}
+            onChangeText={onQueryChange}
+            placeholder={`Search ${appName} tools`}
+          />
+        </View>
+      ) : null}
+      <SettingsCard>
+        <ToolsStatusNote
+          colors={colors}
+          tools={tools}
+          empty={shown.length === 0}
+          filtered={Boolean(needle)}
+        />
+        {shown.map((tool) => (
+          <SettingsSwitch
+            key={tool.slug}
+            label={tool.name}
+            hint={tool.readOnly ? `${tool.slug} · read-only` : tool.slug}
+            value={chosen.includes(tool.slug)}
+            onValueChange={(on) =>
+              onChosenChange((current) =>
+                on ? [...current, tool.slug] : current.filter((slug) => slug !== tool.slug),
+              )
+            }
+          />
+        ))}
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function ToolsStatusNote({
+  colors,
+  tools,
+  empty,
+  filtered,
+}: {
+  colors: Colors;
+  tools: ToolsQuery;
+  empty: boolean;
+  filtered: boolean;
+}) {
+  return (
+    <>
+      {tools.isLoading ? <CardNote colors={colors} loading text="Loading tools..." /> : null}
+      {tools.error ? <CardNote colors={colors} text={errorText(tools.error)} /> : null}
+      {tools.data && empty ? (
+        <CardNote colors={colors} text={filtered ? "No tools match" : "This app has no tools"} />
+      ) : null}
+    </>
   );
 }

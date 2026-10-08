@@ -32,7 +32,9 @@ export const canSpeak = Platform.OS === "web" && !!synth;
 
 let speaking: string | null = null;
 const listeners = new Set<() => void>();
-const changed = () => listeners.forEach((listener) => listener());
+const changed = () => {
+  for (const listener of listeners) listener();
+};
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -93,7 +95,9 @@ export function useVoices(): DeviceVoice[] {
   const all = useSyncExternalStore(subscribeVoices, readVoices);
   const languages = (
     (globalThis as { navigator?: { languages?: readonly string[] } }).navigator?.languages ?? []
-  ).map((language) => language.split("-")[0]!.toLowerCase());
-  const preferred = all.filter((voice) => languages.includes(voice.lang.split(/[-_]/)[0]!.toLowerCase()));
+  ).map((language) => (language.split("-")[0] ?? "").toLowerCase());
+  const preferred = all.filter((voice) =>
+    languages.includes((voice.lang.split(/[-_]/)[0] ?? "").toLowerCase()),
+  );
   return (preferred.length ? preferred : all).slice().sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { checkAppCall, type AppLimit } from "../shared/apps";
-import type { Bot, McpServerConfig } from "../shared/bot";
+import { type AppLimit, checkAppCall } from "../shared/apps";
+import type { AppRule, Bot, McpServerConfig } from "../shared/bot";
 import { accounts, appTools, connectedSlugs, deadline, readState, session, writeState } from "./composio";
 import type { BotsHost } from "./host";
 import { answerMcp, type BotTool } from "./tools/mcp";
@@ -71,21 +71,25 @@ async function appLimits(bot: Bot): Promise<Map<string, AppLimit>> {
   for (const slug of bot.apps) {
     const rule = bot.appRules[slug];
     if (!rule || (rule.tools === "all" && !rule.account)) continue;
-    const tools =
-      rule.tools === "all"
-        ? null
-        : rule.tools === "read"
-          ? (await appTools({ slug })).tools.filter((tool) => tool.readOnly).map((tool) => tool.slug)
-          : rule.tools;
-    const alias = rule.account
-      ? ((await accounts()).accounts.find((account) => account.id === rule.account)?.alias ?? null)
-      : null;
+    const tools = await allowedTools(slug, rule.tools);
     limits.set(slug, {
       tools: tools && new Set(tools.map((tool) => tool.toUpperCase())),
-      account: rule.account ? { id: rule.account, alias } : null,
+      account: await accountLimit(rule.account),
     });
   }
   return limits;
+}
+
+async function allowedTools(slug: string, tools: AppRule["tools"]): Promise<string[] | null> {
+  if (tools === "all") return null;
+  if (tools !== "read") return tools;
+  return (await appTools({ slug })).tools.filter((tool) => tool.readOnly).map((tool) => tool.slug);
+}
+
+async function accountLimit(accountId: string | null): Promise<AppLimit["account"]> {
+  if (!accountId) return null;
+  const alias = (await accounts()).accounts.find((account) => account.id === accountId)?.alias ?? null;
+  return { id: accountId, alias };
 }
 
 export class Relay {
@@ -159,13 +163,7 @@ export class Relay {
 
   private async handle(request: IncomingMessage, response: ServerResponse) {
     try {
-      const path = (request.url ?? "").split("?")[0] ?? "";
-      const apps = /^\/mcp\/([^/]+)$/.exec(path);
-      if (apps) return await this.handleApps(request, response, apps[1]!);
-      const tools = /^\/bots\/([^/]+)\/([^/]+)$/.exec(path);
-      if (tools) return await this.handleTools(request, response, tools[1]!, tools[2]!);
-      for (const route of this.routes) if (await route(request, response, path)) return;
-      json(response, 404, { error: "not found" });
+      await this.dispatch(request, response);
     } catch (error) {
       if (!response.headersSent)
         json(response, 502, {
@@ -174,6 +172,22 @@ export class Relay {
           error: { code: -32002, message: error instanceof Error ? error.message : String(error) },
         });
     }
+  }
+
+  private async dispatch(request: IncomingMessage, response: ServerResponse) {
+    const path = (request.url ?? "").split("?")[0] ?? "";
+    const apps = /^\/mcp\/([^/]+)$/.exec(path);
+    if (apps) {
+      const [, botId] = apps;
+      return await this.handleApps(request, response, botId);
+    }
+    const tools = /^\/bots\/([^/]+)\/([^/]+)$/.exec(path);
+    if (tools) {
+      const [, botId, agentId] = tools;
+      return await this.handleTools(request, response, botId, agentId);
+    }
+    for (const route of this.routes) if (await route(request, response, path)) return;
+    json(response, 404, { error: "not found" });
   }
 
   /** Streamable HTTP lets a server decline the optional GET stream; sessions end on their own. */

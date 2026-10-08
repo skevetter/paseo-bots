@@ -3,19 +3,19 @@
 // agent-stream/spacing.ts, agent-stream/turn-membership.ts and
 // timeline/turn-time.ts. No React or React Native here, so it's unit tested.
 
+import { ROUTINE_RUN_CARD, type RoutineRunCard, RoutineRunCardSchema } from "../../../shared/rpc";
+import { toolCallName } from "../../../shared/tool-name";
 import {
   deriveTaskActivities,
   extractTaskEntriesFromToolCall,
   isHiddenTaskTool,
   isHiddenToolCall,
-  taskStatus,
   type TaskActivity,
   type TaskEntry,
   type ToolCallDetail,
   type ToolCallStatus,
+  taskStatus,
 } from "../../../shared/tools";
-import { ROUTINE_RUN_CARD, RoutineRunCardSchema, type RoutineRunCard } from "../../../shared/rpc";
-import { toolCallName } from "../../../shared/tool-name";
 import { PLUGIN_ID } from "../../../shared/version";
 
 /** The fields of a projected timeline entry the stream reads. */
@@ -94,153 +94,178 @@ function toolStatus(value: unknown): ToolCallStatus {
 
 // ---------------------------------------------------------------- rows
 
-/**
- * One row per visible timeline item. Tool calls hidden by Paseo (plan approval,
- * Claude's task tools) are dropped; task lists become per-change rows.
- */
-export function buildRows(entries: readonly StreamEntry[], running: boolean): StreamRow[] {
-  const rows: StreamRow[] = [];
-  let lastTodo: Extract<StreamRow, { kind: "todo" }> | null = null;
+type TodoRow = Extract<StreamRow, { kind: "todo" }>;
+type StreamItem = StreamEntry["item"];
 
-  const appendTodo = (entry: StreamEntry, items: TaskEntry[]) => {
-    const timestamp = toTime(entry.timestamp);
-    const activities = deriveTaskActivities(lastTodo?.items ?? EMPTY, items);
-    if (activities.length === 0) {
-      if (lastTodo) {
-        lastTodo.items = items;
-        lastTodo.timestamp = timestamp;
-      }
-      return;
+interface RowBuilder {
+  rows: StreamRow[];
+  lastTodo: TodoRow | null;
+}
+
+function extendsCreatedTodo(
+  tail: StreamRow | undefined,
+  activities: readonly TaskActivity[],
+  items: readonly TaskEntry[],
+): tail is TodoRow {
+  return (
+    activities.length === 1 &&
+    activities[0]?.type === "added" &&
+    tail?.kind === "todo" &&
+    tail.activity.type === "created" &&
+    items.every((task) => taskStatus(task) === "pending")
+  );
+}
+
+function appendTodo(builder: RowBuilder, entry: StreamEntry, items: TaskEntry[]): void {
+  const timestamp = toTime(entry.timestamp);
+  const activities = deriveTaskActivities(builder.lastTodo?.items ?? EMPTY, items);
+  if (activities.length === 0) {
+    if (builder.lastTodo) {
+      builder.lastTodo.items = items;
+      builder.lastTodo.timestamp = timestamp;
     }
-    const tail = rows[rows.length - 1];
-    if (
-      activities.length === 1 &&
-      activities[0]!.type === "added" &&
-      tail?.kind === "todo" &&
-      tail.activity.type === "created" &&
-      items.every((task) => taskStatus(task) === "pending")
-    ) {
-      tail.items = items;
-      tail.activity = { type: "created", count: items.length };
-      tail.timestamp = timestamp;
-      lastTodo = tail;
-      return;
-    }
-    activities.forEach((activity, index) => {
-      const row: Extract<StreamRow, { kind: "todo" }> = {
-        key: `${entry.seqStart}:todo:${index}`,
-        kind: "todo",
-        turnId: entry.turnId,
-        timestamp,
-        items,
-        activity,
-      };
-      rows.push(row);
-      lastTodo = row;
-    });
+    return;
+  }
+  const tail = builder.rows.at(-1);
+  if (extendsCreatedTodo(tail, activities, items)) {
+    tail.items = items;
+    tail.activity = { type: "created", count: items.length };
+    tail.timestamp = timestamp;
+    builder.lastTodo = tail;
+    return;
+  }
+  for (const [index, activity] of activities.entries()) {
+    const row: TodoRow = {
+      key: `${entry.seqStart}:todo:${index}`,
+      kind: "todo",
+      turnId: entry.turnId,
+      timestamp,
+      items,
+      activity,
+    };
+    builder.rows.push(row);
+    builder.lastTodo = row;
+  }
+}
+
+function speakText(name: string, detail: ToolCallDetail): string | null {
+  if (name !== "speak" || detail.type !== "unknown") return null;
+  return typeof detail.input === "string" && detail.input.trim() ? detail.input : null;
+}
+
+interface ToolCall {
+  name: string;
+  status: ToolCallStatus;
+  detail: ToolCallDetail;
+}
+
+function toolCallRow(base: RowBase, item: StreamItem, { name, status, detail }: ToolCall): StreamRow {
+  const key = typeof item.callId === "string" && item.callId ? `tool:${item.callId}` : base.key;
+  const text = speakText(name, detail);
+  if (text !== null) return { ...base, key, kind: "speak", text };
+  return {
+    ...base,
+    key,
+    kind: "tool",
+    name,
+    status,
+    error: item.error ?? null,
+    detail,
+    ...(item.metadata && typeof item.metadata === "object"
+      ? { metadata: item.metadata as Record<string, unknown> }
+      : {}),
   };
+}
 
-  entries.forEach((entry, index) => {
-    const item = entry.item;
-    const base = { key: `e${entry.seqStart}`, turnId: entry.turnId, timestamp: toTime(entry.timestamp) };
-    const isLast = index === entries.length - 1;
-    switch (item.type) {
-      case "user_message":
-        rows.push({
-          ...base,
-          kind: "user",
-          text: String(item.text ?? ""),
-          ...(typeof item.messageId === "string" ? { messageId: item.messageId } : {}),
-          ...(typeof item.clientMessageId === "string" ? { clientMessageId: item.clientMessageId } : {}),
-        });
-        break;
-      case "assistant_message":
-        rows.push({
-          ...base,
-          kind: "assistant",
-          text: String(item.text ?? ""),
-          phase: running && isLast ? "streaming" : "complete",
-        });
-        break;
-      case "reasoning": {
-        const text = String(item.text ?? "");
-        rows.push({ ...base, kind: "thought", text, loading: running && isLast });
-        break;
-      }
-      case "tool_call": {
-        const name = toolCallName({ name: String(item.name ?? ""), metadata: item.metadata });
-        const status = toolStatus(item.status);
-        const detail = (item.detail ?? { type: "unknown", input: null, output: null }) as ToolCallDetail;
-        if (isHiddenToolCall(name, status) || isHiddenTaskTool(name, entry.provider)) break;
-        const tasks = extractTaskEntriesFromToolCall(name, detail.type === "unknown" ? detail.input : null);
-        if (tasks) {
-          appendTodo(entry, tasks);
-          break;
-        }
-        const key = typeof item.callId === "string" && item.callId ? `tool:${item.callId}` : base.key;
-        if (
-          name === "speak" &&
-          detail.type === "unknown" &&
-          typeof detail.input === "string" &&
-          detail.input.trim()
-        ) {
-          rows.push({ ...base, key, kind: "speak", text: detail.input });
-          break;
-        }
-        rows.push({
-          ...base,
-          key,
-          kind: "tool",
-          name,
-          status,
-          error: item.error ?? null,
-          detail,
-          ...(item.metadata && typeof item.metadata === "object"
-            ? { metadata: item.metadata as Record<string, unknown> }
-            : {}),
-        });
-        break;
-      }
-      case "todo": {
-        const items = Array.isArray(item.items) ? (item.items as TaskEntry[]) : [];
-        appendTodo(entry, items);
-        break;
-      }
-      case "error":
-        rows.push({ ...base, kind: "notification", level: "error", message: String(item.message ?? "") });
-        break;
-      case "notification": {
-        const level = item.level === "warning" || item.level === "error" ? item.level : "info";
-        rows.push({ ...base, kind: "notification", level, message: String(item.message ?? "") });
-        break;
-      }
-      case "compaction":
-        rows.push({
-          ...base,
-          kind: "compaction",
-          status: item.status === "loading" ? "loading" : "completed",
-          ...(item.trigger === "auto" || item.trigger === "manual" ? { trigger: item.trigger } : {}),
-          ...(typeof item.preTokens === "number" ? { preTokens: item.preTokens } : {}),
-        });
-        break;
-      case "plugin": {
-        // This plugin's routine result cards; other plugins' items belong to their renderers.
-        if (item.pluginId !== PLUGIN_ID || item.kind !== ROUTINE_RUN_CARD.kind) break;
-        const card = RoutineRunCardSchema.safeParse(item.data);
-        if (card.success)
-          rows.push({
-            ...base,
-            key: `plugin:${String(item.id ?? entry.seqStart)}`,
-            kind: "routine-run",
-            card: card.data,
-          });
-        break;
-      }
-      default:
-        break;
+function appendToolCall(builder: RowBuilder, entry: StreamEntry, base: RowBase): void {
+  const item = entry.item;
+  const name = toolCallName({ name: String(item.name ?? ""), metadata: item.metadata });
+  const status = toolStatus(item.status);
+  const detail = (item.detail ?? { type: "unknown", input: null, output: null }) as ToolCallDetail;
+  if (isHiddenToolCall(name, status) || isHiddenTaskTool(name, entry.provider)) return;
+  const tasks = extractTaskEntriesFromToolCall(name, detail.type === "unknown" ? detail.input : null);
+  if (tasks) appendTodo(builder, entry, tasks);
+  else builder.rows.push(toolCallRow(base, item, { name, status, detail }));
+}
+
+function userRow(base: RowBase, item: StreamItem): StreamRow {
+  const messageId = typeof item.messageId === "string" ? { messageId: item.messageId } : {};
+  const clientMessageId =
+    typeof item.clientMessageId === "string" ? { clientMessageId: item.clientMessageId } : {};
+  return { ...base, kind: "user", text: String(item.text ?? ""), ...messageId, ...clientMessageId };
+}
+
+function compactionRow(base: RowBase, item: StreamItem): StreamRow {
+  const trigger: { trigger?: "auto" | "manual" } =
+    item.trigger === "auto" || item.trigger === "manual" ? { trigger: item.trigger } : {};
+  const preTokens = typeof item.preTokens === "number" ? { preTokens: item.preTokens } : {};
+  return {
+    ...base,
+    kind: "compaction",
+    status: item.status === "loading" ? "loading" : "completed",
+    ...trigger,
+    ...preTokens,
+  };
+}
+
+function routineRunRow(base: RowBase, entry: StreamEntry): StreamRow | null {
+  const item = entry.item;
+  // This plugin's routine result cards; other plugins' items belong to their renderers.
+  if (item.pluginId !== PLUGIN_ID || item.kind !== ROUTINE_RUN_CARD.kind) return null;
+  const card = RoutineRunCardSchema.safeParse(item.data);
+  if (!card.success) return null;
+  return {
+    ...base,
+    key: `plugin:${String(item.id ?? entry.seqStart)}`,
+    kind: "routine-run",
+    card: card.data,
+  };
+}
+
+function entryRow(base: RowBase, entry: StreamEntry, streaming: boolean): StreamRow | null {
+  const item = entry.item;
+  switch (item.type) {
+    case "user_message":
+      return userRow(base, item);
+    case "assistant_message":
+      return {
+        ...base,
+        kind: "assistant",
+        text: String(item.text ?? ""),
+        phase: streaming ? "streaming" : "complete",
+      };
+    case "reasoning":
+      return { ...base, kind: "thought", text: String(item.text ?? ""), loading: streaming };
+    case "error":
+      return { ...base, kind: "notification", level: "error", message: String(item.message ?? "") };
+    case "notification": {
+      const level = item.level === "warning" || item.level === "error" ? item.level : "info";
+      return { ...base, kind: "notification", level, message: String(item.message ?? "") };
     }
-  });
-  // FlatList keys must be unique even if a provider reuses a call id.
+    case "compaction":
+      return compactionRow(base, item);
+    case "plugin":
+      return routineRunRow(base, entry);
+    default:
+      return null;
+  }
+}
+
+function appendEntry(builder: RowBuilder, entry: StreamEntry, streaming: boolean): void {
+  const item = entry.item;
+  const base = { key: `e${entry.seqStart}`, turnId: entry.turnId, timestamp: toTime(entry.timestamp) };
+  if (item.type === "tool_call") {
+    appendToolCall(builder, entry, base);
+  } else if (item.type === "todo") {
+    appendTodo(builder, entry, Array.isArray(item.items) ? (item.items as TaskEntry[]) : []);
+  } else {
+    const row = entryRow(base, entry, streaming);
+    if (row) builder.rows.push(row);
+  }
+}
+
+// FlatList keys must be unique even if a provider reuses a call id.
+function makeKeysUnique(rows: readonly StreamRow[]): void {
   const seen = new Set<string>();
   for (const row of rows) {
     let key = row.key;
@@ -248,7 +273,19 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
     row.key = key;
     seen.add(key);
   }
-  return rows;
+}
+
+/**
+ * One row per visible timeline item. Tool calls hidden by Paseo (plan approval,
+ * Claude's task tools) are dropped; task lists become per-change rows.
+ */
+export function buildRows(entries: readonly StreamEntry[], running: boolean): StreamRow[] {
+  const builder: RowBuilder = { rows: [], lastTodo: null };
+  for (const [index, entry] of entries.entries()) {
+    appendEntry(builder, entry, running && index === entries.length - 1);
+  }
+  makeKeysUnique(builder.rows);
+  return builder.rows;
 }
 
 // ---------------------------------------------------------------- turns
@@ -291,18 +328,21 @@ function isResponseBoundary(previous: StreamRow | null, next: StreamRow | null):
   return previous !== null && next !== null && !continuesResponse(previous, next);
 }
 
+const GAPS: Partial<Record<`${Category}>${Category}`, number>> = {
+  "user>user": 4,
+  "user>assistant": 0,
+  "tool>tool": 0,
+  "user>tool": 16,
+  "assistant>tool": 4,
+  "tool>assistant": 4,
+};
+
 /** spacing.ts getGapBetweenStreamItems. */
 export function gapBetween(row: StreamRow | null, below: StreamRow | null): number {
   const a = category(row);
   const b = category(below);
   if (!a || !b) return 0;
-  if (a === "user" && b === "user") return 4;
-  if (a === "user" && b === "assistant") return 0;
-  if (a === "tool" && b === "tool") return 0;
-  if (a === "user" && b === "tool") return 16;
-  if (a === "assistant" && b === "tool") return 4;
-  if (a === "tool" && b === "assistant") return 4;
-  return 16;
+  return GAPS[`${a}>${b}`] ?? 16;
 }
 
 interface TurnTiming {
@@ -337,13 +377,18 @@ export function deriveTurnTiming(rows: readonly StreamRow[], running: boolean): 
   return timing;
 }
 
+interface AssistantAt {
+  index: number;
+  key: string;
+}
+
 /** The newest assistant row of the response that ends at `index`, walking back to its prompt. */
-function latestAssistantInResponse(rows: readonly StreamRow[], index: number): number | null {
+function latestAssistantInResponse(rows: readonly StreamRow[], index: number): AssistantAt | null {
   let later: StreamRow | null = null;
   for (let i = index; i >= 0; i--) {
-    const row = rows[i]!;
-    if (later && !continuesResponse(row, later)) return null;
-    if (row.kind === "assistant") return i;
+    const row = rows[i];
+    if (!row || (later && !continuesResponse(row, later))) return null;
+    if (row.kind === "assistant") return { index: i, key: row.key };
     later = row;
   }
   return null;
@@ -354,8 +399,8 @@ function responseText(rows: readonly StreamRow[], index: number): string {
   const messages: string[] = [];
   let later: StreamRow | null = null;
   for (let i = index; i >= 0; i--) {
-    const row = rows[i]!;
-    if (later && !continuesResponse(row, later)) break;
+    const row = rows[i];
+    if (!row || (later && !continuesResponse(row, later))) break;
     if (row.kind === "assistant") messages.push(row.text);
     later = row;
   }
@@ -364,36 +409,50 @@ function responseText(rows: readonly StreamRow[], index: number): string {
 
 function footerFor(
   rows: readonly StreamRow[],
-  assistantIndex: number,
+  assistant: AssistantAt,
   timing: Map<string, TurnTiming>,
 ): TurnFooterInfo {
-  const row = rows[assistantIndex]!;
-  const time = timing.get(row.key);
+  const time = timing.get(assistant.key);
   return {
-    key: row.key,
-    copy: responseText(rows, assistantIndex),
+    key: assistant.key,
+    copy: responseText(rows, assistant.index),
     completedAt: time?.completedAt ?? null,
     durationMs: time?.durationMs ?? null,
   };
 }
 
+function latestResponseFooter(
+  rows: readonly StreamRow[],
+  timing: Map<string, TurnTiming>,
+): TurnFooterInfo | null {
+  if (rows.length === 0) return null;
+  const assistant = latestAssistantInResponse(rows, rows.length - 1);
+  return assistant ? footerFor(rows, assistant, timing) : null;
+}
+
+interface FooterContext {
+  rows: readonly StreamRow[];
+  timing: Map<string, TurnTiming>;
+  auxiliaryKey: string | undefined;
+}
+
+function boundaryFooter(context: FooterContext, row: StreamRow, index: number): TurnFooterInfo | null {
+  const below = context.rows[index + 1] ?? null;
+  if (row.kind === "user" || !isResponseBoundary(row, below)) return null;
+  const assistant = latestAssistantInResponse(context.rows, index);
+  if (assistant === null || assistant.key === context.auxiliaryKey) return null;
+  return footerFor(context.rows, assistant, context.timing);
+}
+
 /** layout.ts layoutStream for a forward (oldest-first) list. */
 export function layoutStream(rows: readonly StreamRow[], running: boolean): StreamLayout {
   const timing = deriveTurnTiming(rows, running);
-  let auxiliaryFooter: TurnFooterInfo | null = null;
-  if (!running && rows.length > 0) {
-    const assistant = latestAssistantInResponse(rows, rows.length - 1);
-    if (assistant !== null) auxiliaryFooter = footerFor(rows, assistant, timing);
-  }
+  const auxiliaryFooter = running ? null : latestResponseFooter(rows, timing);
   const hasAuxiliaryFooter = running || auxiliaryFooter !== null;
+  const context: FooterContext = { rows, timing, auxiliaryKey: auxiliaryFooter?.key };
   const items = rows.map((row, index): StreamLayoutItem => {
     const below = rows[index + 1] ?? null;
-    let footer: TurnFooterInfo | null = null;
-    if (row.kind !== "user" && isResponseBoundary(row, below)) {
-      const assistant = latestAssistantInResponse(rows, index);
-      if (assistant !== null && rows[assistant]!.key !== auxiliaryFooter?.key)
-        footer = footerFor(rows, assistant, timing);
-    }
+    const footer = boundaryFooter(context, row, index);
     const compactBottom =
       row.kind === "assistant" && (footer !== null || (hasAuxiliaryFooter && below === null));
     return { row, gapBelow: footer ? 0 : gapBetween(row, below), compactBottom, footer };
@@ -432,6 +491,19 @@ function sameFooter(a: TurnFooterInfo | null, b: TurnFooterInfo | null): boolean
   );
 }
 
+function retainItem(old: StreamLayoutItem, item: StreamLayoutItem): StreamLayoutItem {
+  const row =
+    old.row === item.row || (old.row.kind === item.row.kind && shallowEqual(old.row, item.row))
+      ? old.row
+      : item.row;
+  const same =
+    row === old.row &&
+    old.gapBelow === item.gapBelow &&
+    old.compactBottom === item.compactBottom &&
+    sameFooter(old.footer, item.footer);
+  return same ? old : { ...item, row };
+}
+
 /**
  * Keeps the previous object for every row and layout item whose content didn't
  * change, so memoised rows skip rendering while another row streams.
@@ -442,20 +514,7 @@ export function retainLayout(previous: StreamLayout | null, next: StreamLayout):
   let changed = previous.items.length !== next.items.length;
   const items = next.items.map((item, index) => {
     const old = byKey.get(item.row.key);
-    if (!old) {
-      changed = true;
-      return item;
-    }
-    const row =
-      old.row === item.row || (old.row.kind === item.row.kind && shallowEqual(old.row, item.row))
-        ? old.row
-        : item.row;
-    const same =
-      row === old.row &&
-      old.gapBelow === item.gapBelow &&
-      old.compactBottom === item.compactBottom &&
-      sameFooter(old.footer, item.footer);
-    const kept = same ? old : { ...item, row };
+    const kept = old ? retainItem(old, item) : item;
     if (kept !== previous.items[index]) changed = true;
     return kept;
   });

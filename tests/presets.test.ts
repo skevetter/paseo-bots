@@ -10,7 +10,7 @@ import {
   presetFromBot,
 } from "../shared/bot";
 import { addImportedBots } from "../shared/library";
-import { makeBot } from "./helpers";
+import { defined, makeBot } from "./helpers";
 
 describe("defaults and presets", () => {
   it("starts new bots with the default agent", () => {
@@ -70,8 +70,8 @@ describe("defaults and presets", () => {
       { bot: makeBot({ id: "c", name: "Inbox" }), skills: [], mcpServers: [] },
     ]);
     expect(next.bots.map((bot) => bot.name)).toEqual(["Inbox", "Inbox 2", "Inbox 3"]);
-    expect(next.library!.skills).toMatchObject([{ id: "triage", enabled: false, reviewedSha: null }]);
-    expect(next.bots[1]!.mcpServerIds).toEqual([next.library!.mcpServers[0]!.id]);
+    expect(next.library?.skills).toMatchObject([{ id: "triage", enabled: false, reviewedSha: null }]);
+    expect(next.bots[1]?.mcpServerIds).toEqual([defined(next.library?.mcpServers[0], "imported server").id]);
   });
 });
 
@@ -105,7 +105,7 @@ describe("team files", () => {
     expect(isTeamFile(json)).toBe(true);
     const imported = await importTeam({ json });
     expect(imported.bots.map((entry) => entry.bot.name)).toEqual(["Inbox", "Scout"]);
-    expect(imported.bots[0]!.bot).toMatchObject({
+    expect(imported.bots[0]?.bot).toMatchObject({
       apps: [],
       contactBots: "ask",
       routines: [{ name: "Daily", enabled: false, resultsChatId: null }],
@@ -154,7 +154,8 @@ describe("team files", () => {
       imported.teams,
       "now",
     );
-    const [juno, mika] = [values.bots[1]!, values.bots[2]!];
+    const juno = defined(values.bots[1], "Juno 2");
+    const mika = defined(values.bots[2], "Mika");
     expect([juno.name, mika.name]).toEqual(["Juno 2", "Mika"]);
     expect(values.groups).toMatchObject([
       { name: "Studio", logo, leadId: juno.id, memberIds: [juno.id, mika.id], instructions: "Ship Fridays." },

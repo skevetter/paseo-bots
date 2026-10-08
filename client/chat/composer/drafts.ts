@@ -2,13 +2,13 @@ import { useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import type { ComposerAttachment } from "../../../shared/attachments";
 import {
+  type ComposerDraft,
   enqueue,
   isDraftEmpty,
   parseDrafts,
+  type QueuedMessage,
   serializeDrafts,
   takeQueued,
-  type ComposerDraft,
-  type QueuedMessage,
 } from "./logic";
 import { readItem, readItemSync, writeItem } from "./storage";
 
@@ -44,15 +44,15 @@ export function setDraft(
   draft: { text: string; attachments: ComposerAttachment[] } | null,
 ): void {
   const current = drafts[key];
-  if (isDraftEmpty(draft)) {
+  if (draft === null || isDraftEmpty(draft)) {
     if (!current) return;
     const { [key]: _removed, ...rest } = drafts;
     drafts = rest;
   } else {
-    if (current && current.text === draft!.text && current.attachments === draft!.attachments) return;
+    if (current && current.text === draft.text && current.attachments === draft.attachments) return;
     drafts = {
       ...drafts,
-      [key]: { text: draft!.text, attachments: draft!.attachments, updatedAt: Date.now() },
+      [key]: { text: draft.text, attachments: draft.attachments, updatedAt: Date.now() },
     };
   }
   schedulePersist();

@@ -13,7 +13,12 @@ import {
 } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import type { LibrarySkill } from "../shared/bot";
-import { parseSkillFrontmatter, parseSkillSource, sanitizeSkillName } from "../shared/skills";
+import {
+  parseSkillFrontmatter,
+  parseSkillSource,
+  type SkillSource,
+  sanitizeSkillName,
+} from "../shared/skills";
 import { botDataPath, botsHomePath, pluginDataPath } from "./bot-home";
 
 // The shared skill library: one folder per skill under plugin-data/library/skills.
@@ -71,6 +76,14 @@ interface TreeEntry {
   size?: number;
 }
 
+interface RepoTree {
+  owner: string;
+  repo: string;
+  ref: string;
+  entries: TreeEntry[];
+  skillDirs: string[];
+}
+
 /** Fetches skills from "owner/repo", "owner/repo/path", a GitHub URL or a SKILL.md link into the library. */
 export async function importSkills({
   source: input,
@@ -78,20 +91,34 @@ export async function importSkills({
   source: string;
 }): Promise<{ skills: ImportedSkill[] }> {
   const source = parseSkillSource(input);
-  if (source.kind === "raw") {
-    const text = await fetchText(source.url);
-    const fallback = posix.basename(posix.dirname(new URL(source.url).pathname)) || "skill";
-    return { skills: [await saveSkill(new Map([["SKILL.md", text]]), source.url, fallback)] };
-  }
+  if (source.kind === "github") return { skills: await importGitHubSkills(source) };
+  const text = await fetchText(source.url);
+  const fallback = posix.basename(posix.dirname(new URL(source.url).pathname)) || "skill";
+  return { skills: [await saveSkill(new Map([["SKILL.md", text]]), source.url, fallback)] };
+}
 
+async function importGitHubSkills(
+  source: Extract<SkillSource, { kind: "github" }>,
+): Promise<ImportedSkill[]> {
   const { owner, repo } = source;
   const api = `https://api.github.com/repos/${owner}/${repo}`;
   const ref = source.ref ?? (await fetchJson<{ default_branch: string }>(api)).default_branch;
   const tree = await fetchJson<{ tree: TreeEntry[]; truncated: boolean }>(
     `${api}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
   );
-  const prefix = source.path ? `${source.path}/` : "";
-  const skillDirs = tree.tree
+  const skillDirs = findSkillDirs(tree.tree, source.path);
+  if (skillDirs.length === 0)
+    throw new Error(`No SKILL.md found in ${owner}/${repo}${source.path ? `/${source.path}` : ""}.`);
+
+  const skills: ImportedSkill[] = [];
+  for (const dir of skillDirs)
+    skills.push(await importSkillDir({ owner, repo, ref, entries: tree.tree, skillDirs }, dir));
+  return skills;
+}
+
+function findSkillDirs(entries: TreeEntry[], path: string): string[] {
+  const prefix = path ? `${path}/` : "";
+  return entries
     .filter(
       (entry) =>
         entry.type === "blob" &&
@@ -100,36 +127,32 @@ export async function importSkills({
     )
     .map((entry) => posix.dirname(entry.path))
     .slice(0, MAX_SKILLS);
-  if (skillDirs.length === 0)
-    throw new Error(`No SKILL.md found in ${owner}/${repo}${source.path ? `/${source.path}` : ""}.`);
+}
 
-  const skills: ImportedSkill[] = [];
-  for (const dir of skillDirs) {
-    const base = dir === "." ? "" : `${dir}/`;
-    const blobs = tree.tree
-      .filter(
-        (entry) =>
-          entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
-      )
-      // Nested skills are imported on their own.
-      .filter(
-        (entry) =>
-          !skillDirs.some(
-            (other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`),
-          ),
-      )
-      .slice(0, MAX_FILES_PER_SKILL);
-    const files = new Map<string, string>();
-    for (const blob of blobs) {
-      files.set(
-        blob.path.slice(base.length),
-        await fetchText(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${blob.path}`),
-      );
-    }
-    const origin = `github.com/${owner}/${repo}${dir === "." ? "" : `/${dir}`}`;
-    skills.push(await saveSkill(files, origin, dir === "." ? repo : posix.basename(dir)));
+async function importSkillDir(tree: RepoTree, dir: string): Promise<ImportedSkill> {
+  const { owner, repo, ref, skillDirs } = tree;
+  const base = dir === "." ? "" : `${dir}/`;
+  const blobs = tree.entries
+    .filter(
+      (entry) => entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
+    )
+    // Nested skills are imported on their own.
+    .filter(
+      (entry) =>
+        !skillDirs.some(
+          (other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`),
+        ),
+    )
+    .slice(0, MAX_FILES_PER_SKILL);
+  const files = new Map<string, string>();
+  for (const blob of blobs) {
+    files.set(
+      blob.path.slice(base.length),
+      await fetchText(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${blob.path}`),
+    );
   }
-  return { skills };
+  const origin = `github.com/${owner}/${repo}${dir === "." ? "" : `/${dir}`}`;
+  return saveSkill(files, origin, dir === "." ? repo : posix.basename(dir));
 }
 
 async function listFiles(root: string): Promise<string[]> {
@@ -189,16 +212,18 @@ export async function deleteSkill({ id }: { id: string }) {
 export async function migrateBotSkills(): Promise<void> {
   const bots = await readdir(botsHomePath(), { withFileTypes: true }).catch(() => []);
   for (const bot of bots) {
-    if (!bot.isDirectory()) continue;
-    const skillsDir = join(botsHomePath(), bot.name, "skills");
-    const skills = await readdir(skillsDir, { withFileTypes: true }).catch(() => []);
-    for (const skill of skills) {
-      if (!skill.isDirectory()) continue;
-      const target = librarySkillPath(skill.name);
-      if (await lstat(target).catch(() => null)) continue;
-      await mkdir(librarySkillsPath(), { recursive: true });
-      await rename(join(skillsDir, skill.name), target);
-    }
+    if (bot.isDirectory()) await migrateSkillsFolder(join(botsHomePath(), bot.name, "skills"));
+  }
+}
+
+async function migrateSkillsFolder(skillsDir: string): Promise<void> {
+  const skills = await readdir(skillsDir, { withFileTypes: true }).catch(() => []);
+  for (const skill of skills) {
+    if (!skill.isDirectory()) continue;
+    const target = librarySkillPath(skill.name);
+    if (await lstat(target).catch(() => null)) continue;
+    await mkdir(librarySkillsPath(), { recursive: true });
+    await rename(join(skillsDir, skill.name), target);
   }
 }
 
@@ -219,20 +244,22 @@ export async function linkBotSkills(botId: string, ids: readonly string[]): Prom
   for (const id of ids) {
     const target = librarySkillPath(id);
     const link = join(dir, id);
-    const info = await lstat(link).catch(() => null);
-    let linked = false;
-    if (info?.isSymbolicLink()) {
-      linked = (await readlink(link).catch(() => "")) === target;
-      if (!linked) await unlink(link).catch(() => {});
-    }
-    if (!info || (info.isSymbolicLink() && !linked)) {
-      // "junction" lets Windows link folders without admin rights; other systems ignore it.
-      linked = await symlink(target, link, "junction").then(
-        () => true,
-        () => false,
-      );
-    }
+    const linked = await linkSkill(target, link);
     paths.set(id, join(linked ? link : target, "SKILL.md"));
   }
   return paths;
+}
+
+async function linkSkill(target: string, link: string): Promise<boolean> {
+  const info = await lstat(link).catch(() => null);
+  if (info && !info.isSymbolicLink()) return false;
+  if (info) {
+    if ((await readlink(link).catch(() => "")) === target) return true;
+    await unlink(link).catch(() => {});
+  }
+  // "junction" lets Windows link folders without admin rights; other systems ignore it.
+  return symlink(target, link, "junction").then(
+    () => true,
+    () => false,
+  );
 }

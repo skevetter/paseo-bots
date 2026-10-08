@@ -1,23 +1,23 @@
 import { join } from "node:path";
-import type { PaseoApi } from "./paseo";
 import { recentWork } from "../shared/activity";
-import { selectPlaybooks } from "../shared/playbooks";
-import { paseoToolsState, type PaseoToolsConfig } from "../shared/paseo-tools";
 import type { AppAccount, PromptApp } from "../shared/apps";
-import { accounts, catalog, readState } from "./composio";
 import {
-  botSkills,
-  composeSystemPrompt,
-  promptSections,
   type Bot,
   type BotGroup,
   type BotSettingsValues,
+  botSkills,
+  composeSystemPrompt,
   type Library,
   type PromptContext,
+  promptSections,
 } from "../shared/bot";
 import { teamOf, teamPrompt } from "../shared/groups";
-import { linkBotSkills, skillSha } from "./library";
+import { type PaseoToolsConfig, paseoToolsState } from "../shared/paseo-tools";
+import { selectPlaybooks } from "../shared/playbooks";
+import { accounts, catalog, readState } from "./composio";
+import { librarySkillPath, linkBotSkills, skillSha } from "./library";
 import { injectedMemory, MAIN_MEMORY, memoryFolder, recentLogEntries } from "./memory";
+import type { PaseoApi } from "./paseo";
 
 /**
  * The connected apps a bot may use right now (allowed for it and signed in on
@@ -61,9 +61,7 @@ export interface ChatStart {
  */
 export async function promptContext(
   bot: Bot,
-  local: boolean,
-  library: Library,
-  paseoTools: boolean,
+  { local, library, paseoTools }: { local: boolean; library: Library; paseoTools: boolean },
   start: ChatStart = {},
 ): Promise<PromptContext> {
   // Playbooks and teams live in the settings, so they travel with the bot to any host.
@@ -104,7 +102,7 @@ export async function promptContext(
     skills: skills.map((skill) => ({
       name: skill.id,
       description: skill.description,
-      path: paths.get(skill.id)!,
+      path: paths.get(skill.id) ?? join(librarySkillPath(skill.id), "SKILL.md"),
     })),
     paseoTools,
     botTools: true,
@@ -138,9 +136,7 @@ export async function systemPrompt(
   // Another host's config isn't readable from here; Paseo gives agents its tools by default.
   const context = await promptContext(
     bot,
-    local,
-    library,
-    local ? await paseoToolsOn(paseo, bot.provider) : true,
+    { local, library, paseoTools: local ? await paseoToolsOn(paseo, bot.provider) : true },
     start,
   );
   return { systemPrompt: composeSystemPrompt(bot, context), sections: promptSections(bot, context) };

@@ -118,14 +118,20 @@ export function rng(seed: string): () => number {
 }
 
 export function pick<T>(next: () => number, items: readonly T[]): T {
-  return items[Math.floor(next() * items.length)]!;
+  if (items.length === 0) throw new Error("pick needs at least one item");
+  return items[Math.floor(next() * items.length)];
 }
 
 /** Number of colour palettes a bot or team can pin its picture to. */
 export const PALETTE_COUNT = PALETTES.length;
 
+/** The palette at `index`, wrapping past the last one. */
+export function paletteAt(index: number): Palette {
+  return PALETTES[index % PALETTES.length];
+}
+
 export function paletteSwatch(index: number): string {
-  return PALETTES[index % PALETTES.length]!.body;
+  return paletteAt(index).body;
 }
 
 // ------------------------------------------------------------------ themes
@@ -148,7 +154,7 @@ function blend(a: string, b: string, weight: number): string {
     "#" +
     x
       .map((channel, i) =>
-        Math.round(channel * weight + y[i]! * (1 - weight))
+        Math.round(channel * weight + y[i] * (1 - weight))
           .toString(16)
           .padStart(2, "0"),
       )

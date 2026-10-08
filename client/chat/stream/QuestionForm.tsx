@@ -1,21 +1,21 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PaseoAgentPermissionResponse } from "../../paseo";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useMemo, useState } from "react";
-import { Pressable, Text, View, type TextStyle } from "react-native";
+import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
+import { Pressable, Text, type TextStyle, View } from "react-native";
 import { nativeTokens } from "../../native";
+import type { PaseoAgentPermissionResponse } from "../../paseo";
 import { ui } from "../../typography";
 import {
   areQuestionsAnswered,
   buildQuestionFormAnswers,
   isQuestionAnswered,
   parseQuestionFormQuestions,
+  type QuestionFormQuestion,
   questionShowsTextInput,
   resolveDismissLabel,
   shouldSubmitEmptyOnDismiss,
-  type QuestionFormQuestion,
 } from "./question";
-import { isWeb, Spinner } from "./ui";
+import { isWeb, keysWithOccurrence, Spinner } from "./ui";
 
 type Colors = PluginTheme["colors"];
 
@@ -27,70 +27,100 @@ interface QuestionFormCardProps {
   onRespond(response: PaseoAgentPermissionResponse): void;
 }
 
-/** Paseo's QuestionFormCard (components/question-form-card.tsx). */
-export function QuestionFormCard({ colors, input, compact, isResponding, onRespond }: QuestionFormCardProps) {
-  const tokens = nativeTokens(colors);
-  const questions = useMemo(() => parseQuestionFormQuestions(input), [input]);
-  const [selections, setSelections] = useState<Record<number, Set<number>>>({});
+type QuestionSelectionState = Record<number, Set<number>>;
+type RespondingAction = "submit" | "dismiss" | null;
+
+interface QuestionFormState {
+  selections: QuestionSelectionState;
+  setSelections: Dispatch<SetStateAction<QuestionSelectionState>>;
+  otherTexts: Record<number, string>;
+  setOtherTexts: Dispatch<SetStateAction<Record<number, string>>>;
+  activeIndex: number;
+  setActiveIndex: Dispatch<SetStateAction<number>>;
+  respondingAction: RespondingAction;
+  setRespondingAction: Dispatch<SetStateAction<RespondingAction>>;
+}
+
+function useQuestionFormState(): QuestionFormState {
+  const [selections, setSelections] = useState<QuestionSelectionState>({});
   const [otherTexts, setOtherTexts] = useState<Record<number, string>>({});
   const [activeIndex, setActiveIndex] = useState(0);
-  const [respondingAction, setRespondingAction] = useState<"submit" | "dismiss" | null>(null);
-  const [dismissHovered, setDismissHovered] = useState(false);
+  const [respondingAction, setRespondingAction] = useState<RespondingAction>(null);
+  return {
+    selections,
+    setSelections,
+    otherTexts,
+    setOtherTexts,
+    activeIndex,
+    setActiveIndex,
+    respondingAction,
+    setRespondingAction,
+  };
+}
 
-  if (!questions) return null;
+function toggledSelection(
+  selected: ReadonlySet<number>,
+  optionIndex: number,
+  multiSelect: boolean,
+): Set<number> {
+  const next = new Set(selected);
+  if (multiSelect) {
+    if (next.has(optionIndex)) next.delete(optionIndex);
+    else next.add(optionIndex);
+    return next;
+  }
+  const wasSelected = next.has(optionIndex);
+  next.clear();
+  if (!wasSelected) next.add(optionIndex);
+  return next;
+}
 
-  const index = Math.min(activeIndex, questions.length - 1);
-  const question = questions[index]!;
-  const allAnswered = areQuestionsAnswered(questions, selections, otherTexts);
-  const activeAnswered = isQuestionAnswered(question, index, selections, otherTexts);
-  const isLast = index === questions.length - 1;
-  const primaryDisabled = isResponding || (isLast ? !allAnswered : !activeAnswered);
-  const primaryLabel = isLast ? "Submit" : "Next";
-  const dismissLabel = resolveDismissLabel(questions);
-  const selected = selections[index] ?? new Set<number>();
-  const otherText = otherTexts[index] ?? "";
+interface QuestionFormActionsContext {
+  questions: QuestionFormQuestion[];
+  question: QuestionFormQuestion;
+  index: number;
+  selected: ReadonlySet<number>;
+  state: QuestionFormState;
+  input: Record<string, unknown> | undefined;
+  isResponding: boolean;
+  allAnswered: boolean;
+  activeAnswered: boolean;
+  isLast: boolean;
+  onRespond(response: PaseoAgentPermissionResponse): void;
+}
+
+function createQuestionFormActions(context: QuestionFormActionsContext) {
+  const { questions, question, index, selected, state, input, isResponding, onRespond } = context;
+  const nextIndex = Math.min(index + 1, questions.length - 1);
 
   const toggle = (optionIndex: number) => {
-    const next = new Set(selected);
-    if (question.multiSelect) {
-      if (next.has(optionIndex)) next.delete(optionIndex);
-      else next.add(optionIndex);
-    } else if (next.has(optionIndex)) next.clear();
-    else {
-      next.clear();
-      next.add(optionIndex);
-    }
-    setSelections((previous) => ({ ...previous, [index]: next }));
+    const next = toggledSelection(selected, optionIndex, question.multiSelect);
+    state.setSelections((previous) => ({ ...previous, [index]: next }));
+    if (question.multiSelect) return;
     // Single-select: an option and a typed answer replace each other.
-    if (!question.multiSelect && otherTexts[index]) {
-      setOtherTexts((previous) => {
+    if (state.otherTexts[index]) {
+      state.setOtherTexts((previous) => {
         const copy = { ...previous };
         delete copy[index];
         return copy;
       });
     }
-    if (!question.multiSelect && next.size > 0) setActiveIndex(Math.min(index + 1, questions.length - 1));
+    if (next.size > 0) state.setActiveIndex(nextIndex);
   };
 
   const setOther = (text: string) => {
-    setOtherTexts((previous) => ({ ...previous, [index]: text }));
+    state.setOtherTexts((previous) => ({ ...previous, [index]: text }));
     if (!question.multiSelect && text.length > 0 && selected.size > 0)
-      setSelections((previous) => ({ ...previous, [index]: new Set<number>() }));
+      state.setSelections((previous) => ({ ...previous, [index]: new Set<number>() }));
   };
 
   const answers = () => ({
     ...(input ?? {}),
-    answers: buildQuestionFormAnswers(questions, selections, otherTexts),
+    answers: buildQuestionFormAnswers(questions, state.selections, state.otherTexts),
   });
 
-  const submit = () => {
-    if (!allAnswered || isResponding) return;
-    setRespondingAction("submit");
-    onRespond({ behavior: "allow", updatedInput: answers() });
-  };
-
   const dismiss = () => {
-    setRespondingAction("dismiss");
+    state.setRespondingAction("dismiss");
     if (shouldSubmitEmptyOnDismiss(questions)) {
       onRespond({ behavior: "allow", updatedInput: answers() });
       return;
@@ -99,16 +129,46 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
   };
 
   const primary = () => {
-    if (!isLast) {
-      if (!activeAnswered || isResponding) return;
-      setActiveIndex(Math.min(index + 1, questions.length - 1));
+    if (!context.isLast) {
+      if (!context.activeAnswered || isResponding) return;
+      state.setActiveIndex(nextIndex);
       return;
     }
-    submit();
+    if (!context.allAnswered || isResponding) return;
+    state.setRespondingAction("submit");
+    onRespond({ behavior: "allow", updatedInput: answers() });
   };
 
-  const placeholder =
-    question.placeholder ?? (question.options.length === 0 ? "Type your answer..." : "Other...");
+  return { toggle, setOther, dismiss, primary };
+}
+
+/** Paseo's QuestionFormCard (components/question-form-card.tsx). */
+export function QuestionFormCard({ colors, input, compact, isResponding, onRespond }: QuestionFormCardProps) {
+  const questions = useMemo(() => parseQuestionFormQuestions(input), [input]);
+  const state = useQuestionFormState();
+
+  if (!questions) return null;
+
+  const index = Math.min(state.activeIndex, questions.length - 1);
+  const question = questions[index];
+  if (!question) return null;
+  const allAnswered = areQuestionsAnswered(questions, state.selections, state.otherTexts);
+  const activeAnswered = isQuestionAnswered(question, index, state.selections, state.otherTexts);
+  const isLast = index === questions.length - 1;
+  const selected = state.selections[index] ?? new Set<number>();
+  const actions = createQuestionFormActions({
+    questions,
+    question,
+    index,
+    selected,
+    state,
+    input,
+    isResponding,
+    allAnswered,
+    activeAnswered,
+    isLast,
+    onRespond,
+  });
 
   return (
     <View
@@ -122,30 +182,13 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
       }}
     >
       {questions.length > 1 ? (
-        <View
-          accessibilityRole="tablist"
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            alignItems: "center",
-            gap: 4,
-            paddingHorizontal: 12,
-          }}
-        >
-          {questions.map((entry, entryIndex) => (
-            <NavButton
-              key={`${entry.header}-${entryIndex}`}
-              colors={colors}
-              label={entry.header}
-              total={questions.length}
-              index={entryIndex}
-              active={entryIndex === index}
-              answered={isQuestionAnswered(entry, entryIndex, selections, otherTexts)}
-              disabled={isResponding}
-              onPress={() => setActiveIndex(entryIndex)}
-            />
-          ))}
-        </View>
+        <QuestionTabs
+          colors={colors}
+          questions={questions}
+          activeIndex={index}
+          state={state}
+          disabled={isResponding}
+        />
       ) : null}
       <View
         style={{
@@ -162,111 +205,246 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
       </View>
       <View key={question.question} style={{ gap: 8 }}>
         {question.options.length > 0 ? (
-          <View
-            style={{ gap: 4 }}
-            {...(!question.multiSelect
-              ? { accessibilityRole: "radiogroup" as const, accessibilityLabel: question.question }
-              : {})}
-          >
-            {question.options.map((option, optionIndex) => (
-              <OptionRow
-                key={`${option.label}-${optionIndex}`}
-                colors={colors}
-                question={question}
-                label={option.label}
-                description={option.description}
-                selected={selected.has(optionIndex)}
-                disabled={isResponding}
-                onPress={() => toggle(optionIndex)}
-              />
-            ))}
-          </View>
+          <QuestionOptions
+            colors={colors}
+            question={question}
+            selected={selected}
+            disabled={isResponding}
+            onToggle={actions.toggle}
+          />
         ) : null}
         {questionShowsTextInput(question) ? (
-          <TextInput
-            accessibilityLabel={question.question}
-            value={otherText}
-            onChangeText={setOther}
-            onSubmitEditing={primary}
-            placeholder={placeholder}
-            placeholderTextColor={colors.foregroundMuted}
-            editable={!isResponding}
-            blurOnSubmit={false}
-            style={{
-              borderWidth: 1,
-              borderRadius: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 12,
-              fontSize: ui(14),
-              borderColor: otherText.length > 0 ? tokens.borderAccent : colors.border,
-              color: colors.foreground,
-              backgroundColor: colors.surface2,
-              ...(isWeb ? ({ outlineStyle: "none", outlineWidth: 0 } as unknown as TextStyle) : {}),
-            }}
+          <QuestionTextInput
+            colors={colors}
+            question={question}
+            value={state.otherTexts[index] ?? ""}
+            disabled={isResponding}
+            onChangeText={actions.setOther}
+            onSubmit={actions.primary}
           />
         ) : null}
       </View>
-      <View
-        style={
-          compact
-            ? { gap: 8 }
-            : { gap: 8, flexDirection: "row", justifyContent: "flex-start", alignItems: "center" }
-        }
+      <QuestionActions
+        colors={colors}
+        compact={compact}
+        isResponding={isResponding}
+        respondingAction={state.respondingAction}
+        dismissLabel={resolveDismissLabel(questions)}
+        primaryLabel={isLast ? "Submit" : "Next"}
+        primaryDisabled={isResponding || (isLast ? !allAnswered : !activeAnswered)}
+        onDismiss={actions.dismiss}
+        onPrimary={actions.primary}
+      />
+    </View>
+  );
+}
+
+function QuestionTabs({
+  colors,
+  questions,
+  activeIndex,
+  state,
+  disabled,
+}: {
+  colors: Colors;
+  questions: QuestionFormQuestion[];
+  activeIndex: number;
+  state: QuestionFormState;
+  disabled: boolean;
+}) {
+  const keys = keysWithOccurrence(questions.map((entry) => entry.header));
+  return (
+    <View
+      accessibilityRole="tablist"
+      style={{
+        flexDirection: "row",
+        flexWrap: "wrap",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 12,
+      }}
+    >
+      {questions.map((entry, entryIndex) => (
+        <NavButton
+          key={keys[entryIndex]}
+          colors={colors}
+          label={entry.header}
+          total={questions.length}
+          index={entryIndex}
+          active={entryIndex === activeIndex}
+          answered={isQuestionAnswered(entry, entryIndex, state.selections, state.otherTexts)}
+          disabled={disabled}
+          onPress={() => state.setActiveIndex(entryIndex)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function QuestionOptions({
+  colors,
+  question,
+  selected,
+  disabled,
+  onToggle,
+}: {
+  colors: Colors;
+  question: QuestionFormQuestion;
+  selected: ReadonlySet<number>;
+  disabled: boolean;
+  onToggle(optionIndex: number): void;
+}) {
+  const keys = keysWithOccurrence(question.options.map((option) => option.label));
+  return (
+    <View
+      style={{ gap: 4 }}
+      {...(!question.multiSelect
+        ? { accessibilityRole: "radiogroup" as const, accessibilityLabel: question.question }
+        : {})}
+    >
+      {question.options.map((option, optionIndex) => (
+        <OptionRow
+          key={keys[optionIndex]}
+          colors={colors}
+          question={question}
+          label={option.label}
+          description={option.description}
+          selected={selected.has(optionIndex)}
+          disabled={disabled}
+          onPress={() => onToggle(optionIndex)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function QuestionTextInput({
+  colors,
+  question,
+  value,
+  disabled,
+  onChangeText,
+  onSubmit,
+}: {
+  colors: Colors;
+  question: QuestionFormQuestion;
+  value: string;
+  disabled: boolean;
+  onChangeText(text: string): void;
+  onSubmit(): void;
+}) {
+  const tokens = nativeTokens(colors);
+  const placeholder =
+    question.placeholder ?? (question.options.length === 0 ? "Type your answer..." : "Other...");
+  return (
+    <TextInput
+      accessibilityLabel={question.question}
+      value={value}
+      onChangeText={onChangeText}
+      onSubmitEditing={onSubmit}
+      placeholder={placeholder}
+      placeholderTextColor={colors.foregroundMuted}
+      editable={!disabled}
+      blurOnSubmit={false}
+      style={{
+        borderWidth: 1,
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 12,
+        fontSize: ui(14),
+        borderColor: value.length > 0 ? tokens.borderAccent : colors.border,
+        color: colors.foreground,
+        backgroundColor: colors.surface2,
+        ...(isWeb ? ({ outlineStyle: "none", outlineWidth: 0 } as unknown as TextStyle) : {}),
+      }}
+    />
+  );
+}
+
+function QuestionActions({
+  colors,
+  compact,
+  isResponding,
+  respondingAction,
+  dismissLabel,
+  primaryLabel,
+  primaryDisabled,
+  onDismiss,
+  onPrimary,
+}: {
+  colors: Colors;
+  compact: boolean;
+  isResponding: boolean;
+  respondingAction: RespondingAction;
+  dismissLabel: string;
+  primaryLabel: string;
+  primaryDisabled: boolean;
+  onDismiss(): void;
+  onPrimary(): void;
+}) {
+  const tokens = nativeTokens(colors);
+  const [dismissHovered, setDismissHovered] = useState(false);
+  return (
+    <View
+      style={
+        compact
+          ? { gap: 8 }
+          : { gap: 8, flexDirection: "row", justifyContent: "flex-start", alignItems: "center" }
+      }
+    >
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={dismissLabel}
+        onPress={onDismiss}
+        disabled={isResponding}
+        onHoverIn={() => setDismissHovered(true)}
+        onHoverOut={() => setDismissHovered(false)}
+        style={({ pressed }) => ({
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 6,
+          alignItems: "center",
+          borderWidth: 1,
+          backgroundColor: dismissHovered ? colors.surface2 : colors.surface1,
+          borderColor: tokens.borderAccent,
+          opacity: pressed ? 0.9 : 1,
+        })}
       >
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={dismissLabel}
-          onPress={dismiss}
-          disabled={isResponding}
-          onHoverIn={() => setDismissHovered(true)}
-          onHoverOut={() => setDismissHovered(false)}
-          style={({ pressed }) => ({
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 6,
-            alignItems: "center",
-            borderWidth: 1,
-            backgroundColor: dismissHovered ? colors.surface2 : colors.surface1,
-            borderColor: tokens.borderAccent,
-            opacity: pressed ? 0.9 : 1,
-          })}
-        >
-          {respondingAction === "dismiss" && isResponding ? (
-            <Spinner color={colors.foregroundMuted} />
-          ) : (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Icon name="X" size={14} color={colors.foregroundMuted} />
-              <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>{dismissLabel}</Text>
-            </View>
-          )}
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={primaryLabel}
-          accessibilityState={{ disabled: primaryDisabled }}
-          onPress={primary}
-          disabled={primaryDisabled}
-          style={({ pressed }) => ({
-            paddingVertical: 8,
-            paddingHorizontal: 12,
-            borderRadius: 6,
-            alignItems: "center",
-            borderWidth: 1,
-            backgroundColor: colors.accent,
-            borderColor: colors.accent,
-            opacity: primaryDisabled ? 0.5 : pressed ? 0.9 : 1,
-          })}
-        >
-          {respondingAction === "submit" && isResponding ? (
-            <Spinner color={colors.accentForeground} />
-          ) : (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <Icon name="Check" size={14} color={colors.accentForeground} />
-              <Text style={{ fontSize: ui(14), color: colors.accentForeground }}>{primaryLabel}</Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
+        {respondingAction === "dismiss" && isResponding ? (
+          <Spinner color={colors.foregroundMuted} />
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Icon name="X" size={14} color={colors.foregroundMuted} />
+            <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>{dismissLabel}</Text>
+          </View>
+        )}
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={primaryLabel}
+        accessibilityState={{ disabled: primaryDisabled }}
+        onPress={onPrimary}
+        disabled={primaryDisabled}
+        style={({ pressed }) => ({
+          paddingVertical: 8,
+          paddingHorizontal: 12,
+          borderRadius: 6,
+          alignItems: "center",
+          borderWidth: 1,
+          backgroundColor: colors.accent,
+          borderColor: colors.accent,
+          opacity: primaryDisabled ? 0.5 : pressed ? 0.9 : 1,
+        })}
+      >
+        {respondingAction === "submit" && isResponding ? (
+          <Spinner color={colors.accentForeground} />
+        ) : (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Icon name="Check" size={14} color={colors.accentForeground} />
+            <Text style={{ fontSize: ui(14), color: colors.accentForeground }}>{primaryLabel}</Text>
+          </View>
+        )}
+      </Pressable>
     </View>
   );
 }
@@ -345,7 +523,6 @@ function OptionRow({
   onPress(): void;
 }) {
   const [hovered, setHovered] = useState(false);
-  const tokens = nativeTokens(colors);
   const multi = question.multiSelect;
   return (
     <Pressable
@@ -367,24 +544,7 @@ function OptionRow({
       })}
     >
       <View style={{ flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-        <View
-          style={{
-            width: 18,
-            height: 18,
-            alignItems: "center",
-            justifyContent: "center",
-            borderWidth: 1,
-            marginTop: 2,
-            borderRadius: multi ? 4 : 999,
-            borderColor: selected ? colors.accent : tokens.foregroundExtraMuted,
-            backgroundColor: selected && multi ? colors.accent : "transparent",
-          }}
-        >
-          {selected && multi ? <Icon name="Check" size={12} color={colors.accentForeground} /> : null}
-          {selected && !multi ? (
-            <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: colors.accent }} />
-          ) : null}
-        </View>
+        <OptionIndicator colors={colors} multi={multi} selected={selected} />
         <View style={{ flex: 1, gap: 4 }}>
           <Text
             style={{
@@ -403,5 +563,29 @@ function OptionRow({
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function OptionIndicator({ colors, multi, selected }: { colors: Colors; multi: boolean; selected: boolean }) {
+  const tokens = nativeTokens(colors);
+  return (
+    <View
+      style={{
+        width: 18,
+        height: 18,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+        marginTop: 2,
+        borderRadius: multi ? 4 : 999,
+        borderColor: selected ? colors.accent : tokens.foregroundExtraMuted,
+        backgroundColor: selected && multi ? colors.accent : "transparent",
+      }}
+    >
+      {selected && multi ? <Icon name="Check" size={12} color={colors.accentForeground} /> : null}
+      {selected && !multi ? (
+        <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: colors.accent }} />
+      ) : null}
+    </View>
   );
 }

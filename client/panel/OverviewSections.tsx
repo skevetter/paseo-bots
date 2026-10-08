@@ -4,15 +4,23 @@ import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@get
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import { botLimits, botMcpServers, botSkills, estimateTokens, utf8Bytes, type Bot } from "../../shared/bot";
+import {
+  type Bot,
+  botLimits,
+  botMcpServers,
+  botSkills,
+  estimateTokens,
+  type PromptSection,
+  utf8Bytes,
+} from "../../shared/bot";
 import { teamOf } from "../../shared/groups";
 import { describeSchedule } from "../../shared/routines";
 import { systemPromptRpc } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
 import { useBotChats, useBotHost } from "../data";
+import { useAppsCatalog, useAppsStatus } from "../library/apps";
 import { MONO_FONT, MONO_PROPS } from "../native";
 import { code, codeLine, ui } from "../typography";
-import { useAppsCatalog, useAppsStatus } from "../library/apps";
 import type { PanelProps } from "./BotPanel";
 import { CardNote, DrillRow, SectionMeta } from "./controls";
 
@@ -39,6 +47,29 @@ function teamLine(bot: Bot, groups: PanelProps["groups"]): string {
   return `On ${group.name}`;
 }
 
+function promptHint(systemPrompt: string | undefined, isError: boolean): string {
+  if (systemPrompt !== undefined) return size(systemPrompt);
+  return isError ? "Unable to compose the prompt" : "Loading...";
+}
+
+function useReachableTools(bot: Bot, library: PanelProps["library"], isLocal: boolean) {
+  const appsStatus = useAppsStatus();
+  const appNames = new Map(
+    (useAppsCatalog(appsStatus.data?.configured ?? false).data?.apps ?? []).map((app) => [
+      app.slug,
+      app.name,
+    ]),
+  );
+  const tools = [
+    ...botMcpServers(bot, library).map((server) => server.name),
+    ...botSkills(bot, library).map((skill) => `${skill.id} (skill)`),
+    ...(appsStatus.data?.configured && isLocal
+      ? bot.apps.map((slug) => `${appNames.get(slug) ?? slug} (app)`)
+      : []),
+  ];
+  return { tools, appsConfigured: !!appsStatus.data?.configured };
+}
+
 export function OverviewSection({ colors, bot, library, groups, localHost, onSetup }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
   const compose = useRpc(systemPromptRpc);
@@ -58,22 +89,7 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
     placeholderData: (previous) => previous,
   });
   const [sheet, setSheet] = useState<"summary" | "prompt" | null>(null);
-
-  const appsStatus = useAppsStatus();
-  const appNames = new Map(
-    (useAppsCatalog(appsStatus.data?.configured ?? false).data?.apps ?? []).map((app) => [
-      app.slug,
-      app.name,
-    ]),
-  );
-  const tools = [
-    ...botMcpServers(bot, library).map((server) => server.name),
-    ...botSkills(bot, library).map((skill) => `${skill.id} (skill)`),
-    ...(appsStatus.data?.configured && host.isLocal
-      ? bot.apps.map((slug) => `${appNames.get(slug) ?? slug} (app)`)
-      : []),
-  ];
-  const sections = prompt.data?.sections ?? [];
+  const { tools, appsConfigured } = useReachableTools(bot, library, host.isLocal);
 
   return (
     <>
@@ -98,110 +114,150 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
           <DrillRow
             colors={colors}
             label="System prompt"
-            hint={
-              prompt.data
-                ? size(prompt.data.systemPrompt)
-                : prompt.isError
-                  ? "Unable to compose the prompt"
-                  : "Loading..."
-            }
+            hint={promptHint(prompt.data?.systemPrompt, prompt.isError)}
             onPress={() => setSheet("prompt")}
           />
         </SettingsCard>
       </SettingsSection>
       {sheet === "summary" ? (
-        <Modal title="Summary" open onOpenChange={(next) => !next && setSheet(null)}>
-          <Modal.Content>
-            <SettingsCard>
-              <SettingsRow
-                label="Does"
-                hint={bot.title || bot.description || "No title yet. Add one under Identity."}
-              />
-              <SettingsRow label="Team" hint={teamLine(bot, groups)} />
-              <SettingsRow
-                label="Can reach"
-                hint={
-                  tools.length ? tools.join(", ") : "Only its provider's built-in tools and Paseo's tools"
-                }
-              />
-              <SettingsRow
-                label="Runs"
-                hint={
-                  bot.routines.length
-                    ? bot.routines
-                        .map(
-                          (routine) =>
-                            `${routine.name}: ${describeSchedule(routine.schedule)}${routine.enabled ? "" : " (paused)"}`,
-                        )
-                        .join("\n")
-                    : "Only when you message it"
-                }
-              />
-              <SettingsRow
-                label="Won't"
-                hint={botLimits(bot, {
-                  local: host.isLocal,
-                  appsConfigured: !!appsStatus.data?.configured,
-                }).join("\n")}
-              />
-            </SettingsCard>
-          </Modal.Content>
-        </Modal>
+        <SummarySheet
+          bot={bot}
+          team={teamLine(bot, groups)}
+          tools={tools}
+          limits={botLimits(bot, { local: host.isLocal, appsConfigured })}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
       {sheet === "prompt" ? (
-        <Modal title="System prompt" open onOpenChange={(next) => !next && setSheet(null)}>
-          <Modal.Content>
-            <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
-              Sent with every new chat{prompt.data ? `: ${size(prompt.data.systemPrompt)}` : "."}
-            </Text>
-            {sections.length === 0 ? (
-              <CardNote
-                colors={colors}
-                text={prompt.isError ? "Unable to compose the prompt" : "Loading..."}
-                loading={!prompt.isError}
-              />
-            ) : null}
-            {sections.map((section) => (
-              <View key={section.title} style={{ gap: 8 }}>
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "baseline",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ fontSize: ui(14), color: colors.foreground }}>{section.title}</Text>
-                  <SectionMeta colors={colors} text={size(section.text)} />
-                </View>
-                <View
-                  style={{
-                    padding: 12,
-                    borderRadius: 8,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    backgroundColor: colors.surface1,
-                  }}
-                >
-                  <Text
-                    selectable
-                    {...MONO_PROPS}
-                    style={{
-                      fontFamily: MONO_FONT,
-                      fontSize: code(),
-                      lineHeight: codeLine(),
-                      color: colors.foreground,
-                    }}
-                  >
-                    {section.text}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </Modal.Content>
-        </Modal>
+        <PromptSheet
+          colors={colors}
+          systemPrompt={prompt.data?.systemPrompt}
+          sections={prompt.data?.sections ?? []}
+          isError={prompt.isError}
+          onClose={() => setSheet(null)}
+        />
       ) : null}
     </>
+  );
+}
+
+function SummarySheet({
+  bot,
+  team,
+  tools,
+  limits,
+  onClose,
+}: {
+  bot: Bot;
+  team: string;
+  tools: readonly string[];
+  limits: readonly string[];
+  onClose(): void;
+}) {
+  return (
+    <Modal title="Summary" open onOpenChange={(next) => !next && onClose()}>
+      <Modal.Content>
+        <SettingsCard>
+          <SettingsRow
+            label="Does"
+            hint={bot.title || bot.description || "No title yet. Add one under Identity."}
+          />
+          <SettingsRow label="Team" hint={team} />
+          <SettingsRow
+            label="Can reach"
+            hint={tools.length ? tools.join(", ") : "Only its provider's built-in tools and Paseo's tools"}
+          />
+          <SettingsRow
+            label="Runs"
+            hint={
+              bot.routines.length
+                ? bot.routines
+                    .map(
+                      (routine) =>
+                        `${routine.name}: ${describeSchedule(routine.schedule)}${routine.enabled ? "" : " (paused)"}`,
+                    )
+                    .join("\n")
+                : "Only when you message it"
+            }
+          />
+          <SettingsRow label="Won't" hint={limits.join("\n")} />
+        </SettingsCard>
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+function PromptSheet({
+  colors,
+  systemPrompt,
+  sections,
+  isError,
+  onClose,
+}: {
+  colors: PanelProps["colors"];
+  systemPrompt: string | undefined;
+  sections: readonly PromptSection[];
+  isError: boolean;
+  onClose(): void;
+}) {
+  return (
+    <Modal title="System prompt" open onOpenChange={(next) => !next && onClose()}>
+      <Modal.Content>
+        <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+          Sent with every new chat{systemPrompt !== undefined ? `: ${size(systemPrompt)}` : "."}
+        </Text>
+        {sections.length === 0 ? (
+          <CardNote
+            colors={colors}
+            text={isError ? "Unable to compose the prompt" : "Loading..."}
+            loading={!isError}
+          />
+        ) : null}
+        {sections.map((section) => (
+          <PromptSectionView key={section.title} colors={colors} section={section} />
+        ))}
+      </Modal.Content>
+    </Modal>
+  );
+}
+
+function PromptSectionView({ colors, section }: { colors: PanelProps["colors"]; section: PromptSection }) {
+  return (
+    <View style={{ gap: 8 }}>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <Text style={{ fontSize: ui(14), color: colors.foreground }}>{section.title}</Text>
+        <SectionMeta colors={colors} text={size(section.text)} />
+      </View>
+      <View
+        style={{
+          padding: 12,
+          borderRadius: 8,
+          borderWidth: 1,
+          borderColor: colors.border,
+          backgroundColor: colors.surface1,
+        }}
+      >
+        <Text
+          selectable
+          {...MONO_PROPS}
+          style={{
+            fontFamily: MONO_FONT,
+            fontSize: code(),
+            lineHeight: codeLine(),
+            color: colors.foreground,
+          }}
+        >
+          {section.text}
+        </Text>
+      </View>
+    </View>
   );
 }
 

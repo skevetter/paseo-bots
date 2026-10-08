@@ -1,7 +1,7 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
-import { accountLabel, withAppRule, type AppAccount } from "../../shared/apps";
+import { type AppAccount, type AppCard, accountLabel, withAppRule } from "../../shared/apps";
 import type { AppRule } from "../../shared/bot";
 import { useBotHost } from "../data";
 import { connectedApps, useAppsAccounts, useAppsCatalog, useAppsStatus } from "../library/apps";
@@ -16,6 +16,8 @@ const STATUS_HINT = {
   pending: "Waiting for sign-in",
   failed: "Sign-in failed. Connect it again in Skills & Tools.",
 } as const;
+
+type ConnectedApp = AppCard & { status: AppAccount["status"] };
 
 /** A bot's limits on an app in a few words: "Read-only · work". */
 function ruleHint(
@@ -74,51 +76,26 @@ export function AppsPicker({
       }
     >
       <SettingsCard>
-        {!host.isLocal ? (
-          <CardNote colors={colors} text="Only bots on this host can use connected apps" />
-        ) : null}
-        {host.isLocal && status.data && !configured ? (
-          <CardNote colors={colors} text="Not set up yet" />
-        ) : null}
-        {host.isLocal && configured && accounts.isLoading ? (
-          <CardNote colors={colors} loading text="Loading..." />
-        ) : null}
-        {host.isLocal && configured && !accounts.isLoading && apps.length === 0 ? (
-          <CardNote colors={colors} text="No apps connected yet" />
-        ) : null}
+        <AppsStatusNote
+          colors={colors}
+          isLocal={host.isLocal}
+          notSetUp={Boolean(status.data) && !configured}
+          loading={configured && accounts.isLoading}
+          empty={configured && !accounts.isLoading && apps.length === 0}
+        />
         {host.isLocal && configured
           ? apps.map((app) => (
-              <PressableRow
+              <AppRow
                 key={app.slug}
                 colors={colors}
-                accessibilityLabel={`${app.name} tools and account`}
-                onPress={() => setEditing(app.slug)}
-              >
-                {({ hovered }) => (
-                  <>
-                    <AppLogo colors={colors} app={app} />
-                    <RowText
-                      colors={colors}
-                      label={app.name}
-                      hint={
-                        STATUS_HINT[app.status] ??
-                        ruleHint(bot.appRules[app.slug], appAccounts(app.slug), app.name)
-                      }
-                    />
-                    <Switch
-                      colors={colors}
-                      label={`Use ${app.name}`}
-                      value={bot.apps.includes(app.slug)}
-                      onValueChange={(on) => toggle(app.slug, on)}
-                    />
-                    <Icon
-                      name="ChevronRight"
-                      size={14}
-                      color={hovered ? colors.foreground : colors.foregroundMuted}
-                    />
-                  </>
-                )}
-              </PressableRow>
+                app={app}
+                hint={
+                  STATUS_HINT[app.status] ?? ruleHint(bot.appRules[app.slug], appAccounts(app.slug), app.name)
+                }
+                on={bot.apps.includes(app.slug)}
+                onToggle={(on) => toggle(app.slug, on)}
+                onOpen={() => setEditing(app.slug)}
+              />
             ))
           : null}
       </SettingsCard>
@@ -136,5 +113,57 @@ export function AppsPicker({
         />
       ) : null}
     </SettingsSection>
+  );
+}
+
+function AppsStatusNote({
+  colors,
+  isLocal,
+  notSetUp,
+  loading,
+  empty,
+}: {
+  colors: PanelProps["colors"];
+  isLocal: boolean;
+  notSetUp: boolean;
+  loading: boolean;
+  empty: boolean;
+}) {
+  if (!isLocal) return <CardNote colors={colors} text="Only bots on this host can use connected apps" />;
+  return (
+    <>
+      {notSetUp ? <CardNote colors={colors} text="Not set up yet" /> : null}
+      {loading ? <CardNote colors={colors} loading text="Loading..." /> : null}
+      {empty ? <CardNote colors={colors} text="No apps connected yet" /> : null}
+    </>
+  );
+}
+
+function AppRow({
+  colors,
+  app,
+  hint,
+  on,
+  onToggle,
+  onOpen,
+}: {
+  colors: PanelProps["colors"];
+  app: ConnectedApp;
+  hint: string | null;
+  on: boolean;
+  onToggle(on: boolean): void;
+  onOpen(): void;
+}) {
+  return (
+    <PressableRow colors={colors} accessibilityLabel={`${app.name} tools and account`} onPress={onOpen}>
+      {({ hovered }) => (
+        <>
+          <AppLogo colors={colors} app={app} />
+          <RowText colors={colors} label={app.name} hint={hint} />
+          <Switch colors={colors} label={`Use ${app.name}`} value={on} onValueChange={onToggle} />
+          <Icon name="ChevronRight" size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
+        </>
+      )}
+    </PressableRow>
   );
 }

@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import {
   Dimensions,
   Keyboard,
+  type KeyboardEvent,
   LayoutAnimation,
+  NativeModules,
   Platform,
   TurboModuleRegistry,
-  NativeModules,
-  type KeyboardEvent,
 } from "react-native";
 
 /** Paseo's keyboard shift (keyboard/shift/internal/policy.ts): iOS heights below this are the predictive bar alone. */
@@ -70,7 +70,9 @@ export function useKeyboardHeight(): number {
           ),
           Keyboard.addListener("keyboardDidHide", () => apply(0, undefined)),
         ];
-    return () => subscriptions.forEach((subscription) => subscription.remove());
+    return () => {
+      for (const subscription of subscriptions) subscription.remove();
+    };
   }, []);
   return height;
 }

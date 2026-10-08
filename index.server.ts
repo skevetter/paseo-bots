@@ -1,18 +1,10 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
-import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
 import { turnEnded, turnStarted } from "./server/activity";
+import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
 import { CommandAllowlist } from "./server/commands";
-import { MemoryJournal } from "./server/journal";
-import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
-import { systemPrompt } from "./server/prompt";
-import { RoutineScheduler } from "./server/scheduler";
-import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
-import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } from "./server/library";
-import { probeMcpServer } from "./server/mcp-probe";
-import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
-import { mcpSources } from "./server/mcp-sources";
 import {
   accounts,
+  status as appsStatus,
   appTools,
   catalog,
   connect,
@@ -20,16 +12,37 @@ import {
   removeKey,
   renameAccount,
   setKey,
-  status as appsStatus,
 } from "./server/composio";
 import { BotsHost } from "./server/host";
-import { Relay } from "./server/relay";
+import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
+import { MemoryJournal } from "./server/journal";
+import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } from "./server/library";
+import { probeMcpServer } from "./server/mcp-probe";
+import { mcpSources } from "./server/mcp-sources";
+import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
+import { systemPrompt } from "./server/prompt";
 import { acceptProposal, dismissProposal, getProposal } from "./server/proposals";
+import { Relay } from "./server/relay";
+import { RoutineScheduler } from "./server/scheduler";
+import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
 import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import {
+  appsAccountsRpc,
+  appsCatalogRpc,
+  appsConnectRpc,
+  appsDisconnectRpc,
+  appsRemoveKeyRpc,
+  appsRenameRpc,
+  appsSetKeyRpc,
+  appsStatusRpc,
+  appsToolsRpc,
+  avatarGenerateRpc,
+  avatarKeyStatusRpc,
+  avatarRemoveKeyRpc,
+  avatarSetKeyRpc,
   commandAllowRpc,
   commandListRpc,
   commandRemoveRpc,
@@ -39,6 +52,8 @@ import {
   helloRpc,
   importBotRpc,
   importTeamRpc,
+  mcpProbeRpc,
+  mcpSourcesRpc,
   memoryDeleteRpc,
   memoryJournalRpc,
   memoryListRpc,
@@ -48,24 +63,9 @@ import {
   memoryUndoRpc,
   memoryWriteRpc,
   mountRpc,
-  mcpProbeRpc,
-  mcpSourcesRpc,
   proposalAcceptRpc,
   proposalDismissRpc,
   proposalGetRpc,
-  appsAccountsRpc,
-  avatarGenerateRpc,
-  avatarKeyStatusRpc,
-  avatarRemoveKeyRpc,
-  avatarSetKeyRpc,
-  appsCatalogRpc,
-  appsConnectRpc,
-  appsDisconnectRpc,
-  appsRenameRpc,
-  appsToolsRpc,
-  appsRemoveKeyRpc,
-  appsSetKeyRpc,
-  appsStatusRpc,
   routineRunNowRpc,
   routineStatusRpc,
   routineWebhookRpc,
@@ -77,7 +77,14 @@ import {
   uploadRpc,
 } from "./shared/rpc";
 
-export default function contribute(server: PluginServerContext) {
+interface ChatEventServices {
+  host: BotsHost;
+  journal: MemoryJournal;
+  scheduler: RoutineScheduler;
+  commands: CommandAllowlist;
+}
+
+function prepareData() {
   try {
     migrateRenamedPluginData();
   } catch (error) {
@@ -87,6 +94,90 @@ export default function contribute(server: PluginServerContext) {
   void ensureBotsHome()
     .then(migrateBotSkills)
     .catch((error: unknown) => console.error("paseo-bots: couldn't prepare the Bots folder", error));
+}
+
+function handleMemory(server: PluginServerContext, journal: MemoryJournal) {
+  server.handle(memoryListRpc, ({ botId }) => listMemory(botId));
+  server.handle(memoryReadRpc, ({ botId, name }) => readMemory(botId, name));
+  server.handle(memoryWriteRpc, async ({ botId, name, text }) => {
+    await journal.write(botId, name, text);
+    return { ok: true };
+  });
+  server.handle(memoryDeleteRpc, async ({ botId, name }) => {
+    await journal.write(botId, name, null);
+    return { ok: true };
+  });
+  server.handle(memoryJournalRpc, async ({ botId }) => ({
+    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({
+      ...entry,
+      canUndo: entry.kind === "created" || before !== null,
+    })),
+  }));
+  server.handle(memoryUndoRpc, async ({ botId, id }) => {
+    await journal.undo(botId, id);
+    return { ok: true };
+  });
+  server.handle(memoryLogRpc, async ({ botId, day }) => ({
+    ...(await listLogDays(botId)),
+    text: day ? (await readLogDay(botId, day)).text : null,
+  }));
+  server.handle(memoryLogDeleteRpc, ({ botId, day }) => deleteLogDay(botId, day));
+}
+
+function handleSkillsAndApps(server: PluginServerContext) {
+  server.handle(skillImportRpc, importSkills);
+  server.handle(skillReadRpc, readSkill);
+  server.handle(skillWriteRpc, writeSkill);
+  server.handle(skillDeleteRpc, deleteSkill);
+  server.handle(mcpProbeRpc, probeMcpServer);
+  server.handle(mcpSourcesRpc, () => mcpSources());
+  server.handle(avatarKeyStatusRpc, () => imageStatus());
+  server.handle(avatarSetKeyRpc, setImageKey);
+  server.handle(avatarRemoveKeyRpc, () => removeImageKey());
+  server.handle(avatarGenerateRpc, generateAvatar);
+  server.handle(appsStatusRpc, () => appsStatus());
+  server.handle(appsSetKeyRpc, setKey);
+  server.handle(appsRemoveKeyRpc, () => removeKey());
+  server.handle(appsCatalogRpc, () => catalog());
+  server.handle(appsAccountsRpc, accounts);
+  server.handle(appsConnectRpc, connect);
+  server.handle(appsDisconnectRpc, disconnect);
+  server.handle(appsRenameRpc, renameAccount);
+  server.handle(appsToolsRpc, appTools);
+}
+
+function handleChatEvents(
+  server: PluginServerContext,
+  { host, journal, scheduler, commands }: ChatEventServices,
+) {
+  server.on("agent.turn_started", async (event, context) => {
+    host.attach(context.paseo);
+    await turnStarted(host, journal, event).catch((error: unknown) =>
+      console.error("paseo-bots: couldn't check memory before a turn", error),
+    );
+  });
+  // A bot's saved commands (exact command, exact folder) are approved here instead of asking.
+  server.on("agent.permission_requested", async ({ agent, request }, context) => {
+    host.attach(context.paseo);
+    const shell = shellCommand(request, agent.cwd);
+    if (!shell) return;
+    const chat = await host.chatOf(agent.id);
+    if (!chat || !(await commands.matches(chat.botId, shell.command, shell.cwd))) return;
+    await context.paseo.agents
+      .ref(agent.id)
+      .respondToPermission({ requestId: request.id, response: { behavior: "allow" } })
+      .catch((error: unknown) => console.error("paseo-bots: couldn't approve an allowed command", error));
+  });
+  server.on("agent.turn_ended", async (event, context) => {
+    host.attach(context.paseo);
+    await turnEnded(host, journal, scheduler, event).catch((error: unknown) =>
+      console.error("paseo-bots: couldn't record a turn", error),
+    );
+  });
+}
+
+export default function contribute(server: PluginServerContext) {
+  prepareData();
   const settings = server.registerSettings(botSettings);
   const library = async () => {
     const state = await settings.read();
@@ -113,50 +204,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(systemPromptRpc, async (input, context) =>
     systemPrompt(input, await library(), context.paseo, await host.values()),
   );
-  server.handle(memoryListRpc, ({ botId }) => listMemory(botId));
-  server.handle(memoryReadRpc, ({ botId, name }) => readMemory(botId, name));
-  server.handle(memoryWriteRpc, async ({ botId, name, text }) => {
-    await journal.write(botId, name, text);
-    return { ok: true };
-  });
-  server.handle(memoryDeleteRpc, async ({ botId, name }) => {
-    await journal.write(botId, name, null);
-    return { ok: true };
-  });
-  server.handle(memoryJournalRpc, async ({ botId }) => ({
-    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({
-      ...entry,
-      canUndo: entry.kind === "created" || before !== null,
-    })),
-  }));
-  server.handle(memoryUndoRpc, async ({ botId, id }) => {
-    await journal.undo(botId, id);
-    return { ok: true };
-  });
-  server.handle(memoryLogRpc, async ({ botId, day }) => ({
-    ...(await listLogDays(botId)),
-    text: day ? (await readLogDay(botId, day)).text : null,
-  }));
-  server.handle(memoryLogDeleteRpc, ({ botId, day }) => deleteLogDay(botId, day));
-  server.handle(skillImportRpc, importSkills);
-  server.handle(skillReadRpc, readSkill);
-  server.handle(skillWriteRpc, writeSkill);
-  server.handle(skillDeleteRpc, deleteSkill);
-  server.handle(mcpProbeRpc, probeMcpServer);
-  server.handle(mcpSourcesRpc, () => mcpSources());
-  server.handle(avatarKeyStatusRpc, () => imageStatus());
-  server.handle(avatarSetKeyRpc, setImageKey);
-  server.handle(avatarRemoveKeyRpc, () => removeImageKey());
-  server.handle(avatarGenerateRpc, generateAvatar);
-  server.handle(appsStatusRpc, () => appsStatus());
-  server.handle(appsSetKeyRpc, setKey);
-  server.handle(appsRemoveKeyRpc, () => removeKey());
-  server.handle(appsCatalogRpc, () => catalog());
-  server.handle(appsAccountsRpc, accounts);
-  server.handle(appsConnectRpc, connect);
-  server.handle(appsDisconnectRpc, disconnect);
-  server.handle(appsRenameRpc, renameAccount);
-  server.handle(appsToolsRpc, appTools);
+  handleMemory(server, journal);
+  handleSkillsAndApps(server);
   server.handle(mountRpc, async ({ botId, agentId }) => {
     const bot = await host.bot(botId);
     return {
@@ -186,30 +235,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(exportTeamRpc, async (input) => exportTeam(input, await library()));
   server.handle(importTeamRpc, importTeam);
   server.handle(uploadRpc, saveUpload);
-  server.on("agent.turn_started", async (event, context) => {
-    host.attach(context.paseo);
-    await turnStarted(host, journal, event).catch((error: unknown) =>
-      console.error("paseo-bots: couldn't check memory before a turn", error),
-    );
-  });
-  // A bot's saved commands (exact command, exact folder) are approved here instead of asking.
-  server.on("agent.permission_requested", async ({ agent, request }, context) => {
-    host.attach(context.paseo);
-    const shell = shellCommand(request, agent.cwd);
-    if (!shell) return;
-    const chat = await host.chatOf(agent.id);
-    if (!chat || !(await commands.matches(chat.botId, shell.command, shell.cwd))) return;
-    await context.paseo.agents
-      .ref(agent.id)
-      .respondToPermission({ requestId: request.id, response: { behavior: "allow" } })
-      .catch((error: unknown) => console.error("paseo-bots: couldn't approve an allowed command", error));
-  });
-  server.on("agent.turn_ended", async (event, context) => {
-    host.attach(context.paseo);
-    await turnEnded(host, journal, scheduler, event).catch((error: unknown) =>
-      console.error("paseo-bots: couldn't record a turn", error),
-    );
-  });
+  handleChatEvents(server, { host, journal, scheduler, commands });
 
   return () => {
     scheduler.stop();

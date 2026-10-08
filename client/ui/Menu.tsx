@@ -2,16 +2,16 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import {
   createContext,
+  type ReactNode,
+  type RefObject,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
-  type RefObject,
 } from "react";
-import { ActivityIndicator, Platform, Pressable, Text, View, type LayoutRectangle } from "react-native";
+import { ActivityIndicator, type LayoutRectangle, Platform, Pressable, Text, View } from "react-native";
 import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
 
@@ -53,7 +53,7 @@ export interface MenuSpec {
   entries: MenuEntry[];
 }
 
-interface MenuApi {
+export interface MenuApi {
   open(spec: MenuSpec): void;
   close(): void;
 }
@@ -220,40 +220,68 @@ function Entries({
   const tokens = nativeTokens(colors);
   return (
     <>
-      {entries.map((entry, index) =>
+      {keyedEntries(entries).map(({ key, entry }) =>
         entry.kind === "separator" ? (
-          <View
-            key={`sep-${index}`}
-            style={{ height: 1, marginVertical: 4, backgroundColor: tokens.borderAccent }}
-          />
+          <View key={key} style={{ height: 1, marginVertical: 4, backgroundColor: tokens.borderAccent }} />
         ) : (
-          <MenuRow
-            key={`${entry.label}-${index}`}
-            colors={colors}
-            entry={entry}
-            compact={compact}
-            onClose={onClose}
-          />
+          <MenuRow key={key} colors={colors} entry={entry} compact={compact} onClose={onClose} />
         ),
       )}
     </>
   );
 }
 
-function MenuRow({
-  colors,
-  entry,
-  compact,
-  onClose,
-}: {
-  colors: Colors;
-  entry: Exclude<MenuEntry, { kind: "separator" }>;
-  compact: boolean;
-  onClose(): void;
-}) {
-  const { hovered, hoverProps } = useHover();
+function keyedEntries(entries: MenuEntry[]): Array<{ key: string; entry: MenuEntry }> {
+  const seen = new Map<string, number>();
+  return entries.map((entry) => {
+    const base = entry.kind === "separator" ? "sep" : entry.label;
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return { key: `${base}-${occurrence}`, entry };
+  });
+}
+
+type MenuItem = Exclude<MenuEntry, { kind: "separator" }>;
+
+function MenuRowLeading({ colors, entry, pending }: { colors: Colors; entry: MenuItem; pending: boolean }) {
+  if (!entry.icon && !entry.leading && !pending) return null;
+  return (
+    <View style={{ width: 16, alignItems: "center", justifyContent: "center" }}>
+      {pending ? (
+        <ActivityIndicator size="small" color={colors.foregroundMuted} />
+      ) : (
+        (entry.leading ??
+        (entry.icon ? (
+          <Icon
+            name={entry.icon}
+            size={14}
+            color={entry.destructive ? colors.statusDanger : colors.foregroundMuted}
+          />
+        ) : null))
+      )}
+    </View>
+  );
+}
+
+function MenuRowTrailing({ colors, entry }: { colors: Colors; entry: MenuItem }) {
+  return (
+    <>
+      {entry.trailing ? (
+        <Text style={{ marginLeft: "auto", fontSize: ui(12), color: colors.foregroundMuted }}>
+          {entry.trailing}
+        </Text>
+      ) : null}
+      {entry.selected ? (
+        <View style={{ marginLeft: "auto", width: 16, alignItems: "center", justifyContent: "center" }}>
+          <Icon name="Check" size={16} color={colors.foregroundMuted} />
+        </View>
+      ) : null}
+    </>
+  );
+}
+
+function useMenuSelect(entry: MenuItem, onClose: () => void) {
   const [pending, setPending] = useState(false);
-  const tint = entry.destructive ? colors.statusDanger : colors.foreground;
   const select = () => {
     const result = entry.onSelect();
     if (entry.pendingLabel && result && typeof (result as Promise<void>).then === "function") {
@@ -264,6 +292,23 @@ function MenuRow({
       });
     } else onClose();
   };
+  return { pending, select };
+}
+
+function MenuRow({
+  colors,
+  entry,
+  compact,
+  onClose,
+}: {
+  colors: Colors;
+  entry: MenuItem;
+  compact: boolean;
+  onClose(): void;
+}) {
+  const { hovered, hoverProps } = useHover();
+  const { pending, select } = useMenuSelect(entry, onClose);
+  const tint = entry.destructive ? colors.statusDanger : colors.foreground;
   return (
     <Pressable
       accessibilityRole="menuitem"
@@ -287,34 +332,11 @@ function MenuRow({
         opacity: entry.disabled ? 0.5 : 1,
       })}
     >
-      {entry.icon || entry.leading || pending ? (
-        <View style={{ width: 16, alignItems: "center", justifyContent: "center" }}>
-          {pending ? (
-            <ActivityIndicator size="small" color={colors.foregroundMuted} />
-          ) : (
-            (entry.leading ?? (
-              <Icon
-                name={entry.icon!}
-                size={14}
-                color={entry.destructive ? colors.statusDanger : colors.foregroundMuted}
-              />
-            ))
-          )}
-        </View>
-      ) : null}
+      <MenuRowLeading colors={colors} entry={entry} pending={pending} />
       <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), lineHeight: 18, color: tint }}>
         {pending && entry.pendingLabel ? entry.pendingLabel : entry.label}
       </Text>
-      {entry.trailing ? (
-        <Text style={{ marginLeft: "auto", fontSize: ui(12), color: colors.foregroundMuted }}>
-          {entry.trailing}
-        </Text>
-      ) : null}
-      {entry.selected ? (
-        <View style={{ marginLeft: "auto", width: 16, alignItems: "center", justifyContent: "center" }}>
-          <Icon name="Check" size={16} color={colors.foregroundMuted} />
-        </View>
-      ) : null}
+      <MenuRowTrailing colors={colors} entry={entry} />
     </Pressable>
   );
 }

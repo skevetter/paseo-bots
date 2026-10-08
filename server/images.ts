@@ -74,23 +74,14 @@ export function avatarPrompt(
   ].join("\n");
 }
 
-/** Draws an avatar for a bot; the picture comes back as a WebP data URL for the app to scale down. */
-export async function generateAvatar(input: {
-  name: string;
-  title: string;
-  description: string;
-  direction: string;
-}): Promise<{ image: string }> {
-  const { openaiKey } = await readState();
-  if (!openaiKey) throw new Error("Add an OpenAI key first.");
-  let response: Response;
+async function requestImage(openaiKey: string, prompt: string): Promise<Response> {
   try {
-    response = await fetch("https://api.openai.com/v1/images/generations", {
+    return await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: { authorization: `Bearer ${openaiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: MODEL,
-        prompt: avatarPrompt(input, input.direction),
+        prompt,
         size: "1024x1024",
         quality: "low",
         output_format: "webp",
@@ -101,27 +92,46 @@ export async function generateAvatar(input: {
   } catch {
     throw new Error("Couldn't reach OpenAI, or it took too long. Try again.");
   }
-  const text = await response.text();
-  if (!response.ok) {
-    // Error bodies can quote the key, so only OpenAI's error code is shown.
-    let code: unknown;
-    try {
-      code = (JSON.parse(text) as { error?: { code?: unknown } }).error?.code;
-    } catch {
-      code = null;
-    }
-    if (response.status === 401) throw new Error("OpenAI didn't accept the key.");
-    throw new Error(
-      `OpenAI couldn't draw it (${typeof code === "string" && code ? code : `HTTP ${response.status}`}).`,
-    );
-  }
-  if (text.length > MAX_RESPONSE_CHARS) throw new Error("OpenAI's picture was too large.");
-  let encoded: unknown;
+}
+
+function openaiFailure(status: number, text: string): Error {
+  if (status === 401) return new Error("OpenAI didn't accept the key.");
+  // Error bodies can quote the key, so only OpenAI's error code is shown.
+  let code: unknown;
   try {
-    encoded = (JSON.parse(text) as { data?: { b64_json?: unknown }[] }).data?.[0]?.b64_json;
+    const body = JSON.parse(text) as { error?: { code?: unknown } };
+    code = body.error?.code;
   } catch {
-    encoded = null;
+    code = null;
   }
+  return new Error(
+    `OpenAI couldn't draw it (${typeof code === "string" && code ? code : `HTTP ${status}`}).`,
+  );
+}
+
+function encodedPicture(text: string): unknown {
+  try {
+    const body = JSON.parse(text) as { data?: { b64_json?: unknown }[] };
+    return body.data?.[0]?.b64_json;
+  } catch {
+    return null;
+  }
+}
+
+/** Draws an avatar for a bot; the picture comes back as a WebP data URL for the app to scale down. */
+export async function generateAvatar(input: {
+  name: string;
+  title: string;
+  description: string;
+  direction: string;
+}): Promise<{ image: string }> {
+  const { openaiKey } = await readState();
+  if (!openaiKey) throw new Error("Add an OpenAI key first.");
+  const response = await requestImage(openaiKey, avatarPrompt(input, input.direction));
+  const text = await response.text();
+  if (!response.ok) throw openaiFailure(response.status, text);
+  if (text.length > MAX_RESPONSE_CHARS) throw new Error("OpenAI's picture was too large.");
+  const encoded = encodedPicture(text);
   if (typeof encoded !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))
     throw new Error("OpenAI returned no picture.");
   return { image: `data:image/webp;base64,${encoded}` };

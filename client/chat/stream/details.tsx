@@ -1,17 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
-import { memo, useMemo, type ReactNode } from "react";
-import { Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { memo, type ReactNode, useMemo } from "react";
+import { Text, type TextStyle, View, type ViewStyle } from "react-native";
 import {
   buildLineDiff,
-  parseUnifiedDiff,
-  hasMeaningfulToolCallDetail,
   type DiffLine,
+  type DiffSegment,
+  hasMeaningfulToolCallDetail,
+  parseUnifiedDiff,
   type ToolCallDetail,
 } from "../../../shared/tools";
 import { MONO_FONT, MONO_PROPS, nativeTokens } from "../../native";
 import { code, ui } from "../../typography";
-import { isWeb } from "./ui";
+import { isWeb, keysWithOccurrence } from "./ui";
 
 type Colors = PluginTheme["colors"];
 
@@ -50,20 +51,21 @@ function monoText(colors: Colors): TextStyle {
   };
 }
 
-export const ToolCallDetailsContent = memo(function ToolCallDetailsContent({
+function buildStyles({
   colors,
-  toolName,
   detail,
-  errorText,
   maxHeight,
-  fillAvailableHeight = false,
-  showLoadingSkeleton = false,
-}: Props) {
+  fillAvailableHeight,
+}: {
+  colors: Colors;
+  detail: ToolCallDetail | undefined;
+  maxHeight: number | undefined;
+  fillAvailableHeight: boolean;
+}): Styles {
   const resolvedMax = fillAvailableHeight ? undefined : (maxHeight ?? 300);
-  const fullBleed = detail?.type === "edit" || detail?.type === "shell" || detail?.type === "write";
   const fill =
     fillAvailableHeight && ["shell", "edit", "write", "read", "sub_agent"].includes(detail?.type ?? "");
-  const styles: Styles = {
+  return {
     mono: monoText(colors),
     scrollArea: {
       borderWidth: 1,
@@ -76,22 +78,38 @@ export const ToolCallDetailsContent = memo(function ToolCallDetailsContent({
     maxHeight: resolvedMax,
     fill,
   };
+}
+
+export const ToolCallDetailsContent = memo(function ToolCallDetailsContent({
+  colors,
+  toolName,
+  detail,
+  errorText,
+  maxHeight,
+  fillAvailableHeight = false,
+  showLoadingSkeleton = false,
+}: Props) {
+  const fullBleed = detail?.type === "edit" || detail?.type === "shell" || detail?.type === "write";
+  const styles = buildStyles({ colors, detail, maxHeight, fillAvailableHeight });
   const sections = buildSections(colors, toolName, detail, styles);
   if (errorText) sections.push(<ErrorSection key="error" colors={colors} text={errorText} styles={styles} />);
-  if (sections.length === 0) {
-    if (showLoadingSkeleton) return <LoadingSkeleton colors={colors} />;
-    return (
-      <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), fontStyle: "italic" }}>
-        No additional details available
-      </Text>
-    );
-  }
+  if (sections.length === 0)
+    return <EmptyDetails colors={colors} showLoadingSkeleton={showLoadingSkeleton} />;
   return (
-    <View style={{ gap: fullBleed ? 8 : 16, padding: 0, ...(fill ? { flex: 1, minHeight: 0 } : {}) }}>
+    <View style={{ gap: fullBleed ? 8 : 16, padding: 0, ...(styles.fill ? { flex: 1, minHeight: 0 } : {}) }}>
       {sections}
     </View>
   );
 });
+
+function EmptyDetails({ colors, showLoadingSkeleton }: { colors: Colors; showLoadingSkeleton: boolean }) {
+  if (showLoadingSkeleton) return <LoadingSkeleton colors={colors} />;
+  return (
+    <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), fontStyle: "italic" }}>
+      No additional details available
+    </Text>
+  );
+}
 
 /** A full-bleed code surface (shell, edit, sub-agent): surface1, scrolls both ways. */
 function CodeSurface({ colors, styles, children }: { colors: Colors; styles: Styles; children: ReactNode }) {
@@ -140,13 +158,6 @@ function ScrollableText({
   styles: Styles;
   startLine?: number;
 }) {
-  const lines = useMemo(
-    () => (startLine !== undefined ? text.replace(/\n$/, "").split("\n") : null),
-    [text, startLine],
-  );
-  const gutter = lines
-    ? Math.max(2, String(startLine! + lines.length - 1).length) * Math.ceil(code() * 0.62) + 12
-    : 0;
   return (
     <ScrollView
       style={styles.scrollArea}
@@ -155,31 +166,8 @@ function ScrollableText({
       showsVerticalScrollIndicator
     >
       <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator>
-        {lines ? (
-          <View>
-            {lines.map((line, index) => (
-              <View key={index} style={{ flexDirection: "row", minHeight: CODE_LINE }}>
-                <Text
-                  {...MONO_PROPS}
-                  style={[
-                    styles.mono,
-                    {
-                      width: gutter,
-                      color: colors.foregroundMuted,
-                      opacity: 0.6,
-                      flexShrink: 0,
-                      ...(isWeb ? ({ userSelect: "none" } as TextStyle) : {}),
-                    },
-                  ]}
-                >
-                  {startLine! + index}
-                </Text>
-                <Text selectable {...MONO_PROPS} style={styles.mono}>
-                  {line}
-                </Text>
-              </View>
-            ))}
-          </View>
+        {startLine !== undefined ? (
+          <NumberedLines colors={colors} text={text} styles={styles} startLine={startLine} />
         ) : (
           <Text selectable {...MONO_PROPS} style={styles.mono}>
             {text}
@@ -187,6 +175,54 @@ function ScrollableText({
         )}
       </ScrollView>
     </ScrollView>
+  );
+}
+
+function NumberedLines({
+  colors,
+  text,
+  styles,
+  startLine,
+}: {
+  colors: Colors;
+  text: string;
+  styles: Styles;
+  startLine: number;
+}) {
+  const rows = useMemo(
+    () =>
+      text
+        .replace(/\n$/, "")
+        .split("\n")
+        .map((line, index) => ({ number: startLine + index, line })),
+    [text, startLine],
+  );
+  const gutter = Math.max(2, String(startLine + rows.length - 1).length) * Math.ceil(code() * 0.62) + 12;
+  return (
+    <View>
+      {rows.map((row) => (
+        <View key={row.number} style={{ flexDirection: "row", minHeight: CODE_LINE }}>
+          <Text
+            {...MONO_PROPS}
+            style={[
+              styles.mono,
+              {
+                width: gutter,
+                color: colors.foregroundMuted,
+                opacity: 0.6,
+                flexShrink: 0,
+                ...(isWeb ? ({ userSelect: "none" } as TextStyle) : {}),
+              },
+            ]}
+          >
+            {row.number}
+          </Text>
+          <Text selectable {...MONO_PROPS} style={styles.mono}>
+            {row.line}
+          </Text>
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -229,6 +265,7 @@ function DiffView({ colors, lines, styles }: { colors: Colors; lines: DiffLine[]
     }
   };
   if (lines.length === 0) return null;
+  const keys = keysWithOccurrence(lines.map((line) => line.content));
   return (
     <ScrollView
       style={
@@ -253,20 +290,10 @@ function DiffView({ colors, lines, styles }: { colors: Colors; lines: DiffLine[]
             const style = lineStyle(line);
             const highlight = line.type === "add" ? "rgba(46, 160, 67, 0.4)" : "rgba(248, 81, 73, 0.35)";
             return (
-              <View key={index} style={[{ minWidth: "100%", paddingVertical: 4 }, style.box]}>
+              <View key={keys[index]} style={[{ minWidth: "100%", paddingVertical: 4 }, style.box]}>
                 <Text selectable {...MONO_PROPS} style={[styles.mono, style.text]}>
                   {line.segments
-                    ? [
-                        line.content[0],
-                        ...line.segments.map((segment, part) => (
-                          <Text
-                            key={part}
-                            style={segment.changed ? { backgroundColor: highlight } : undefined}
-                          >
-                            {segment.text}
-                          </Text>
-                        )),
-                      ]
+                    ? [line.content[0], ...renderSegments(line.segments, highlight)]
                     : line.content}
                 </Text>
               </View>
@@ -278,12 +305,162 @@ function DiffView({ colors, lines, styles }: { colors: Colors; lines: DiffLine[]
   );
 }
 
+function renderSegments(segments: DiffSegment[], highlight: string): ReactNode[] {
+  const keys = keysWithOccurrence(segments.map((segment) => segment.text));
+  return segments.map((segment, part) => (
+    <Text key={keys[part]} style={segment.changed ? { backgroundColor: highlight } : undefined}>
+      {segment.text}
+    </Text>
+  ));
+}
+
 function stringify(value: unknown): string {
   try {
     return typeof value === "string" ? value : JSON.stringify(value, null, 2);
   } catch {
     return String(value);
   }
+}
+
+type DetailOf<T extends ToolCallDetail["type"]> = Extract<ToolCallDetail, { type: T }>;
+
+function shellSections(colors: Colors, detail: DetailOf<"shell">, styles: Styles): ReactNode[] {
+  const command = detail.command.replace(/\n+$/, "");
+  const output = (detail.output ?? "").replace(/^\n+/, "");
+  return [
+    <CodeSurface key="shell" colors={colors} styles={styles}>
+      <Text selectable {...MONO_PROPS} style={styles.mono}>
+        <Text style={{ color: colors.foregroundMuted }}>$ </Text>
+        {command}
+        {output ? `\n\n${output}` : ""}
+      </Text>
+    </CodeSurface>,
+  ];
+}
+
+function worktreeSections(colors: Colors, detail: DetailOf<"worktree_setup">, styles: Styles): ReactNode[] {
+  const log = detail.log.replace(/^\n+/, "");
+  return [
+    <CodeSurface key="worktree" colors={colors} styles={styles}>
+      <Text selectable {...MONO_PROPS} style={styles.mono}>
+        {log || `Preparing worktree ${detail.branchName} at ${detail.worktreePath}`}
+      </Text>
+    </CodeSurface>,
+  ];
+}
+
+function editSections(colors: Colors, detail: DetailOf<"edit">, styles: Styles): ReactNode[] {
+  const lines = detail.unifiedDiff
+    ? parseUnifiedDiff(detail.unifiedDiff)
+    : buildLineDiff(detail.oldString ?? "", detail.newString ?? "");
+  return [
+    <View
+      key="edit"
+      style={{
+        backgroundColor: colors.surface1,
+        overflow: "hidden",
+        ...(styles.fill ? { flex: 1, minHeight: 0 } : {}),
+      }}
+    >
+      <DiffView colors={colors} lines={lines} styles={styles} />
+    </View>,
+  ];
+}
+
+function searchSections(colors: Colors, detail: DetailOf<"search">, styles: Styles): ReactNode[] {
+  const out: ReactNode[] = [];
+  if (detail.content)
+    out.push(
+      <ScrollableText
+        key="content"
+        colors={colors}
+        text={detail.content}
+        styles={{ ...styles, scrollArea: { ...styles.scrollArea, flex: undefined } }}
+      />,
+    );
+  const lists: [string, string | undefined][] = [
+    ["files", detail.filePaths?.length ? detail.filePaths.join("\n") : undefined],
+    [
+      "web",
+      detail.webResults?.length
+        ? detail.webResults.map((entry) => `${entry.title}\n${entry.url}`).join("\n\n")
+        : undefined,
+    ],
+    ["annotations", detail.annotations?.length ? detail.annotations.join("\n\n") : undefined],
+  ];
+  for (const [key, text] of lists) {
+    if (!text) continue;
+    out.push(
+      <View key={key} style={{ gap: 8 }}>
+        <Text selectable {...MONO_PROPS} style={styles.mono}>
+          {text}
+        </Text>
+      </View>,
+    );
+  }
+  return out;
+}
+
+function unknownSections(colors: Colors, detail: DetailOf<"unknown">, styles: Styles): ReactNode[] {
+  if (typeof detail.input === "string" && detail.output === null)
+    return [<PlainTextSection key="plain" colors={colors} text={detail.input} styles={styles} />];
+  const out: ReactNode[] = [];
+  for (const [title, value] of [
+    ["Input", detail.input],
+    ["Output", detail.output],
+  ] as const) {
+    if (!hasMeaningfulToolCallDetail({ type: "unknown", input: value ?? null, output: null })) continue;
+    const text = stringify(value);
+    if (!text.length) continue;
+    out.push(
+      <View
+        key={`${title}-header`}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingHorizontal: 12,
+          paddingVertical: 8,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        }}
+      >
+        <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>{title}</Text>
+      </View>,
+      <View key={`${title}-value`} style={{ gap: 8 }}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator
+          style={{
+            borderWidth: 1,
+            borderColor: colors.border,
+            borderRadius: 4,
+            backgroundColor: colors.surface2,
+          }}
+          contentContainerStyle={{ padding: PAD }}
+        >
+          <Text selectable {...MONO_PROPS} style={styles.mono}>
+            {text}
+          </Text>
+        </ScrollView>
+      </View>,
+    );
+  }
+  return out;
+}
+
+function readSections(colors: Colors, detail: DetailOf<"read">, styles: Styles): ReactNode[] {
+  if (!detail.content) return [];
+  return [
+    <ScrollableText
+      key="read"
+      colors={colors}
+      text={detail.content}
+      styles={styles}
+      startLine={detail.offset ?? 1}
+    />,
+  ];
 }
 
 function buildSections(
@@ -293,99 +470,23 @@ function buildSections(
   styles: Styles,
 ): ReactNode[] {
   if (!detail) return [];
-  const mono = styles.mono;
   switch (detail.type) {
-    case "shell": {
-      const command = detail.command.replace(/\n+$/, "");
-      const output = (detail.output ?? "").replace(/^\n+/, "");
-      return [
-        <CodeSurface key="shell" colors={colors} styles={styles}>
-          <Text selectable {...MONO_PROPS} style={mono}>
-            <Text style={{ color: colors.foregroundMuted }}>$ </Text>
-            {command}
-            {output ? `\n\n${output}` : ""}
-          </Text>
-        </CodeSurface>,
-      ];
-    }
-    case "worktree_setup": {
-      const log = detail.log.replace(/^\n+/, "");
-      return [
-        <CodeSurface key="worktree" colors={colors} styles={styles}>
-          <Text selectable {...MONO_PROPS} style={mono}>
-            {log || `Preparing worktree ${detail.branchName} at ${detail.worktreePath}`}
-          </Text>
-        </CodeSurface>,
-      ];
-    }
+    case "shell":
+      return shellSections(colors, detail, styles);
+    case "worktree_setup":
+      return worktreeSections(colors, detail, styles);
     case "sub_agent":
       return [<SubAgentSection key="sub-agent" colors={colors} detail={detail} styles={styles} />];
-    case "edit": {
-      const lines = detail.unifiedDiff
-        ? parseUnifiedDiff(detail.unifiedDiff)
-        : buildLineDiff(detail.oldString ?? "", detail.newString ?? "");
-      return [
-        <View
-          key="edit"
-          style={{
-            backgroundColor: colors.surface1,
-            overflow: "hidden",
-            ...(styles.fill ? { flex: 1, minHeight: 0 } : {}),
-          }}
-        >
-          <DiffView colors={colors} lines={lines} styles={styles} />
-        </View>,
-      ];
-    }
+    case "edit":
+      return editSections(colors, detail, styles);
     case "write":
       return detail.content
         ? [<ScrollableText key="write" colors={colors} text={detail.content} styles={styles} />]
         : [];
     case "read":
-      return detail.content
-        ? [
-            <ScrollableText
-              key="read"
-              colors={colors}
-              text={detail.content}
-              styles={styles}
-              startLine={detail.offset ?? 1}
-            />,
-          ]
-        : [];
-    case "search": {
-      const out: ReactNode[] = [];
-      if (detail.content)
-        out.push(
-          <ScrollableText
-            key="content"
-            colors={colors}
-            text={detail.content}
-            styles={{ ...styles, scrollArea: { ...styles.scrollArea, flex: undefined } }}
-          />,
-        );
-      const lists: [string, string | undefined][] = [
-        ["files", detail.filePaths?.length ? detail.filePaths.join("\n") : undefined],
-        [
-          "web",
-          detail.webResults?.length
-            ? detail.webResults.map((entry) => `${entry.title}\n${entry.url}`).join("\n\n")
-            : undefined,
-        ],
-        ["annotations", detail.annotations?.length ? detail.annotations.join("\n\n") : undefined],
-      ];
-      for (const [key, text] of lists) {
-        if (!text) continue;
-        out.push(
-          <View key={key} style={{ gap: 8 }}>
-            <Text selectable {...MONO_PROPS} style={mono}>
-              {text}
-            </Text>
-          </View>,
-        );
-      }
-      return out;
-    }
+      return readSections(colors, detail, styles);
+    case "search":
+      return searchSections(colors, detail, styles);
     case "fetch":
       return [
         <ScrollableText
@@ -399,57 +500,47 @@ function buildSections(
       return detail.text
         ? [<PlainTextSection key="plain" colors={colors} text={detail.text} styles={styles} />]
         : [];
-    case "unknown": {
-      if (typeof detail.input === "string" && detail.output === null)
-        return [<PlainTextSection key="plain" colors={colors} text={detail.input} styles={styles} />];
-      const out: ReactNode[] = [];
-      for (const [title, value] of [
-        ["Input", detail.input],
-        ["Output", detail.output],
-      ] as const) {
-        if (!hasMeaningfulToolCallDetail({ type: "unknown", input: value ?? null, output: null })) continue;
-        const text = stringify(value);
-        if (!text.length) continue;
-        out.push(
-          <View
-            key={`${title}-header`}
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              gap: 8,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              borderBottomWidth: 1,
-              borderBottomColor: colors.border,
-            }}
-          >
-            <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>{title}</Text>
-          </View>,
-          <View key={`${title}-value`} style={{ gap: 8 }}>
-            <ScrollView
-              horizontal
-              nestedScrollEnabled
-              showsHorizontalScrollIndicator
-              style={{
-                borderWidth: 1,
-                borderColor: colors.border,
-                borderRadius: 4,
-                backgroundColor: colors.surface2,
-              }}
-              contentContainerStyle={{ padding: PAD }}
-            >
-              <Text selectable {...MONO_PROPS} style={mono}>
-                {text}
-              </Text>
-            </ScrollView>
-          </View>,
-        );
-      }
-      return out;
-    }
+    case "unknown":
+      return unknownSections(colors, detail, styles);
     default:
       return [];
   }
+}
+
+interface SubAgentAction {
+  index: number;
+  tool: string;
+  summary?: string;
+}
+
+function parseSubAgentAction(line: string): Omit<SubAgentAction, "index"> | null {
+  const match = /^\[([^\]]+)\](?:\s+(.*))?$/.exec(line);
+  const tool = match?.[1]?.trim();
+  if (!tool) return null;
+  const summary = match?.[2]?.trim();
+  return summary ? { tool, summary } : { tool };
+}
+
+function parseSubAgentLog(log: string): { actions: SubAgentAction[]; log: string } {
+  const actions: SubAgentAction[] = [];
+  const rest: string[] = [];
+  for (const line of log.replace(/^\n+/, "").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const action = parseSubAgentAction(trimmed);
+    if (action) actions.push({ index: actions.length + 1, ...action });
+    else rest.push(line);
+  }
+  return { actions, log: rest.join("\n").replace(/^\n+/, "") };
+}
+
+function formatToolName(name: string): string {
+  return name
+    .replace(/[._-]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function SubAgentSection({
@@ -461,34 +552,11 @@ function SubAgentSection({
   detail: Extract<ToolCallDetail, { type: "sub_agent" }>;
   styles: Styles;
 }) {
-  const parsed = useMemo(() => {
-    const actions: { index: number; tool: string; summary?: string }[] = [];
-    const rest: string[] = [];
-    for (const line of detail.log.replace(/^\n+/, "").split("\n")) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const match = /^\[([^\]]+)\](?:\s+(.*))?$/.exec(trimmed);
-      if (match?.[1]?.trim())
-        actions.push({
-          index: actions.length + 1,
-          tool: match[1].trim(),
-          ...(match[2]?.trim() ? { summary: match[2].trim() } : {}),
-        });
-      else rest.push(line);
-    }
-    return { actions, log: rest.join("\n").replace(/^\n+/, "") };
-  }, [detail.log]);
+  const parsed = useMemo(() => parseSubAgentLog(detail.log), [detail.log]);
   const header =
     detail.subAgentType && detail.description
       ? `${detail.subAgentType}: ${detail.description}`
       : (detail.subAgentType ?? detail.description ?? "Sub-agent activity");
-  const toolName = (name: string) =>
-    name
-      .replace(/[._-]+/g, " ")
-      .split(" ")
-      .filter(Boolean)
-      .map((part) => part[0]!.toUpperCase() + part.slice(1))
-      .join(" ");
   return (
     <CodeSurface colors={colors} styles={styles}>
       {detail.childSessionId ? (
@@ -505,7 +573,7 @@ function SubAgentSection({
           {parsed.actions.map((action) => (
             <View key={action.index} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
               <Text selectable {...MONO_PROPS} style={[styles.mono, { color: colors.foregroundMuted }]}>
-                {toolName(action.tool)}
+                {formatToolName(action.tool)}
               </Text>
               {action.summary ? (
                 <Text selectable {...MONO_PROPS} style={styles.mono}>

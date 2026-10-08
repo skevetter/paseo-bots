@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { newBotScreen, takeNewBotRequest } from "../client/intent";
 import { pixelAvatar } from "../shared/avatar";
+import { BotListUiSchema, botSettings, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { darkBackground } from "../shared/pixel";
-import { botSettings, BotListUiSchema, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { aggregateBuckets, applyStoredOrdering, chatBucket, moveKey, orderChats } from "../shared/sidebar";
+import { defined } from "./helpers";
 
 describe("chatBucket", () => {
   const base = { status: "idle", pendingPermissions: [], requiresAttention: false, attentionReason: null };
@@ -126,7 +127,7 @@ describe("fitColumns", () => {
     expect(fitColumns(1600, 320, 320)).toEqual({ list: 320, panel: 320 });
     const tight = fitColumns(1000, 320, 320);
     expect(tight).toEqual({ list: 320, panel: 280 });
-    expect(1000 - tight.list - tight.panel!).toBeGreaterThanOrEqual(CENTER_MIN_WIDTH);
+    expect(1000 - tight.list - defined(tight.panel, "panel width")).toBeGreaterThanOrEqual(CENTER_MIN_WIDTH);
     expect(fitColumns(800, 320, 320)).toEqual({ list: 200, panel: 240 });
     expect(fitColumns(900, 700, null)).toEqual({ list: 500, panel: null });
   });

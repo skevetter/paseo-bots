@@ -1,7 +1,7 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import type { Bot } from "../../shared/bot";
-import { mcpServerTested, mcpTarget, setBotUses, type LibraryKind } from "../../shared/library";
+import { type LibraryKind, mcpServerTested, mcpTarget, setBotUses } from "../../shared/library";
 import { openLibrary } from "../navigation";
 import type { PanelProps } from "./BotPanel";
 import { CardNote, PressableRow, RowText, SectionLink, Switch } from "./controls";

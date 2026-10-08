@@ -12,12 +12,13 @@ import {
   hslToHex,
   luminance,
   PALETTES,
+  type Palette,
+  type PixelRun,
+  paletteAt,
   pick,
   rng,
   shiftHue,
   toRuns,
-  type Palette,
-  type PixelRun,
 } from "./pixel";
 
 export const SPRITE_SIZE = 24;
@@ -385,83 +386,111 @@ interface Traits {
 
 type Cell = { kind: "empty" } | { kind: "body" } | { kind: "accent" } | { kind: "paint"; color: string };
 
-function draw(traits: Traits): PixelAvatar {
-  const body: BodyDef = BODIES[traits.sprite];
-  const grid: Cell[][] = Array.from({ length: SPRITE_SIZE }, () =>
-    Array.from({ length: SPRITE_SIZE }, (): Cell => ({ kind: "empty" })),
-  );
-  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < SPRITE_SIZE && y < SPRITE_SIZE;
-  const kindAt = (x: number, y: number) => (inside(x, y) ? grid[y]![x]!.kind : "empty");
-  const solid = (x: number, y: number) => kindAt(x, y) !== "empty";
+interface Canvas {
+  grid: Cell[][];
+  colors: (string | null)[][];
+}
 
-  // Silhouette, mirrored.
+interface ShadeContext {
+  grid: Cell[][];
+  traits: Traits;
+  body: BodyDef;
+  midY: number;
+}
+
+interface FacePart {
+  art: readonly string[];
+  x: number;
+  y: number;
+  map: Record<string, string>;
+}
+
+function kindAt(grid: readonly Cell[][], x: number, y: number): Cell["kind"] {
+  return x >= 0 && y >= 0 && x < SPRITE_SIZE && y < SPRITE_SIZE ? grid[y][x].kind : "empty";
+}
+
+function solidAt(grid: readonly Cell[][], x: number, y: number): boolean {
+  return kindAt(grid, x, y) !== "empty";
+}
+
+function drawSilhouette(grid: Cell[][], body: BodyDef): void {
   for (const [rowKey, half] of Object.entries(body.rows)) {
     const y = Number(rowKey);
     const full = half + half.split("").reverse().join("");
     for (let x = 0; x < SPRITE_SIZE; x++) {
-      if (full[x] === "#") grid[y]![x] = { kind: "body" };
-      else if (full[x] === "a") grid[y]![x] = { kind: "accent" };
+      if (full[x] === "#") grid[y][x] = { kind: "body" };
+      else if (full[x] === "a") grid[y][x] = { kind: "accent" };
     }
   }
+}
 
-  // Accessory, placed before outlining so it gets an outline too.
-  if (traits.accessory) {
-    const { art, place } = ACCESSORIES[traits.accessory];
-    const width = art[0]!.length;
-    const originX = place === "top" ? CENTER - Math.ceil(width / 2) : CENTER + 3;
-    const originY = place === "top" ? body.top - art.length : body.top - 1;
-    const paints: Record<string, string> = {
-      G: FIXED.leaf,
-      g: FIXED.leafShade,
-      r: FIXED.ribbon,
-      R: FIXED.ribbonShade,
-      p: FIXED.petal,
-      y: FIXED.gold,
-      Y: FIXED.goldShade,
-    };
-    art.forEach((line, dy) =>
-      line.split("").forEach((char, dx) => {
-        const color = paints[char];
-        if (color && inside(originX + dx, originY + dy))
-          grid[originY + dy]![originX + dx] = { kind: "paint", color };
-      }),
-    );
+function drawAccessory(grid: Cell[][], body: BodyDef, accessory: AccessoryName): void {
+  const { art, place } = ACCESSORIES[accessory];
+  const width = art[0].length;
+  const originX = place === "top" ? CENTER - Math.ceil(width / 2) : CENTER + 3;
+  const originY = place === "top" ? body.top - art.length : body.top - 1;
+  const paints: Record<string, string> = {
+    G: FIXED.leaf,
+    g: FIXED.leafShade,
+    r: FIXED.ribbon,
+    R: FIXED.ribbonShade,
+    p: FIXED.petal,
+    y: FIXED.gold,
+    Y: FIXED.goldShade,
+  };
+  for (const [dy, line] of art.entries()) {
+    for (const [dx, char] of line.split("").entries()) {
+      const color = paints[char];
+      const x = originX + dx;
+      const y = originY + dy;
+      if (color && x >= 0 && y >= 0 && x < SPRITE_SIZE && y < SPRITE_SIZE)
+        grid[y][x] = { kind: "paint", color };
+    }
   }
+}
 
+function bodyRowRange(grid: readonly Cell[][]): { minY: number; maxY: number } {
   let minY = SPRITE_SIZE;
   let maxY = 0;
-  grid.forEach((line, y) => {
+  for (const [y, line] of grid.entries()) {
     if (line.some((cell) => cell.kind === "body")) {
       minY = Math.min(minY, y);
       maxY = Math.max(maxY, y);
     }
-  });
-  const midY = (minY + maxY) / 2;
+  }
+  return { minY, maxY };
+}
 
-  // Shading, lit from the top-left.
-  const { palette } = traits;
-  const colors: (string | null)[][] = grid.map((line, y) =>
-    line.map((cell, x) => {
-      if (cell.kind === "empty") return null;
-      if (cell.kind === "paint") return cell.color;
-      if (cell.kind === "accent")
-        return !solid(x, y + 1) || !solid(x + 1, y) ? traits.accentShade : traits.accent;
-      const bottom = !solid(x, y + 1);
-      if (bottom && y >= midY) return palette.deep;
-      if (bottom || !solid(x + 1, y) || (y >= midY && !solid(x, y + 2))) return palette.shade;
-      if (!solid(x, y - 1) || !solid(x - 1, y)) return palette.light;
-      if (body.patch) {
-        const dx = (x + 0.5 - CENTER) / body.patch.rx;
-        const dy = (y - body.patch.y) / body.patch.ry;
-        if (dx * dx + dy * dy <= 1) return palette.belly;
-      }
-      return palette.body;
-    }),
-  );
+function inPatch(body: BodyDef, x: number, y: number): boolean {
+  if (!body.patch) return false;
+  const dx = (x + 0.5 - CENTER) / body.patch.rx;
+  const dy = (y - body.patch.y) / body.patch.ry;
+  return dx * dx + dy * dy <= 1;
+}
 
-  // Specular highlight: a small cluster near the top-left of the head.
+function bodyColor(context: ShadeContext, x: number, y: number): string {
+  const { grid, body, midY } = context;
+  const { palette } = context.traits;
+  const bottom = !solidAt(grid, x, y + 1);
+  if (bottom && y >= midY) return palette.deep;
+  if (bottom || !solidAt(grid, x + 1, y) || (y >= midY && !solidAt(grid, x, y + 2))) return palette.shade;
+  if (!solidAt(grid, x, y - 1) || !solidAt(grid, x - 1, y)) return palette.light;
+  return inPatch(body, x, y) ? palette.belly : palette.body;
+}
+
+function cellColor(context: ShadeContext, cell: Cell, x: number, y: number): string | null {
+  const { grid, traits } = context;
+  if (cell.kind === "empty") return null;
+  if (cell.kind === "paint") return cell.color;
+  if (cell.kind === "accent")
+    return !solidAt(grid, x, y + 1) || !solidAt(grid, x + 1, y) ? traits.accentShade : traits.accent;
+  return bodyColor(context, x, y);
+}
+
+function addHighlight(canvas: Canvas, color: string, minY: number, maxY: number): void {
+  const { grid, colors } = canvas;
   for (let y = minY + 1; y < maxY; y++) {
-    const line = grid[y]!;
+    const line = grid[y];
     if (line.filter((cell) => cell.kind === "body").length < 10) continue;
     const hx = line.findIndex((cell) => cell.kind === "body") + 2;
     for (const [sx, sy] of [
@@ -469,56 +498,98 @@ function draw(traits: Traits): PixelAvatar {
       [hx + 1, y + 1],
       [hx, y + 2],
     ] as const) {
-      if (kindAt(sx, sy) === "body" && solid(sx, sy - 1) && solid(sx - 1, sy))
-        colors[sy]![sx] = palette.highlight;
+      if (kindAt(grid, sx, sy) === "body" && solidAt(grid, sx, sy - 1) && solidAt(grid, sx - 1, sy))
+        colors[sy][sx] = color;
     }
-    break;
+    return;
   }
+}
 
-  // Face, painted only onto the body.
-  const paintFace = (art: readonly string[], originX: number, originY: number, map: Record<string, string>) =>
-    art.forEach((line, dy) =>
-      line.split("").forEach((char, dx) => {
-        const color = map[char];
-        const px = originX + dx;
-        const py = originY + dy;
-        if (color && inside(px, py) && grid[py]![px]!.kind === "body") colors[py]![px] = color;
-      }),
-    );
+function paintFace(canvas: Canvas, { art, x: originX, y: originY, map }: FacePart): void {
+  for (const [dy, line] of art.entries()) {
+    for (const [dx, char] of line.split("").entries()) {
+      const color = map[char];
+      const px = originX + dx;
+      const py = originY + dy;
+      if (color && kindAt(canvas.grid, px, py) === "body") canvas.colors[py][px] = color;
+    }
+  }
+}
+
+function paintFaceFeatures(canvas: Canvas, traits: Traits, body: BodyDef): void {
   const eyeMap = { e: FIXED.eye, w: FIXED.shine, W: FIXED.glint };
   const rightArt = EYES[traits.eyes];
   const leftArt = traits.eyes === "wink" ? EYES.happy : rightArt;
-  const eyeWidth = rightArt[0]!.length;
+  const eyeWidth = rightArt[0].length;
   const leftX = body.eyeX;
   const rightX = SPRITE_SIZE - body.eyeX - eyeWidth;
-  paintFace(
-    leftArt,
-    leftX + eyeWidth - leftArt[0]!.length,
-    body.eyeY + rightArt.length - leftArt.length,
-    eyeMap,
-  );
-  paintFace(rightArt, rightX, body.eyeY, eyeMap);
+  paintFace(canvas, {
+    art: leftArt,
+    x: leftX + eyeWidth - leftArt[0].length,
+    y: body.eyeY + rightArt.length - leftArt.length,
+    map: eyeMap,
+  });
+  paintFace(canvas, { art: rightArt, x: rightX, y: body.eyeY, map: eyeMap });
 
   const mouth = MOUTHS[traits.mouth];
-  paintFace(mouth, Math.floor(CENTER - mouth[0]!.length / 2), body.mouthY, {
-    m: FIXED.mouth,
-    t: FIXED.tongue,
-    k: FIXED.orange,
-    K: FIXED.orangeShade,
+  paintFace(canvas, {
+    art: mouth,
+    x: Math.floor(CENTER - mouth[0].length / 2),
+    y: body.mouthY,
+    map: { m: FIXED.mouth, t: FIXED.tongue, k: FIXED.orange, K: FIXED.orangeShade },
   });
 
   if (traits.blush) {
-    paintFace(["cc"], leftX - 1, body.blushY, { c: FIXED.blush });
-    paintFace(["cc"], rightX + eyeWidth - 1, body.blushY, { c: FIXED.blush });
+    paintFace(canvas, { art: ["cc"], x: leftX - 1, y: body.blushY, map: { c: FIXED.blush } });
+    paintFace(canvas, { art: ["cc"], x: rightX + eyeWidth - 1, y: body.blushY, map: { c: FIXED.blush } });
   }
+}
+
+function addOutline(canvas: Canvas, outline: string): void {
+  const { grid, colors } = canvas;
+  for (const [y, line] of grid.entries()) {
+    for (const [x, cell] of line.entries()) {
+      if (
+        cell.kind === "empty" &&
+        (solidAt(grid, x + 1, y) ||
+          solidAt(grid, x - 1, y) ||
+          solidAt(grid, x, y + 1) ||
+          solidAt(grid, x, y - 1))
+      )
+        colors[y][x] = outline;
+    }
+  }
+}
+
+function draw(traits: Traits): PixelAvatar {
+  const body: BodyDef = BODIES[traits.sprite];
+  const grid: Cell[][] = Array.from({ length: SPRITE_SIZE }, () =>
+    Array.from({ length: SPRITE_SIZE }, (): Cell => ({ kind: "empty" })),
+  );
+
+  // Silhouette, mirrored.
+  drawSilhouette(grid, body);
+
+  // Accessory, placed before outlining so it gets an outline too.
+  if (traits.accessory) drawAccessory(grid, body, traits.accessory);
+
+  const { minY, maxY } = bodyRowRange(grid);
+  const midY = (minY + maxY) / 2;
+
+  // Shading, lit from the top-left.
+  const { palette } = traits;
+  const shade: ShadeContext = { grid, traits, body, midY };
+  const colors = grid.map((line, y) => line.map((cell, x) => cellColor(shade, cell, x, y)));
+  const canvas: Canvas = { grid, colors };
+
+  // Specular highlight: a small cluster near the top-left of the head.
+  addHighlight(canvas, palette.highlight, minY, maxY);
+
+  // Face, painted only onto the body.
+  paintFaceFeatures(canvas, traits, body);
 
   // Outline: every empty pixel touching the shape.
-  grid.forEach((line, y) =>
-    line.forEach((cell, x) => {
-      if (cell.kind === "empty" && (solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1)))
-        colors[y]![x] = palette.outline;
-    }),
-  );
+  addOutline(canvas, palette.outline);
 
   return { sprite: traits.sprite, background: palette.background, body: palette.body, rows: toRuns(colors) };
 }
@@ -560,7 +631,7 @@ export function pixelAvatar(
   const next = rng(seed);
   const sprite = pick(next, SPRITE_NAMES);
   const seeded = pick(next, PALETTES);
-  const colors = palette === null ? seeded : PALETTES[palette % PALETTES.length]!;
+  const colors = palette === null ? seeded : paletteAt(palette);
   const accentHue = pick(next, ACCENT_HUES);
   return withTheme(draw(traitsFor(sprite, colors, accentHue, next)), colors, options);
 }
@@ -572,10 +643,10 @@ export function spriteAvatar(
   accent: number = 0,
   options: AvatarOptions = {},
 ): PixelAvatar {
-  const colors = PALETTES[palette % PALETTES.length]!;
+  const colors = paletteAt(palette);
   const next = rng(`${sprite}:${palette}:${accent}`);
   return withTheme(
-    draw(traitsFor(sprite, colors, ACCENT_HUES[accent % ACCENT_HUES.length]!, next)),
+    draw(traitsFor(sprite, colors, ACCENT_HUES[accent % ACCENT_HUES.length], next)),
     colors,
     options,
   );

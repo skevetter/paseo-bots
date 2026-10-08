@@ -1,9 +1,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { openExternalUrl } from "@getpaseo/plugin/client";
-import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
-import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, Text, View, type TextStyle } from "react-native";
-import { parseMarkdown, type Block, type Inline, type ListItem } from "../shared/markdown";
+import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
+import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { Platform, Pressable, Text, type TextStyle, View } from "react-native";
+import { type Block, type Inline, type ListItem, parseMarkdown, plainText } from "../shared/markdown";
 import { MONO_FONT, MONO_PROPS, nativeTokens } from "./native";
 import { code, codeLine, content, contentLine } from "./typography";
 import { tooltip } from "./ui/Tooltip";
@@ -18,23 +18,24 @@ function headingSize(tier: number): number {
   return Math.round(content() * (tier / 14));
 }
 
-const HEADINGS: Record<
-  number,
-  {
-    tier: number;
-    weight: TextStyle["fontWeight"];
-    top: number;
-    bottom: number;
-    rule?: boolean;
-    muted?: boolean;
-  }
-> = {
+interface HeadingSpec {
+  tier: number;
+  weight: TextStyle["fontWeight"];
+  top: number;
+  bottom: number;
+  rule?: boolean;
+  muted?: boolean;
+}
+
+const SMALLEST_HEADING: HeadingSpec = { tier: 16, weight: "600", top: 12, bottom: 4, muted: true };
+
+const HEADINGS: Record<number, HeadingSpec> = {
   1: { tier: 26, weight: "bold", top: 24, bottom: 12, rule: true },
   2: { tier: 22, weight: "bold", top: 24, bottom: 12, rule: true },
   3: { tier: 20, weight: "600", top: 16, bottom: 8 },
   4: { tier: 18, weight: "600", top: 16, bottom: 8 },
   5: { tier: 16, weight: "600", top: 12, bottom: 4 },
-  6: { tier: 16, weight: "600", top: 12, bottom: 4, muted: true },
+  6: SMALLEST_HEADING,
 };
 
 const compact = () => Platform.OS !== "web";
@@ -46,9 +47,8 @@ declare const window: { matchMedia?: (query: string) => { matches: boolean } } |
 function hoverCapable(): boolean {
   if (compact()) return false;
   try {
-    return typeof window !== "undefined" && window?.matchMedia
-      ? window.matchMedia("(hover: hover)").matches
-      : true;
+    if (typeof window === "undefined" || !window.matchMedia) return true;
+    return window.matchMedia("(hover: hover)").matches;
   } catch {
     return true;
   }
@@ -73,12 +73,22 @@ export const Markdown = memo(function Markdown({
   return <Blocks colors={colors} blocks={blocks} />;
 });
 
+function keyed<T>(items: T[], label: (item: T) => string): { key: string; item: T }[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = label(item);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return { key: `${base}-${count}`, item };
+  });
+}
+
 function Blocks({ colors, blocks, tight }: { colors: Colors; blocks: Block[]; tight?: boolean }) {
   return (
     <>
-      {blocks.map((block, index) => (
+      {keyed(blocks, (block) => block.kind).map(({ key, item: block }, index) => (
         <BlockView
-          key={index}
+          key={key}
           colors={colors}
           block={block}
           last={index === blocks.length - 1}
@@ -115,35 +125,8 @@ function BlockView({
           <Inlines colors={colors} inlines={block.inlines} />
         </Text>
       );
-    case "heading": {
-      const spec = HEADINGS[block.level] ?? HEADINGS[6]!;
-      const size = headingSize(spec.tier);
-      return (
-        <View
-          style={{
-            marginTop: spec.top,
-            marginBottom: spec.bottom,
-            ...(spec.rule
-              ? { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 8 }
-              : {}),
-          }}
-        >
-          <Text
-            selectable
-            accessibilityRole="header"
-            style={{
-              color: spec.muted ? colors.foregroundMuted : colors.foreground,
-              fontSize: size,
-              lineHeight: Math.round(size * 1.3),
-              fontWeight: spec.weight,
-              ...(spec.muted ? { textTransform: "uppercase", letterSpacing: 0.5 } : {}),
-            }}
-          >
-            <Inlines colors={colors} inlines={block.inlines} />
-          </Text>
-        </View>
-      );
-    }
+    case "heading":
+      return <HeadingView colors={colors} level={block.level} inlines={block.inlines} />;
     case "list":
       return (
         <ListView
@@ -158,38 +141,64 @@ function BlockView({
     case "code":
       return <CodeBlock colors={colors} text={block.text} />;
     case "quote":
-      return (
-        <View
-          style={{
-            backgroundColor: colors.surface1,
-            borderLeftWidth: 4,
-            borderLeftColor: colors.surface2,
-            paddingHorizontal: 16,
-            paddingTop: 12,
-            paddingBottom: 0,
-            marginVertical: 12,
-            borderRadius: 6,
-            borderTopLeftRadius: 0,
-            borderBottomLeftRadius: 0,
-          }}
-        >
-          {block.blocks.map((inner, index) => (
-            // Quoted paragraphs keep their bottom margin: the quote has no bottom padding.
-            <BlockView
-              key={index}
-              colors={colors}
-              block={inner}
-              last={false}
-              next={block.blocks[index + 1]}
-            />
-          ))}
-        </View>
-      );
+      return <QuoteView colors={colors} blocks={block.blocks} />;
     case "table":
       return <TableView colors={colors} block={block} />;
     case "rule":
       return <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 10 }} />;
   }
+}
+
+function HeadingView({ colors, level, inlines }: { colors: Colors; level: number; inlines: Inline[] }) {
+  const spec = HEADINGS[level] ?? SMALLEST_HEADING;
+  const size = headingSize(spec.tier);
+  return (
+    <View
+      style={{
+        marginTop: spec.top,
+        marginBottom: spec.bottom,
+        ...(spec.rule ? { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 8 } : {}),
+      }}
+    >
+      <Text
+        selectable
+        accessibilityRole="header"
+        style={{
+          color: spec.muted ? colors.foregroundMuted : colors.foreground,
+          fontSize: size,
+          lineHeight: Math.round(size * 1.3),
+          fontWeight: spec.weight,
+          ...(spec.muted ? { textTransform: "uppercase", letterSpacing: 0.5 } : {}),
+        }}
+      >
+        <Inlines colors={colors} inlines={inlines} />
+      </Text>
+    </View>
+  );
+}
+
+function QuoteView({ colors, blocks }: { colors: Colors; blocks: Block[] }) {
+  return (
+    <View
+      style={{
+        backgroundColor: colors.surface1,
+        borderLeftWidth: 4,
+        borderLeftColor: colors.surface2,
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        paddingBottom: 0,
+        marginVertical: 12,
+        borderRadius: 6,
+        borderTopLeftRadius: 0,
+        borderBottomLeftRadius: 0,
+      }}
+    >
+      {keyed(blocks, (block) => block.kind).map(({ key, item: inner }, index) => (
+        // Quoted paragraphs keep their bottom margin: the quote has no bottom padding.
+        <BlockView key={key} colors={colors} block={inner} last={false} next={blocks[index + 1]} />
+      ))}
+    </View>
+  );
 }
 
 /** utils/markdown-list.ts getMarkdownListSpacing. */
@@ -223,9 +232,9 @@ function ListView({
   };
   return (
     <View style={{ width: "100%", ...listSpacing(nested, next) }}>
-      {items.map((item, index) => (
+      {keyed(items, (item) => item.marker).map(({ key, item }) => (
         <View
-          key={index}
+          key={key}
           style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 4, flexShrink: 1 }}
         >
           <Text style={marker}>{item.marker}</Text>
@@ -260,28 +269,25 @@ function TableView({ colors, block }: { colors: Colors; block: Extract<Block, { 
           borderColor: colors.border,
         }}
       >
-        {block.header.map((inlines, index) => (
-          <View
-            key={index}
-            style={[cell, index === block.header.length - 1 ? { borderRightWidth: 0 } : null]}
-          >
+        {keyed(block.header, plainText).map(({ key, item: inlines }, index) => (
+          <View key={key} style={[cell, index === block.header.length - 1 ? { borderRightWidth: 0 } : null]}>
             <Text selectable style={[text, { fontWeight: "600", textAlign: align(index) }]}>
               <Inlines colors={colors} inlines={inlines} />
             </Text>
           </View>
         ))}
       </View>
-      {block.rows.map((row, rowIndex) => (
+      {keyed(block.rows, (row) => row.map(plainText).join("|")).map(({ key, item: row }, rowIndex) => (
         <View
-          key={rowIndex}
+          key={key}
           style={{
             flexDirection: "row",
             borderBottomWidth: rowIndex === block.rows.length - 1 ? 0 : 1,
             borderColor: colors.border,
           }}
         >
-          {row.map((inlines, index) => (
-            <View key={index} style={[cell, index === row.length - 1 ? { borderRightWidth: 0 } : null]}>
+          {keyed(row, plainText).map(({ key, item: inlines }, index) => (
+            <View key={key} style={[cell, index === row.length - 1 ? { borderRightWidth: 0 } : null]}>
               <Text selectable style={[text, { textAlign: align(index) }]}>
                 <Inlines colors={colors} inlines={inlines} />
               </Text>

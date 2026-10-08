@@ -336,7 +336,7 @@ export function listenForFileDrop(
       color: options.foreground,
     });
     overlay.innerHTML = `<div style="position:absolute;inset:0;background:${options.background};opacity:0.7"></div><div style="position:relative;display:flex;flex-direction:column;align-items:center;gap:8px">${UPLOAD_SVG}<div style="font-size:14px;font-weight:500">${options.label}</div></div>`;
-    zone.appendChild!(overlay);
+    zone.appendChild?.(overlay);
   };
   const hide = () => {
     depth = 0;

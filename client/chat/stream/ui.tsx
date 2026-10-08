@@ -1,16 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, copyText } from "@getpaseo/plugin/client/react-native";
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { copyText, Icon } from "@getpaseo/plugin/client/react-native";
+import { memo, type ReactNode, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Easing,
   Platform,
   Pressable,
-  Text,
-  View,
   type StyleProp,
+  Text,
   type TextStyle,
+  View,
 } from "react-native";
 import { nativeTokens, useHover } from "../../native";
 import { speak, stopSpeaking, useSpeaking } from "../../speech";
@@ -20,6 +20,15 @@ import { tooltip } from "../../ui/Tooltip";
 type Colors = PluginTheme["colors"];
 
 export const isWeb = Platform.OS === "web";
+
+export function keysWithOccurrence(values: string[]): string[] {
+  const seen = new Map<string, number>();
+  return values.map((value) => {
+    const occurrence = seen.get(value) ?? 0;
+    seen.set(value, occurrence + 1);
+    return `${value}-${occurrence}`;
+  });
+}
 
 // This plugin typechecks without the DOM library. Declare only what this module uses.
 interface StyleNode {
@@ -88,12 +97,17 @@ function shimmerDuration(label: string, secondary?: string): number {
   return Math.max(1, Math.min(2.3, 1.25 + chars * 0.008 - adjust));
 }
 
+interface Shimmer {
+  textProps: object;
+  style: StyleProp<TextStyle>;
+}
+
 /**
  * Props for a running tool label. On web the text gets Paseo's moving highlight
  * (a clipped gradient); phones pulse its opacity instead, since plugins have no
  * masked views.
  */
-function useShimmer(active: boolean, duration: number): { textProps: object; style: StyleProp<TextStyle> } {
+function useShimmer(active: boolean, duration: number): Shimmer {
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     if (!active) return;
@@ -301,6 +315,118 @@ export interface ExpandableBadgeProps {
   isError?: boolean;
 }
 
+function BadgeIcon({
+  colors,
+  icon,
+  active,
+  isExpanded,
+  interactive,
+  isError,
+}: {
+  colors: Colors;
+  icon: string | undefined;
+  active: boolean;
+  isExpanded: boolean;
+  interactive: boolean;
+  isError: boolean;
+}) {
+  if (interactive && active) {
+    return (
+      <View
+        style={{
+          marginLeft: -4,
+          transform: isExpanded ? [{ scale: 1.3 }, { rotate: "90deg" }] : [{ scale: 1.3 }],
+        }}
+      >
+        <Icon name="ChevronRight" size={12} color={colors.foreground} />
+      </View>
+    );
+  }
+  if (isError) {
+    return (
+      <View style={{ marginLeft: -1, opacity: 0.8 }}>
+        <Icon name="TriangleAlert" size={12} color={colors.statusDanger} />
+      </View>
+    );
+  }
+  if (icon) {
+    return (
+      <View style={{ marginLeft: -1 }}>
+        <Icon name={icon} size={12} color={active ? colors.foreground : colors.foregroundMuted} />
+      </View>
+    );
+  }
+  return null;
+}
+
+function BadgeLabels({
+  colors,
+  label,
+  secondaryLabel,
+  active,
+  isLoading,
+  shimmer,
+}: {
+  colors: Colors;
+  label: string;
+  secondaryLabel: string | undefined;
+  active: boolean;
+  isLoading: boolean;
+  shimmer: Shimmer;
+}) {
+  const labelStyle: TextStyle = {
+    color: isLoading || active ? colors.foreground : colors.foregroundMuted,
+    opacity: isLoading ? 0.72 : 1,
+    fontSize: ui(14),
+    flexShrink: 0,
+  };
+  return (
+    <View style={{ flex: 1, flexDirection: "row", alignItems: "center", overflow: "hidden" }}>
+      <Animated.Text numberOfLines={1} {...shimmer.textProps} style={[labelStyle, shimmer.style]}>
+        {label}
+      </Animated.Text>
+      {secondaryLabel ? (
+        <Animated.Text
+          numberOfLines={1}
+          {...shimmer.textProps}
+          style={[
+            {
+              flexShrink: 1,
+              minWidth: 0,
+              marginLeft: 8,
+              fontSize: ui(14),
+              color: active ? colors.foreground : colors.foregroundMuted,
+            },
+            shimmer.style,
+          ]}
+        >
+          {secondaryLabel}
+        </Animated.Text>
+      ) : null}
+    </View>
+  );
+}
+
+function BadgeDetails({ colors, children }: { colors: Colors; children: ReactNode }) {
+  return (
+    <View
+      style={{
+        borderBottomLeftRadius: 8,
+        borderBottomRightRadius: 8,
+        borderWidth: 1,
+        borderTopWidth: 0,
+        borderColor: colors.border,
+        flexShrink: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        ...(isWeb ? ({ cursor: "auto", userSelect: "text" } as object) : {}),
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
 /** Paseo's ExpandableBadge (message.tsx): the tool call row and its attached detail panel. */
 export const ExpandableBadge = memo(function ExpandableBadge({
   colors,
@@ -319,37 +445,6 @@ export const ExpandableBadge = memo(function ExpandableBadge({
   const duration = shimmerDuration(label, secondaryLabel);
   const shimmer = useShimmer(isLoading, duration);
   const details = isExpanded && renderDetails ? renderDetails() : null;
-  const labelStyle: TextStyle = {
-    color: isLoading || active ? colors.foreground : colors.foregroundMuted,
-    opacity: isLoading ? 0.72 : 1,
-    fontSize: ui(14),
-    flexShrink: 0,
-  };
-  let iconNode: ReactNode = null;
-  if (interactive && active) {
-    iconNode = (
-      <View
-        style={{
-          marginLeft: -4,
-          transform: isExpanded ? [{ scale: 1.3 }, { rotate: "90deg" }] : [{ scale: 1.3 }],
-        }}
-      >
-        <Icon name="ChevronRight" size={12} color={colors.foreground} />
-      </View>
-    );
-  } else if (isError) {
-    iconNode = (
-      <View style={{ marginLeft: -1, opacity: 0.8 }}>
-        <Icon name="TriangleAlert" size={12} color={colors.statusDanger} />
-      </View>
-    );
-  } else if (icon) {
-    iconNode = (
-      <View style={{ marginLeft: -1 }}>
-        <Icon name={icon} size={12} color={active ? colors.foreground : colors.foregroundMuted} />
-      </View>
-    );
-  }
   return (
     <View style={{ marginHorizontal: -13 }}>
       <Pressable
@@ -384,50 +479,26 @@ export const ExpandableBadge = memo(function ExpandableBadge({
               marginRight: 4,
             }}
           >
-            {iconNode}
+            <BadgeIcon
+              colors={colors}
+              icon={icon}
+              active={active}
+              isExpanded={isExpanded}
+              interactive={interactive}
+              isError={isError}
+            />
           </View>
-          <View style={{ flex: 1, flexDirection: "row", alignItems: "center", overflow: "hidden" }}>
-            <Animated.Text numberOfLines={1} {...shimmer.textProps} style={[labelStyle, shimmer.style]}>
-              {label}
-            </Animated.Text>
-            {secondaryLabel ? (
-              <Animated.Text
-                numberOfLines={1}
-                {...shimmer.textProps}
-                style={[
-                  {
-                    flexShrink: 1,
-                    minWidth: 0,
-                    marginLeft: 8,
-                    fontSize: ui(14),
-                    color: active ? colors.foreground : colors.foregroundMuted,
-                  },
-                  shimmer.style,
-                ]}
-              >
-                {secondaryLabel}
-              </Animated.Text>
-            ) : null}
-          </View>
+          <BadgeLabels
+            colors={colors}
+            label={label}
+            secondaryLabel={secondaryLabel}
+            active={active}
+            isLoading={isLoading}
+            shimmer={shimmer}
+          />
         </View>
       </Pressable>
-      {details ? (
-        <View
-          style={{
-            borderBottomLeftRadius: 8,
-            borderBottomRightRadius: 8,
-            borderWidth: 1,
-            borderTopWidth: 0,
-            borderColor: colors.border,
-            flexShrink: 1,
-            minWidth: 0,
-            overflow: "hidden",
-            ...(isWeb ? ({ cursor: "auto", userSelect: "text" } as object) : {}),
-          }}
-        >
-          {details}
-        </View>
-      ) : null}
+      {details ? <BadgeDetails colors={colors}>{details}</BadgeDetails> : null}
     </View>
   );
 });

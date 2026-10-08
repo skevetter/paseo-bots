@@ -1,5 +1,5 @@
 import { randomSeed } from "./avatar";
-import { newBotId, type Bot, type Preset } from "./bot";
+import { type Bot, newBotId, type Preset } from "./bot";
 
 // Starting points for a new bot, from OpenMausBot's New bot roles
 // (src/lib/bot-roles.ts): a name, a job and standing instructions.

@@ -1,14 +1,14 @@
-import type { PaseoApi } from "./paseo";
 import type { PluginSettings } from "@getpaseo/plugin/server";
 import {
   BOT_LABEL,
-  EMPTY_LIBRARY,
   type Bot,
   type BotSettingsValues,
   type botSettings,
+  EMPTY_LIBRARY,
   type Library,
 } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
+import type { PaseoApi } from "./paseo";
 
 // What every server feature needs: the saved settings (read-only on the
 // server), and the plugin's Paseo API. The SDK only hands the API out inside

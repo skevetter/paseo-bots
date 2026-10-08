@@ -33,26 +33,31 @@ export function useHover() {
 
 type Rgba = [number, number, number, number];
 
+function parseHexColor(value: string): Rgba | null {
+  const match = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value)?.[1];
+  if (!match) return null;
+  const digits =
+    match.length === 3
+      ? match
+          .split("")
+          .map((d) => d + d)
+          .join("")
+      : match;
+  const n = parseInt(digits.slice(0, 6), 16);
+  const alpha = digits.length === 8 ? parseInt(digits.slice(6), 16) / 255 : 1;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha];
+}
+
+function parseRgbColor(value: string): Rgba | null {
+  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/i.exec(value);
+  if (!rgb) return null;
+  const alpha = rgb[4] ? (rgb[4].endsWith("%") ? parseFloat(rgb[4]) / 100 : parseFloat(rgb[4])) : 1;
+  return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha];
+}
+
 function parseColor(color: string): Rgba | null {
   const value = color.trim();
-  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value);
-  if (hex) {
-    let digits = hex[1]!;
-    if (digits.length === 3)
-      digits = digits
-        .split("")
-        .map((d) => d + d)
-        .join("");
-    const n = parseInt(digits.slice(0, 6), 16);
-    const alpha = digits.length === 8 ? parseInt(digits.slice(6), 16) / 255 : 1;
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha];
-  }
-  const rgb = /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+%?))?\s*\)$/i.exec(value);
-  if (rgb) {
-    const alpha = rgb[4] ? (rgb[4].endsWith("%") ? parseFloat(rgb[4]) / 100 : parseFloat(rgb[4])) : 1;
-    return [Number(rgb[1]), Number(rgb[2]), Number(rgb[3]), alpha];
-  }
-  return null;
+  return parseHexColor(value) ?? parseRgbColor(value);
 }
 
 /** A thrown error as one readable line: without Paseo's RPC wrapper ("Request failed: … requestType=… code=…") or a trailing period. */
@@ -70,11 +75,11 @@ function mix(a: string, b: string, weight: number): string {
   const x = parseColor(a);
   const y = parseColor(b);
   if (!x || !y) return a;
-  const channel = (i: number) =>
-    Math.round(x[i]! * weight + y[i]! * (1 - weight))
+  const channel = (p: number, q: number) =>
+    Math.round(p * weight + q * (1 - weight))
       .toString(16)
       .padStart(2, "0");
-  return `#${channel(0)}${channel(1)}${channel(2)}`;
+  return `#${channel(x[0], y[0])}${channel(x[1], y[1])}${channel(x[2], y[2])}`;
 }
 
 export function withAlpha(color: string, alpha: number): string {
@@ -112,6 +117,21 @@ export interface NativeTokens {
 
 const cache = new WeakMap<Colors, NativeTokens>();
 
+type StatusTokens = Pick<
+  NativeTokens,
+  "interactionHighlight" | "statusDotRunning" | "statusDotSuccess" | "statusDotWarning" | "statusDotDanger"
+>;
+
+function statusTokens(dark: boolean): StatusTokens {
+  return {
+    interactionHighlight: dark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
+    statusDotRunning: dark ? "#5caaf6" : "#268ae0",
+    statusDotSuccess: dark ? "#35c264" : "#299f51",
+    statusDotWarning: dark ? "#db932e" : "#b37824",
+    statusDotDanger: dark ? "#f7796d" : "#f12e2f",
+  };
+}
+
 export function nativeTokens(colors: Colors): NativeTokens {
   const cached = cache.get(colors);
   if (cached) return cached;
@@ -128,11 +148,7 @@ export function nativeTokens(colors: Colors): NativeTokens {
       : mix(colors.border, colors.surface0, 0.7),
     foregroundExtraMuted: mix(colors.foregroundMuted, colors.surface0, 0.65),
     accentBright: mix(colors.accent, "#ffffff", dark ? 0.37 : 0.75),
-    interactionHighlight: dark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
-    statusDotRunning: dark ? "#5caaf6" : "#268ae0",
-    statusDotSuccess: dark ? "#35c264" : "#299f51",
-    statusDotWarning: dark ? "#db932e" : "#b37824",
-    statusDotDanger: dark ? "#f7796d" : "#f12e2f",
+    ...statusTokens(dark),
   };
   cache.set(colors, tokens);
   return tokens;

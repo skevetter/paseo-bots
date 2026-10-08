@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { useMemo } from "react";
 import { ExternalLink } from "@getpaseo/plugin/client/ui";
+import { useMemo } from "react";
 import { Text, View } from "react-native";
 import { grayscaleAvatar, SPLASH_LINEUP, spriteAvatar } from "../shared/avatar";
 import { PLUGIN_VERSION } from "../shared/version";

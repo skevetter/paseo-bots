@@ -14,6 +14,17 @@ function plain(text: string): string {
   return text.replace(/[\r\n]+/g, " ").replace(/[\\`*_[\]<>#]/g, "\\$&");
 }
 
+function entryToolLabel(item: TranscriptEntry["item"]): string | null {
+  if (item.type !== "tool_call" || typeof item.name !== "string") return null;
+  const label = toolLabel(toolCallName({ name: item.name, metadata: item.metadata }));
+  return item.status === "failed" ? `${label} (failed)` : label;
+}
+
+function entryMessageText(item: TranscriptEntry["item"]): string {
+  if (item.type !== "user_message" && item.type !== "assistant_message") return "";
+  return String(item.text ?? "").trim();
+}
+
 export function chatTranscript(input: {
   title: string;
   botName: string;
@@ -38,14 +49,13 @@ export function chatTranscript(input: {
     tools = [];
   };
   for (const { item, timestamp } of input.entries) {
-    if (item.type === "tool_call" && typeof item.name === "string") {
+    const label = entryToolLabel(item);
+    if (label !== null) {
       say(input.botName, timestamp);
-      const label = toolLabel(toolCallName({ name: item.name, metadata: item.metadata }));
-      tools.push(item.status === "failed" ? `${label} (failed)` : label);
+      tools.push(label);
       continue;
     }
-    if (item.type !== "user_message" && item.type !== "assistant_message") continue;
-    const text = String(item.text ?? "").trim();
+    const text = entryMessageText(item);
     if (!text) continue;
     flushTools();
     say(item.type === "user_message" ? "You" : input.botName, timestamp);

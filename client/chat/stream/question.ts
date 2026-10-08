@@ -25,6 +25,45 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
   return typeof value === "string" ? value : undefined;
 }
 
+function parseQuestionOption(opt: unknown): QuestionOption | null {
+  if (typeof opt !== "object" || opt === null) return null;
+  const o = opt as Record<string, unknown>;
+  if (typeof o.label !== "string") return null;
+  return {
+    label: o.label,
+    ...(typeof o.description === "string" ? { description: o.description } : {}),
+  };
+}
+
+function parseQuestionOptions(input: unknown[]): QuestionOption[] | null {
+  const options: QuestionOption[] = [];
+  for (const opt of input) {
+    const option = parseQuestionOption(opt);
+    if (!option) return null;
+    options.push(option);
+  }
+  return options;
+}
+
+function parseQuestion(item: unknown): QuestionFormQuestion | null {
+  if (typeof item !== "object" || item === null) return null;
+  const q = item as Record<string, unknown>;
+  if (typeof q.question !== "string" || typeof q.header !== "string" || !Array.isArray(q.options))
+    return null;
+  const options = parseQuestionOptions(q.options);
+  if (!options) return null;
+  return {
+    question: q.question,
+    header: q.header,
+    options,
+    multiSelect: q.multiSelect === true,
+    allowOther: q.allowOther === true || q.isOther === true,
+    allowEmpty: q.allowEmpty === true,
+    placeholder: readOptionalString(q, "placeholder"),
+    dismissLabel: readOptionalString(q, "dismissLabel"),
+  };
+}
+
 export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion[] | null {
   if (
     typeof input !== "object" ||
@@ -34,30 +73,9 @@ export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion
     return null;
   const questions: QuestionFormQuestion[] = [];
   for (const item of (input as Record<string, unknown>).questions as unknown[]) {
-    if (typeof item !== "object" || item === null) return null;
-    const q = item as Record<string, unknown>;
-    if (typeof q.question !== "string" || typeof q.header !== "string" || !Array.isArray(q.options))
-      return null;
-    const options: QuestionOption[] = [];
-    for (const opt of q.options as unknown[]) {
-      if (typeof opt !== "object" || opt === null) return null;
-      const o = opt as Record<string, unknown>;
-      if (typeof o.label !== "string") return null;
-      options.push({
-        label: o.label,
-        ...(typeof o.description === "string" ? { description: o.description } : {}),
-      });
-    }
-    questions.push({
-      question: q.question,
-      header: q.header,
-      options,
-      multiSelect: q.multiSelect === true,
-      allowOther: q.allowOther === true || q.isOther === true,
-      allowEmpty: q.allowEmpty === true,
-      placeholder: readOptionalString(q, "placeholder"),
-      dismissLabel: readOptionalString(q, "dismissLabel"),
-    });
+    const question = parseQuestion(item);
+    if (!question) return null;
+    questions.push(question);
   }
   return questions.length > 0 ? questions : null;
 }
@@ -98,23 +116,38 @@ export function buildQuestionFormAnswers(
 ): Record<string, string> {
   const answers: Record<string, string> = {};
   questions.forEach((question, index) => {
-    const selected = selections[index];
-    const other = otherTexts[index]?.trim();
-    const labels = selected ? Array.from(selected).map((option) => question.options[option]!.label) : [];
-    if (questionShowsTextInput(question)) {
-      if (other) {
-        // Multi-select keeps the checked options and appends the typed answer; single-select replaces them.
-        answers[question.header] = question.multiSelect ? [...labels, other].join(", ") : other;
-        return;
-      }
-      if (question.allowEmpty && question.options.length === 0) {
-        answers[question.header] = "";
-        return;
-      }
-    }
-    if (labels.length > 0) answers[question.header] = labels.join(", ");
+    const answer = resolveQuestionAnswer(question, selections[index], otherTexts[index]?.trim());
+    if (answer !== undefined) answers[question.header] = answer;
   });
   return answers;
+}
+
+function selectedOptionLabels(
+  question: QuestionFormQuestion,
+  selected: ReadonlySet<number> | undefined,
+): string[] {
+  if (!selected) return [];
+  return Array.from(selected).map((option) => {
+    const entry = question.options[option];
+    if (!entry) throw new Error(`Question "${question.header}" has no option at index ${option}`);
+    return entry.label;
+  });
+}
+
+function resolveQuestionAnswer(
+  question: QuestionFormQuestion,
+  selected: ReadonlySet<number> | undefined,
+  other: string | undefined,
+): string | undefined {
+  const labels = selectedOptionLabels(question, selected);
+  if (questionShowsTextInput(question)) {
+    if (other) {
+      // Multi-select keeps the checked options and appends the typed answer; single-select replaces them.
+      return question.multiSelect ? [...labels, other].join(", ") : other;
+    }
+    if (question.allowEmpty && question.options.length === 0) return "";
+  }
+  return labels.length > 0 ? labels.join(", ") : undefined;
 }
 
 export function shouldSubmitEmptyOnDismiss(questions: QuestionFormQuestion[]): boolean {

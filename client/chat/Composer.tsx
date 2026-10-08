@@ -1,45 +1,56 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PaseoAgent, PaseoAgentSendOptions } from "../paseo";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard, SettingsRow } from "@getpaseo/plugin/client/ui";
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  type Dispatch,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
+  type TextInput as NativeTextInput,
   Platform,
   Pressable,
   Text,
-  View,
+  type TextStyle,
   useWindowDimensions,
-  type TextInput as NativeTextInput,
+  View,
 } from "react-native";
 import {
+  type ComposerAttachment,
   newAttachmentId,
   normalizeMimeType,
   preflightFile,
   toWire,
-  type ComposerAttachment,
 } from "../../shared/attachments";
 import type { Bot } from "../../shared/bot";
 import { uploadRpc } from "../../shared/rpc";
 import { expandLearn, LEARN_COMMAND } from "../../shared/skills";
 import { AttachmentPill, PendingAttachmentPill } from "../AttachmentPill";
+import type { ChatPaneProps, OutgoingMessage } from "../ChatPane";
 import type { BotHost } from "../data";
 import { homeIndicatorInset } from "../keyboard";
 import { CONTENT_MAX_WIDTH, errorText, nativeTokens, placeholderColor, useHover } from "../native";
+import type { PaseoAgent, PaseoAgentSendOptions, PaseoApi } from "../paseo";
 import { newMessageId, rememberSent } from "../sent-attachments";
-import { measureAnchor, useMenu, type MenuEntry } from "../ui/Menu";
+import { content, ui } from "../typography";
+import { type MenuEntry, measureAnchor, useMenu } from "../ui/Menu";
+import { tooltip } from "../ui/Tooltip";
 import {
   decodeUtf8,
   domNode,
+  type FileHandle,
   focusWithRetries,
   listenForFileDrop,
   listenForImagePaste,
   pickFileHandles,
-  type FileHandle,
 } from "../web";
-import { content, ui } from "../typography";
-import type { ChatPaneProps, OutgoingMessage } from "../ChatPane";
 import { CommandMenu } from "./composer/CommandMenu";
 import { ContextMeter } from "./composer/ContextMeter";
 import {
@@ -55,13 +66,18 @@ import { useInputHeight } from "./composer/height";
 import {
   activeTurnBehaviorFor,
   applyCommand,
+  type ComposerKeyEvent,
+  type ContextUsage,
   commandQuery,
   composerDraftKey,
   contextUsage,
   filterCommands,
+  isDraftEmpty,
   isImeComposing,
   MIN_INPUT_HEIGHT_NATIVE,
   MIN_INPUT_HEIGHT_WEB,
+  type PrimaryActionKind,
+  type QueuedMessage,
   resolveActiveSendBehavior,
   resolveAlternateAction,
   resolveDefaultAction,
@@ -69,16 +85,14 @@ import {
   resolveMaxInputHeight,
   resolvePrimaryAction,
   restoreFailedSend,
+  type SendAction,
+  type SendBehavior,
+  type SlashCommand,
   shouldDrainQueue,
   submitAccessibilityLabel,
-  type ComposerKeyEvent,
-  type QueuedMessage,
-  type SendAction,
-  type SlashCommand,
   withPluginCommands,
 } from "./composer/logic";
 import { useSendBehavior } from "./composer/storage";
-import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 type Permission = PaseoAgent["pendingPermissions"][number];
@@ -110,79 +124,55 @@ export function Composer(props: ComposerProps) {
 
 const PLUGIN_COMMANDS: SlashCommand[] = [{ ...LEARN_COMMAND, kind: "command" }];
 
+interface CommandResult {
+  commands: SlashCommand[];
+  error: string | null;
+}
+
 // Commands are listed per live session; cache them per agent for the session.
-const commandCache = new Map<string, Promise<{ commands: SlashCommand[]; error: string | null }>>();
+const commandCache = new Map<string, Promise<CommandResult>>();
 
-// Paseo's composer (composer/index.tsx + composer/input/input.tsx): the queue track and any
-// send error above a surface1 card with a borderAccent frame, radius 16; attachment tray,
-// auto-growing input, then a toolbar with "Add attachment" on the left and the context
-// meter and send/stop button on the right.
-function ChatComposer({
-  colors,
-  bot,
-  host,
-  agentId,
-  running,
-  layout,
-  keyboardOpen,
-  agent,
-  onStart,
-  draftKey,
-}: ComposerProps & { draftKey: string }) {
-  const toast = useToast();
-  const menu = useMenu();
-  const upload = useRpc(uploadRpc);
-  const tokens = nativeTokens(colors);
-  const { height: windowHeight } = useWindowDimensions();
-  const initial = useMemo(() => getDraft(draftKey), [draftKey]);
-  const [text, setText] = useState(initial?.text ?? "");
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>(initial?.attachments ?? []);
-  const [pending, setPending] = useState<{ id: string; name: string }[]>([]);
-  const [processing, setProcessing] = useState(false);
-  const [stopping, setStopping] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [pasting, setPasting] = useState(false);
-  const [drain, setDrain] = useState<"idle" | "sending" | "awaiting" | "paused">("idle");
-  const [commandState, setCommandState] = useState<{
-    agentId: string;
-    commands: SlashCommand[];
-    error: string | null;
-  } | null>(null);
-  const [activeCommand, setActiveCommand] = useState(0);
-  const [commandsDismissed, setCommandsDismissed] = useState(false);
+interface DraftMessage {
+  text: string;
+  attachments: ComposerAttachment[];
+}
 
-  const inputRef = useRef<NativeTextInput>(null);
-  const outerRef = useRef<View>(null);
-  const attachRef = useRef<View>(null);
+type DrainState = "idle" | "sending" | "awaiting" | "paused";
+
+type ChatComposerProps = ComposerProps & { draftKey: string };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : FAILED_TO_SEND;
+}
+
+function useMountedRef(): RefObject<boolean> {
   const mounted = useRef(true);
-  const touched = useRef(false);
-  const latest = useRef({ text, attachments });
-  latest.current = { text, attachments };
-
-  const sendBehavior = useSendBehavior();
-  const permissions: Permission[] = agent?.pendingPermissions ?? [];
-  const behavior = resolveActiveSendBehavior(sendBehavior, permissions.length > 0);
-  const queue = useQueue(draftKey);
-  const canQueue = agentId !== null;
-  const desktopWeb = layout.platform === "web" && !layout.compact;
-  const buttonIconSize = web ? 16 : 20;
-  const hasContent = text.trim().length > 0 || attachments.length > 0;
-  const loading = processing || pending.length > 0;
-  const canInterrupt = running && permissions.length > 0 && agentId !== null && !!host.api;
-  const canPressLoading = loading && canInterrupt;
-  const sendDisabled = !host.api || (!canPressLoading && loading);
-  const primary = resolvePrimaryAction({ hasContent, running, loading });
-  const loadingRef = useRef(loading);
-  loadingRef.current = loading;
-
   useEffect(() => {
     mounted.current = true;
     return () => {
       mounted.current = false;
     };
   }, []);
+  return mounted;
+}
 
-  // ------------------------------------------------------------ drafts
+// ------------------------------------------------------------ drafts
+
+interface ComposerDraftState {
+  text: string;
+  attachments: ComposerAttachment[];
+  latest: RefObject<DraftMessage>;
+  updateText(next: string): void;
+  updateAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
+}
+
+function useComposerDraft(draftKey: string): ComposerDraftState {
+  const initial = useMemo(() => getDraft(draftKey), [draftKey]);
+  const [text, setText] = useState(initial?.text ?? "");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>(initial?.attachments ?? []);
+  const touched = useRef(false);
+  const latest = useRef<DraftMessage>({ text, attachments });
+  latest.current = { text, attachments };
 
   const updateText = (next: string) => {
     touched.current = true;
@@ -213,96 +203,154 @@ function ChatComposer({
     if (touched.current) setDraft(draftKey, { text, attachments });
   }, [draftKey, text, attachments]);
 
-  // ------------------------------------------------------------ input
+  return { text, attachments, latest, updateText, updateAttachments };
+}
 
-  const minHeight = web ? MIN_INPUT_HEIGHT_WEB : MIN_INPUT_HEIGHT_NATIVE;
-  const inputHeight = useInputHeight(
+// ------------------------------------------------------------ input
+
+function useComposerInput(text: string, desktopWeb: boolean) {
+  const inputRef = useRef<NativeTextInput>(null);
+  const { height: windowHeight } = useWindowDimensions();
+  const inputHeight = useInputHeight({
     inputRef,
     text,
-    minHeight,
-    resolveMaxInputHeight(windowHeight),
-    content(),
-  );
+    minHeight: web ? MIN_INPUT_HEIGHT_WEB : MIN_INPUT_HEIGHT_NATIVE,
+    maxHeight: resolveMaxInputHeight(windowHeight),
+    fontSize: content(),
+  });
   const focusInput = () => {
     if (web) focusWithRetries(() => domNode(inputRef.current));
     else inputRef.current?.focus();
   };
 
   // Desktop web focuses the composer when a chat opens (Paseo's MessageInputAutoFocus).
-  useEffect(() => (desktopWeb ? focusWithRetries(() => domNode(inputRef.current)) : undefined), []);
+  const focusOnOpen = useRef(desktopWeb);
+  useEffect(() => (focusOnOpen.current ? focusWithRetries(() => domNode(inputRef.current)) : undefined), []);
 
-  // ------------------------------------------------------------ attachments
+  return { inputRef, inputHeight, focusInput };
+}
+
+// ------------------------------------------------------------ attachments
+
+interface AcceptedFile {
+  file: FileHandle;
+  kind: ComposerAttachment["kind"];
+  mimeType: string;
+  pendingId: string;
+}
+
+interface PendingFile {
+  id: string;
+  name: string;
+}
+
+type StoreFile = (fileName: string, dataBase64: string) => Promise<{ size: number; path: string }>;
+
+function acceptFiles(
+  files: FileHandle[],
+  isLocal: boolean,
+  reject: (message: string) => void,
+): AcceptedFile[] {
+  const accepted: AcceptedFile[] = [];
+  for (const file of files) {
+    const mimeType = normalizeMimeType(file.mimeType) || "application/octet-stream";
+    // Size limits are checked before any bytes are read.
+    const { kind, reason } = preflightFile(file.name, mimeType, file.size, isLocal);
+    if (reason) {
+      reject(`${file.name}: ${reason}`);
+      continue;
+    }
+    accepted.push({ file, kind, mimeType, pendingId: newAttachmentId() });
+  }
+  return accepted;
+}
+
+async function readAttachment(
+  { file, kind, mimeType }: AcceptedFile,
+  storeFile: StoreFile,
+): Promise<ComposerAttachment> {
+  const base64 = await file.readBase64();
+  if (kind === "image")
+    return { kind, id: newAttachmentId(), name: file.name, mimeType, size: file.size, data: base64 };
+  if (kind === "text")
+    return { kind, id: newAttachmentId(), name: file.name, size: file.size, text: decodeUtf8(base64) };
+  const stored = await storeFile(file.name, base64);
+  return { kind, id: newAttachmentId(), name: file.name, mimeType, size: stored.size, path: stored.path };
+}
+
+interface FileAttachmentOptions {
+  draftKey: string;
+  draft: ComposerDraftState;
+  botId: string;
+  isLocal: boolean;
+}
+
+function useFileAttachments({ draftKey, draft, botId, isLocal }: FileAttachmentOptions) {
+  const toast = useToast();
+  const upload = useRpc(uploadRpc);
+  const mounted = useMountedRef();
+  const [pending, setPending] = useState<PendingFile[]>([]);
+
+  const attach = (attachment: ComposerAttachment) => {
+    if (mounted.current) draft.updateAttachments((current) => [...current, attachment]);
+    else
+      setDraft(draftKey, {
+        text: draft.latest.current.text,
+        attachments: [...draft.latest.current.attachments, attachment],
+      });
+  };
+
+  const addAccepted = async (entry: AcceptedFile, storeFile: StoreFile) => {
+    try {
+      attach(await readAttachment(entry, storeFile));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to upload file");
+    } finally {
+      if (mounted.current) setPending((current) => current.filter((item) => item.id !== entry.pendingId));
+    }
+  };
 
   const addFiles = async (files: FileHandle[]) => {
-    const accepted: {
-      file: FileHandle;
-      kind: ComposerAttachment["kind"];
-      mimeType: string;
-      pendingId: string;
-    }[] = [];
-    for (const file of files) {
-      const mimeType = normalizeMimeType(file.mimeType) || "application/octet-stream";
-      // Size limits are checked before any bytes are read.
-      const { kind, reason } = preflightFile(file.name, mimeType, file.size, host.isLocal);
-      if (reason) {
-        toast.error(`${file.name}: ${reason}`);
-        continue;
-      }
-      accepted.push({ file, kind, mimeType, pendingId: newAttachmentId() });
-    }
+    const accepted = acceptFiles(files, isLocal, (message) => toast.error(message));
     if (accepted.length === 0) return;
     setPending((current) => [
       ...current,
       ...accepted.map((entry) => ({ id: entry.pendingId, name: entry.file.name })),
     ]);
-    for (const { file, kind, mimeType, pendingId } of accepted) {
-      try {
-        const base64 = await file.readBase64();
-        let attachment: ComposerAttachment;
-        if (kind === "image")
-          attachment = {
-            kind,
-            id: newAttachmentId(),
-            name: file.name,
-            mimeType,
-            size: file.size,
-            data: base64,
-          };
-        else if (kind === "text")
-          attachment = {
-            kind,
-            id: newAttachmentId(),
-            name: file.name,
-            size: file.size,
-            text: decodeUtf8(base64),
-          };
-        else {
-          const stored = await upload({ botId: bot.id, fileName: file.name, dataBase64: base64 });
-          attachment = {
-            kind,
-            id: newAttachmentId(),
-            name: file.name,
-            mimeType,
-            size: stored.size,
-            path: stored.path,
-          };
-        }
-        if (mounted.current) updateAttachments((current) => [...current, attachment]);
-        else
-          setDraft(draftKey, {
-            text: latest.current.text,
-            attachments: [...latest.current.attachments, attachment],
-          });
-      } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to upload file");
-      } finally {
-        if (mounted.current) setPending((current) => current.filter((entry) => entry.id !== pendingId));
-      }
-    }
+    const storeFile: StoreFile = (fileName, dataBase64) => upload({ botId, fileName, dataBase64 });
+    for (const entry of accepted) await addAccepted(entry, storeFile);
   };
 
+  return { pending, addFiles };
+}
+
+interface AttachmentSourcesOptions {
+  colors: Colors;
+  host: BotHost;
+  inputRef: RefObject<NativeTextInput | null>;
+  outerRef: RefObject<View | null>;
+  attachRef: RefObject<View | null>;
+  loading: boolean;
+  addFiles(files: FileHandle[]): Promise<void>;
+  onPasteText(): void;
+}
+
+function useAttachmentSources({
+  colors,
+  host,
+  inputRef,
+  outerRef,
+  attachRef,
+  loading,
+  addFiles,
+  onPasteText,
+}: AttachmentSourcesOptions) {
+  const toast = useToast();
+  const menu = useMenu();
   const addFilesRef = useRef(addFiles);
   addFilesRef.current = addFiles;
+  const loadingRef = useRef(loading);
+  loadingRef.current = loading;
 
   const pick = async (accept?: string) => {
     try {
@@ -322,14 +370,14 @@ function ChatComposer({
           { label: "Add image", icon: "Image", onSelect: () => void pick("image/*") },
           { label: "Upload file", icon: "Paperclip", onSelect: () => void pick() },
         ]
-      : [{ label: "Paste text", icon: "ClipboardPaste", onSelect: () => setPasting(true) }];
+      : [{ label: "Paste text", icon: "ClipboardPaste", onSelect: onPasteText }];
     menu.open({ anchor, align: "start", width: 220, title: "Add attachment", entries });
   };
 
   // Web: pasting images into the input attaches them.
   useEffect(
     () => listenForImagePaste(domNode(inputRef.current), (files) => void addFilesRef.current(files)),
-    [],
+    [inputRef],
   );
 
   // Web: dropping files anywhere on the chat pane attaches them (Paseo's FileDropZone).
@@ -342,79 +390,73 @@ function ChatComposer({
       isEnabled: () => !loadingRef.current && !!host.api,
       onFiles: (files) => void addFilesRef.current(files),
     });
-  }, [colors.surface0, colors.foreground, host.api]);
+  }, [colors.surface0, colors.foreground, host.api, outerRef]);
 
-  // ------------------------------------------------------------ sending
+  return openAttachMenu;
+}
 
-  const deliver = async (message: { text: string; attachments: ComposerAttachment[] }) => {
-    const typed = message.text.trim();
-    // /learn only works where the plugin's tools are mounted (bots on this host).
-    const outgoing =
-      (agentId && host.isLocal ? expandLearn(typed) : null) ?? (typed || "See the attached files.");
-    const messageId = newMessageId();
-    const wire = toWire(message.attachments);
-    rememberSent(messageId, outgoing, message.attachments);
-    if (agentId && host.api) {
-      // `activeTurnBehavior` is forwarded to the daemon as-is (send_agent_message_request).
-      const options = {
-        messageId,
-        activeTurnBehavior: activeTurnBehaviorFor(sendBehavior),
-        ...(wire.images.length ? { images: wire.images } : {}),
-        ...(wire.attachments.length ? { attachments: wire.attachments } : {}),
-      } as PaseoAgentSendOptions;
-      await host.api.agents.ref(agentId).send(outgoing, options);
-    } else {
-      await onStart({ text: outgoing, messageId, ...wire });
-    }
-  };
+// ------------------------------------------------------------ sending
 
-  const errorMessage = (error: unknown) =>
-    error instanceof Error && error.message ? error.message : FAILED_TO_SEND;
+interface DeliveryTarget {
+  agentId: string | null;
+  host: BotHost;
+  sendBehavior: SendBehavior;
+  onStart(message: OutgoingMessage): Promise<void>;
+}
 
-  // composer/submit.ts: clear at once so typing can continue, put everything back on failure.
-  const send = async () => {
-    const message = { text: text.trim(), attachments };
-    if ((!message.text && message.attachments.length === 0) || !host.api) return;
-    updateText("");
-    updateAttachments(() => []);
-    setSendError(null);
-    setProcessing(true);
-    if (drain === "paused") setDrain("idle");
-    try {
-      await deliver(message);
-      // Give the agent a moment to report the new turn before any queued message drains.
-      if (agentId && mounted.current) setDrain((current) => (current === "idle" ? "awaiting" : current));
-    } catch (error) {
-      const restored = restoreFailedSend(message, latest.current);
-      if (mounted.current) {
-        updateText(restored.text);
-        updateAttachments(() => restored.attachments);
-        setSendError(errorMessage(error));
-      } else {
-        setDraft(draftKey, restored);
-        toast.error(errorMessage(error));
-      }
-    } finally {
-      if (mounted.current) setProcessing(false);
-    }
-  };
+async function deliverMessage(
+  message: DraftMessage,
+  { agentId, host, sendBehavior, onStart }: DeliveryTarget,
+) {
+  const typed = message.text.trim();
+  // /learn only works where the plugin's tools are mounted (bots on this host).
+  const outgoing =
+    (agentId && host.isLocal ? expandLearn(typed) : null) ?? (typed || "See the attached files.");
+  const messageId = newMessageId();
+  const wire = toWire(message.attachments);
+  rememberSent(messageId, outgoing, message.attachments);
+  if (!agentId || !host.api) {
+    await onStart({ text: outgoing, messageId, ...wire });
+    return;
+  }
+  // `activeTurnBehavior` is forwarded to the daemon as-is (send_agent_message_request).
+  const options = {
+    messageId,
+    activeTurnBehavior: activeTurnBehaviorFor(sendBehavior),
+    ...(wire.images.length ? { images: wire.images } : {}),
+    ...(wire.attachments.length ? { attachments: wire.attachments } : {}),
+  } as PaseoAgentSendOptions;
+  await host.api.agents.ref(agentId).send(outgoing, options);
+}
 
-  const enqueue = () => {
-    const message = { text: text.trim(), attachments };
-    if (!message.text && message.attachments.length === 0) return;
-    queueMessage(draftKey, { id: newMessageId(), ...message });
-    updateText("");
-    updateAttachments(() => []);
-  };
+interface QueueDrainOptions {
+  draftKey: string;
+  running: boolean;
+  queue: QueuedMessage[];
+  processing: boolean;
+  agentId: string | null;
+  api: PaseoApi | null;
+  deliver(message: DraftMessage): Promise<void>;
+  onError(message: string): void;
+}
 
-  const run = (action: SendAction) => {
-    if (action === "queue") enqueue();
-    else if (action === "send") void send();
-  };
-  const defaultAction = () => run(resolveDefaultAction({ behavior, running, canQueue }));
-  const alternateAction = () => run(resolveAlternateAction({ behavior, running, canQueue }));
+// Queued messages go out one at a time whenever the agent is idle (Paseo drains on "stopped running").
+function useQueueDrain({
+  draftKey,
+  running,
+  queue,
+  processing,
+  agentId,
+  api,
+  deliver,
+  onError,
+}: QueueDrainOptions) {
+  const [drain, setDrain] = useState<DrainState>("idle");
+  const mounted = useMountedRef();
+  const draining = useRef(false);
+  const latest = useRef({ deliver, onError });
+  latest.current = { deliver, onError };
 
-  // Queued messages go out one at a time whenever the agent is idle (Paseo drains on "stopped running").
   useEffect(() => {
     if (running && (drain === "awaiting" || drain === "paused")) setDrain("idle");
   }, [running, drain]);
@@ -423,32 +465,107 @@ function ChatComposer({
     const timer = setTimeout(() => setDrain((current) => (current === "awaiting" ? "idle" : current)), 4000);
     return () => clearTimeout(timer);
   }, [drain]);
-  const draining = useRef(false);
   useEffect(() => {
     const inFlight = draining.current || drain !== "idle" || processing;
-    if (
-      !shouldDrainQueue({ running, queued: queue.length, inFlight, hasAgent: agentId !== null && !!host.api })
-    )
-      return;
-    const next = takeQueuedMessage(draftKey, queue[0]!.id);
+    const hasAgent = agentId !== null && !!api;
+    const head = queue[0];
+    if (!head || !shouldDrainQueue({ running, queued: queue.length, inFlight, hasAgent })) return;
+    const next = takeQueuedMessage(draftKey, head.id);
     if (!next) return;
     draining.current = true;
     setDrain("sending");
-    deliver(next)
+    latest.current
+      .deliver(next)
       .then(() => mounted.current && setDrain("awaiting"))
       .catch((error: unknown) => {
         requeueFront(draftKey, next);
         if (!mounted.current) return;
-        setSendError(errorMessage(error));
+        latest.current.onError(errorMessage(error));
         setDrain("paused");
       })
       .finally(() => {
         draining.current = false;
       });
-  }, [running, queue, drain, processing, agentId, host.api]);
+  }, [running, queue, drain, processing, agentId, api, draftKey, mounted]);
+
+  return { drain, setDrain };
+}
+
+interface SendingOptions {
+  draftKey: string;
+  draft: ComposerDraftState;
+  target: DeliveryTarget;
+  running: boolean;
+  queue: QueuedMessage[];
+  focusInput(): void;
+}
+
+function useSending({ draftKey, draft, target, running, queue, focusInput }: SendingOptions) {
+  const toast = useToast();
+  const mounted = useMountedRef();
+  const [processing, setProcessing] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const deliver = (message: DraftMessage) => deliverMessage(message, target);
+  const { drain, setDrain } = useQueueDrain({
+    draftKey,
+    running,
+    queue,
+    processing,
+    agentId: target.agentId,
+    api: target.host.api,
+    deliver,
+    onError: setSendError,
+  });
+
+  const clearDraft = () => {
+    draft.updateText("");
+    draft.updateAttachments(() => []);
+  };
+
+  const restoreFailedMessage = (message: DraftMessage, error: unknown) => {
+    const restored = restoreFailedSend(message, draft.latest.current);
+    if (mounted.current) {
+      draft.updateText(restored.text);
+      draft.updateAttachments(() => restored.attachments);
+      setSendError(errorMessage(error));
+    } else {
+      setDraft(draftKey, restored);
+      toast.error(errorMessage(error));
+    }
+  };
+
+  // Give the agent a moment to report the new turn before any queued message drains.
+  const awaitNewTurn = () => {
+    if (target.agentId && mounted.current) setDrain((current) => (current === "idle" ? "awaiting" : current));
+  };
+
+  // composer/submit.ts: clear at once so typing can continue, put everything back on failure.
+  const send = async () => {
+    const message = { text: draft.text.trim(), attachments: draft.attachments };
+    if (isDraftEmpty(message) || !target.host.api) return;
+    clearDraft();
+    setSendError(null);
+    setProcessing(true);
+    if (drain === "paused") setDrain("idle");
+    try {
+      await deliver(message);
+      awaitNewTurn();
+    } catch (error) {
+      restoreFailedMessage(message, error);
+    } finally {
+      if (mounted.current) setProcessing(false);
+    }
+  };
+
+  const enqueue = () => {
+    const message = { text: draft.text.trim(), attachments: draft.attachments };
+    if (isDraftEmpty(message)) return;
+    queueMessage(draftKey, { id: newMessageId(), ...message });
+    clearDraft();
+  };
 
   const sendQueuedNow = async (item: QueuedMessage) => {
-    if (!host.api || !takeQueuedMessage(draftKey, item.id)) return;
+    if (!target.host.api || !takeQueuedMessage(draftKey, item.id)) return;
     setSendError(null);
     try {
       await deliver(item);
@@ -460,21 +577,36 @@ function ChatComposer({
 
   const editQueued = (item: QueuedMessage) => {
     if (!takeQueuedMessage(draftKey, item.id)) return;
-    updateText(item.text);
-    updateAttachments(() => item.attachments);
+    draft.updateText(item.text);
+    draft.updateAttachments(() => item.attachments);
     focusInput();
   };
 
-  // ------------------------------------------------------------ stop
+  return { processing, sendError, send, enqueue, sendQueuedNow, editQueued };
+}
 
-  // Plugins have no cancel API. The one interrupt path is a pending permission: denying it
-  // with `interrupt` ends the turn, which is what Paseo's stop does in that state.
+// ------------------------------------------------------------ stop
+
+interface StopAgentOptions {
+  permissions: Permission[];
+  canInterrupt: boolean;
+  agentId: string | null;
+  api: PaseoApi | null;
+  focusInput(): void;
+}
+
+// Plugins have no cancel API. The one interrupt path is a pending permission: denying it
+// with `interrupt` ends the turn, which is what Paseo's stop does in that state.
+function useStopAgent({ permissions, canInterrupt, agentId, api, focusInput }: StopAgentOptions) {
+  const toast = useToast();
+  const mounted = useMountedRef();
+  const [stopping, setStopping] = useState(false);
   const stop = async () => {
     const permission = permissions[0];
-    if (!canInterrupt || !permission || !agentId || !host.api || stopping) return;
+    if (!canInterrupt || !permission || !agentId || !api || stopping) return;
     setStopping(true);
     try {
-      await host.api.agents.ref(agentId).respondToPermission({
+      await api.agents.ref(agentId).respondToPermission({
         requestId: permission.id,
         response: { behavior: "deny", interrupt: true, message: "Interrupted by the user." },
       });
@@ -485,275 +617,664 @@ function ChatComposer({
     }
     focusInput();
   };
+  return { stopping, stop };
+}
 
-  // ------------------------------------------------------------ /commands
+// ------------------------------------------------------------ /commands
 
-  const query = agentId ? commandQuery(text) : null;
-  const commandsVisible = query !== null && !commandsDismissed;
+function cachedCommands(agentId: string, api: PaseoApi): Promise<CommandResult> {
+  const cached = commandCache.get(agentId);
+  if (cached) return cached;
+  const promise = api.agents
+    .ref(agentId)
+    .commands()
+    .then((result) => ({ commands: result.commands as SlashCommand[], error: result.error }))
+    .catch((error: unknown) => ({ commands: [], error: errorText(error) }));
+  commandCache.set(agentId, promise);
+  // Don't cache failures: the next chat visit asks again.
+  void promise.then((result) => result.error && commandCache.delete(agentId));
+  return promise;
+}
+
+interface SlashCommandsState {
+  visible: boolean;
+  list: SlashCommand[];
+  activeIndex: number;
+  setActiveIndex: Dispatch<SetStateAction<number>>;
+  loading: boolean;
+  error: string | null;
+  dismiss(): void;
+  select(command: SlashCommand): void;
+}
+
+function useSlashCommands(
+  agentId: string | null,
+  host: BotHost,
+  draft: ComposerDraftState,
+  focusInput: () => void,
+): SlashCommandsState {
+  const [commandState, setCommandState] = useState<(CommandResult & { agentId: string }) | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const query = agentId ? commandQuery(draft.text) : null;
+  const visible = query !== null && !dismissed;
+  const loadedFor = useRef(commandState?.agentId);
+  loadedFor.current = commandState?.agentId;
+
   useEffect(() => {
-    if (query === null) setCommandsDismissed(false);
-    setActiveCommand(0);
+    if (query === null) setDismissed(false);
+    setActiveIndex(0);
   }, [query]);
   useEffect(() => {
-    if (!commandsVisible || !agentId || !host.api || commandState?.agentId === agentId) return;
-    const api = host.api;
-    let promise = commandCache.get(agentId);
-    if (!promise) {
-      promise = api.agents
-        .ref(agentId)
-        .commands()
-        .then((result) => ({ commands: result.commands as SlashCommand[], error: result.error }))
-        .catch((error: unknown) => ({ commands: [], error: errorText(error) }));
-      commandCache.set(agentId, promise);
-      // Don't cache failures: the next chat visit asks again.
-      void promise.then((result) => result.error && commandCache.delete(agentId));
-    }
+    if (!visible || !agentId || !host.api || loadedFor.current === agentId) return;
     let alive = true;
-    void promise.then((result) => alive && setCommandState({ agentId, ...result }));
+    void cachedCommands(agentId, host.api).then((result) => alive && setCommandState({ agentId, ...result }));
     return () => {
       alive = false;
     };
-  }, [commandsVisible, agentId, host.api]);
-  const providerCommands = commandState?.agentId === agentId ? commandState.commands : [];
-  const commandList = commandsVisible
-    ? filterCommands(withPluginCommands(host.isLocal ? PLUGIN_COMMANDS : [], providerCommands), query ?? "")
+  }, [visible, agentId, host.api]);
+
+  const loaded = commandState?.agentId === agentId ? commandState : null;
+  const list = visible
+    ? filterCommands(
+        withPluginCommands(host.isLocal ? PLUGIN_COMMANDS : [], loaded?.commands ?? []),
+        query ?? "",
+      )
     : [];
-  const selectCommand = (command: SlashCommand) => {
-    updateText(applyCommand(command));
-    setCommandsDismissed(true);
-    focusInput();
+  return {
+    visible,
+    list,
+    activeIndex,
+    setActiveIndex,
+    loading: loaded === null,
+    error: loaded?.error ?? null,
+    dismiss: () => setDismissed(true),
+    select: (command) => {
+      draft.updateText(applyCommand(command));
+      setDismissed(true);
+      focusInput();
+    },
   };
+}
 
-  // ------------------------------------------------------------ keys
+// ------------------------------------------------------------ keys
 
-  const onKeyPress = (event: { nativeEvent: unknown; preventDefault?: () => void }) => {
-    if (layout.platform !== "web") return;
+type KeyEffect = (() => void) | null;
+
+interface KeyHandlerOptions {
+  enabled: boolean;
+  commands: SlashCommandsState;
+  canInterrupt: boolean;
+  stop(): void;
+  enter: { submitOnEnter: boolean; running: boolean; canQueue: boolean };
+  blocked: boolean;
+  defaultAction(): void;
+  alternateAction(): void;
+}
+
+function commandMenuKeyEffect(key: ComposerKeyEvent, { commands }: KeyHandlerOptions): KeyEffect {
+  if (!commands.visible) return null;
+  if (key.key === "Escape") return commands.dismiss;
+  const count = commands.list.length;
+  if (count === 0) return null;
+  if (key.key === "ArrowDown") return () => commands.setActiveIndex((index) => (index + 1) % count);
+  if (key.key === "ArrowUp") return () => commands.setActiveIndex((index) => (index - 1 + count) % count);
+  if ((key.key !== "Enter" || key.shiftKey) && key.key !== "Tab") return null;
+  const command = commands.list[Math.min(commands.activeIndex, count - 1)];
+  return command ? () => commands.select(command) : null;
+}
+
+function composerKeyEffect(key: ComposerKeyEvent, options: KeyHandlerOptions): KeyEffect {
+  // Paseo's Escape shortcut interrupts the agent.
+  if (key.key === "Escape" && options.canInterrupt) return options.stop;
+  const action = resolveEnterKey(key, options.enter);
+  // While a send or upload is in flight Enter falls through to a newline, like Paseo.
+  if (!action || options.blocked) return null;
+  return action === "alternate" ? options.alternateAction : options.defaultAction;
+}
+
+function createKeyHandler(options: KeyHandlerOptions) {
+  return (event: { nativeEvent: unknown; preventDefault?: () => void }) => {
+    if (!options.enabled) return;
     const key = event.nativeEvent as ComposerKeyEvent;
     if (isImeComposing(key)) return;
-    const consume = (effect: () => void) => {
-      event.preventDefault?.();
-      effect();
-    };
-    const count = commandList.length;
-    if (commandsVisible && count > 0) {
-      if (key.key === "ArrowDown") return consume(() => setActiveCommand((index) => (index + 1) % count));
-      if (key.key === "ArrowUp")
-        return consume(() => setActiveCommand((index) => (index - 1 + count) % count));
-      if ((key.key === "Enter" && !key.shiftKey) || key.key === "Tab")
-        return consume(() => selectCommand(commandList[Math.min(activeCommand, count - 1)]!));
-    }
-    if (commandsVisible && key.key === "Escape") return consume(() => setCommandsDismissed(true));
-    // Paseo's Escape shortcut interrupts the agent.
-    if (key.key === "Escape" && canInterrupt) return consume(() => void stop());
-    const action = resolveEnterKey(key, { submitOnEnter: desktopWeb, running, canQueue });
-    // While a send or upload is in flight Enter falls through to a newline, like Paseo.
-    if (!action || sendDisabled || loading) return;
-    consume(action === "alternate" ? alternateAction : defaultAction);
+    const effect = commandMenuKeyEffect(key, options) ?? composerKeyEffect(key, options);
+    if (!effect) return;
+    event.preventDefault?.();
+    effect();
   };
+}
 
-  // ------------------------------------------------------------ render
+// ------------------------------------------------------------ controller
 
-  const bottomInset = keyboardOpen ? 0 : homeIndicatorInset();
-  const usage = contextUsage(agent?.lastUsage);
-  const placeholder = agentId
-    ? layout.compact
-      ? "Message, /commands"
-      : `Message ${bot.name}, or use /commands and /skills`
-    : `Message ${bot.name}`;
+interface SendAvailability {
+  canInterrupt: boolean;
+  canPressLoading: boolean;
+  sendDisabled: boolean;
+  primary: PrimaryActionKind;
+  sendLabel: string;
+}
+
+interface SendAvailabilityInput {
+  running: boolean;
+  permissions: Permission[];
+  agentId: string | null;
+  host: BotHost;
+  loading: boolean;
+  hasContent: boolean;
+  behavior: SendBehavior;
+}
+
+function sendAvailability({
+  running,
+  permissions,
+  agentId,
+  host,
+  loading,
+  hasContent,
+  behavior,
+}: SendAvailabilityInput): SendAvailability {
+  const canInterrupt = running && permissions.length > 0 && agentId !== null && !!host.api;
+  const canPressLoading = loading && canInterrupt;
+  return {
+    canInterrupt,
+    canPressLoading,
+    sendDisabled: !host.api || (!canPressLoading && loading),
+    primary: resolvePrimaryAction({ hasContent, running, loading }),
+    sendLabel: submitAccessibilityLabel({ canPressLoading, behavior, running }),
+  };
+}
+
+function usePasteSheet(draft: ComposerDraftState) {
+  const [open, setOpen] = useState(false);
+  const attach = (pasted: string, title: string) => {
+    draft.updateAttachments((current) => [
+      ...current,
+      { kind: "text", id: newAttachmentId(), name: title, size: pasted.length, text: pasted },
+    ]);
+    setOpen(false);
+  };
+  return { open, show: () => setOpen(true), close: () => setOpen(false), attach };
+}
+
+function useComposerController({
+  colors,
+  bot,
+  host,
+  agentId,
+  running,
+  layout,
+  agent,
+  onStart,
+  draftKey,
+}: ChatComposerProps) {
+  const draft = useComposerDraft(draftKey);
+  const paste = usePasteSheet(draft);
+  const outerRef = useRef<View>(null);
+  const attachRef = useRef<View>(null);
+  const sendBehavior = useSendBehavior();
+  const permissions: Permission[] = agent?.pendingPermissions ?? [];
+  const behavior = resolveActiveSendBehavior(sendBehavior, permissions.length > 0);
+  const queue = useQueue(draftKey);
+  const canQueue = agentId !== null;
+  const desktopWeb = layout.platform === "web" && !layout.compact;
+  const input = useComposerInput(draft.text, desktopWeb);
+  const files = useFileAttachments({ draftKey, draft, botId: bot.id, isLocal: host.isLocal });
+  const sending = useSending({
+    draftKey,
+    draft,
+    target: { agentId, host, sendBehavior, onStart },
+    running,
+    queue,
+    focusInput: input.focusInput,
+  });
+  const loading = sending.processing || files.pending.length > 0;
+  const hasContent = draft.text.trim().length > 0 || draft.attachments.length > 0;
+  const availability = sendAvailability({
+    running,
+    permissions,
+    agentId,
+    host,
+    loading,
+    hasContent,
+    behavior,
+  });
+  const { stopping, stop } = useStopAgent({
+    permissions,
+    canInterrupt: availability.canInterrupt,
+    agentId,
+    api: host.api,
+    focusInput: input.focusInput,
+  });
+  const openAttachMenu = useAttachmentSources({
+    colors,
+    host,
+    inputRef: input.inputRef,
+    outerRef,
+    attachRef,
+    loading,
+    addFiles: files.addFiles,
+    onPasteText: paste.show,
+  });
+  const commands = useSlashCommands(agentId, host, draft, input.focusInput);
+
+  const run = (action: SendAction) => {
+    if (action === "queue") sending.enqueue();
+    else if (action === "send") void sending.send();
+  };
+  const defaultAction = () => run(resolveDefaultAction({ behavior, running, canQueue }));
+  const interrupt = () => void stop();
+
+  const onKeyPress = createKeyHandler({
+    enabled: layout.platform === "web",
+    commands,
+    canInterrupt: availability.canInterrupt,
+    stop: interrupt,
+    enter: { submitOnEnter: desktopWeb, running, canQueue },
+    blocked: availability.sendDisabled || loading,
+    defaultAction,
+    alternateAction: () => run(resolveAlternateAction({ behavior, running, canQueue })),
+  });
+
+  return {
+    ...availability,
+    draft,
+    input,
+    outerRef,
+    attachRef,
+    queue,
+    pending: files.pending,
+    paste,
+    sending,
+    loading,
+    stopping,
+    interrupt,
+    onSend: availability.canPressLoading ? interrupt : defaultAction,
+    openAttachMenu,
+    commands,
+    onKeyPress,
+  };
+}
+
+// ------------------------------------------------------------ render
+
+function composerPlaceholder(botName: string, agentId: string | null, compact: boolean): string {
+  if (!agentId) return `Message ${botName}`;
+  return compact ? "Message, /commands" : `Message ${botName}, or use /commands and /skills`;
+}
+
+function QueueList({
+  colors,
+  queue,
+  onEdit,
+  onSendNow,
+}: {
+  colors: Colors;
+  queue: QueuedMessage[];
+  onEdit(item: QueuedMessage): void;
+  onSendNow(item: QueuedMessage): void;
+}) {
+  if (queue.length === 0) return null;
+  return (
+    <View style={{ gap: 8 }}>
+      {queue.map((item) => (
+        <QueuedRow
+          key={item.id}
+          colors={colors}
+          item={item}
+          onEdit={() => onEdit(item)}
+          onSendNow={() => onSendNow(item)}
+        />
+      ))}
+    </View>
+  );
+}
+
+function AttachmentTray({
+  colors,
+  attachments,
+  pending,
+  alwaysShowRemove,
+  disabled,
+  onRemove,
+}: {
+  colors: Colors;
+  attachments: ComposerAttachment[];
+  pending: PendingFile[];
+  alwaysShowRemove: boolean;
+  disabled: boolean;
+  onRemove(id: string): void;
+}) {
+  if (attachments.length === 0 && pending.length === 0) return null;
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+      {attachments.map((attachment) => (
+        <AttachmentPill
+          key={attachment.id}
+          colors={colors}
+          attachment={attachment}
+          alwaysShowRemove={alwaysShowRemove}
+          disabled={disabled}
+          onRemove={() => onRemove(attachment.id)}
+        />
+      ))}
+      {pending.map((entry) => (
+        <PendingAttachmentPill key={entry.id} colors={colors} name={entry.name} />
+      ))}
+    </View>
+  );
+}
+
+interface ComposerTextInputProps {
+  colors: Colors;
+  inputRef: RefObject<NativeTextInput | null>;
+  botName: string;
+  placeholder: string;
+  text: string;
+  onChangeText(next: string): void;
+  editable: boolean;
+  onKeyPress(event: { nativeEvent: unknown; preventDefault?: () => void }): void;
+  height: { style: TextStyle; scrollEnabled: boolean };
+}
+
+function ComposerTextInput({
+  colors,
+  inputRef,
+  botName,
+  placeholder,
+  text,
+  onChangeText,
+  editable,
+  onKeyPress,
+  height,
+}: ComposerTextInputProps) {
   const webInputStyle = web
     ? ({ lineHeight: content() * 1.4, outlineStyle: "none", outlineWidth: 0 } as object)
     : null;
+  return (
+    <TextInput
+      ref={inputRef}
+      accessibilityLabel={`Message ${botName}`}
+      value={text}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderColor(colors)}
+      multiline
+      scrollEnabled={height.scrollEnabled}
+      editable={editable}
+      onKeyPress={onKeyPress}
+      style={[
+        {
+          flexShrink: 1,
+          width: "100%",
+          color: colors.foreground,
+          fontSize: content(),
+          fontWeight: "normal",
+          padding: 0,
+          textAlignVertical: "top",
+        },
+        webInputStyle,
+        height.style,
+      ]}
+    />
+  );
+}
+
+interface PrimaryButtonProps {
+  colors: Colors;
+  primary: PrimaryActionKind;
+  iconSize: number;
+  sendLabel: string;
+  sendDisabled: boolean;
+  loading: boolean;
+  canInterrupt: boolean;
+  stopping: boolean;
+  onSend(): void;
+  onStop(): void;
+}
+
+function PrimaryButton({
+  colors,
+  primary,
+  iconSize,
+  sendLabel,
+  sendDisabled,
+  loading,
+  canInterrupt,
+  stopping,
+  onSend,
+  onStop,
+}: PrimaryButtonProps) {
+  if (primary === "send") {
+    return (
+      <RoundButton label={sendLabel} background={colors.accent} disabled={sendDisabled} onPress={onSend}>
+        {loading ? (
+          <ActivityIndicator size="small" color={colors.accentForeground} />
+        ) : (
+          <Icon name="ArrowUp" size={iconSize} color={colors.accentForeground} />
+        )}
+      </RoundButton>
+    );
+  }
+  if (primary !== "active" || !canInterrupt) return null;
+  return (
+    <RoundButton
+      label={stopping ? "Canceling agent" : "Stop agent"}
+      background={RED_600}
+      disabled={stopping}
+      onPress={onStop}
+    >
+      {stopping ? <ActivityIndicator size="small" color="#ffffff" /> : <FilledSquare size={iconSize} />}
+    </RoundButton>
+  );
+}
+
+function ContextMeterSlot({
+  colors,
+  usage,
+  pending,
+  glyphSize,
+}: {
+  colors: Colors;
+  usage: ContextUsage | null;
+  pending: boolean;
+  glyphSize: number;
+}) {
+  return (
+    <View
+      style={{
+        width: 28,
+        height: 28,
+        flexShrink: 0,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <ContextMeter colors={colors} usage={usage} pending={pending} glyphSize={glyphSize} />
+    </View>
+  );
+}
+
+function ComposerToolbar({
+  colors,
+  attachRef,
+  iconSize,
+  attachDisabled,
+  onAttach,
+  children,
+}: {
+  colors: Colors;
+  attachRef: RefObject<View | null>;
+  iconSize: number;
+  attachDisabled: boolean;
+  onAttach(): void;
+  children: ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        flexShrink: 0,
+        flexDirection: "row",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        marginHorizontal: -6,
+      }}
+    >
+      <View
+        style={{
+          minWidth: 0,
+          flexShrink: 1,
+          flexGrow: 1,
+          flexDirection: "row",
+          alignItems: "flex-end",
+        }}
+      >
+        <AttachButton
+          colors={colors}
+          anchorRef={attachRef}
+          iconSize={iconSize}
+          disabled={attachDisabled}
+          onPress={onAttach}
+        />
+      </View>
+      <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }}>{children}</View>
+    </View>
+  );
+}
+
+function ComposerCard({
+  colors,
+  compact,
+  children,
+}: {
+  colors: Colors;
+  compact: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        flexShrink: 1,
+        gap: 12,
+        backgroundColor: colors.surface1,
+        borderWidth: 1,
+        borderColor: nativeTokens(colors).borderAccent,
+        borderRadius: 16,
+        paddingVertical: compact ? 8 : 16,
+        paddingHorizontal: compact ? 12 : 16,
+      }}
+    >
+      {children}
+    </View>
+  );
+}
+
+function SendErrorText({ message }: { message: string | null }) {
+  if (!message) return null;
+  return (
+    <Text accessibilityRole="alert" style={{ color: RED_500, fontSize: ui(14) }}>
+      {message}
+    </Text>
+  );
+}
+
+// Paseo's composer (composer/index.tsx + composer/input/input.tsx): the queue track and any
+// send error above a surface1 card with a borderAccent frame, radius 16; attachment tray,
+// auto-growing input, then a toolbar with "Add attachment" on the left and the context
+// meter and send/stop button on the right.
+function ChatComposer(props: ChatComposerProps) {
+  const { colors, bot, host, agentId, running, layout, keyboardOpen, agent } = props;
+  const composer = useComposerController(props);
+  const { draft, commands, sending, paste } = composer;
+  const buttonIconSize = web ? 16 : 20;
 
   return (
     <View
-      ref={outerRef}
+      ref={composer.outerRef}
       collapsable={false}
       style={{
         width: "100%",
         minHeight: 75,
         alignItems: "center",
         paddingHorizontal: 16,
-        paddingBottom: 16 + bottomInset,
+        paddingBottom: 16 + (keyboardOpen ? 0 : homeIndicatorInset()),
         flexShrink: 1,
       }}
     >
       <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, gap: 12, flexShrink: 1 }}>
-        {queue.length > 0 ? (
-          <View style={{ gap: 8 }}>
-            {queue.map((item) => (
-              <QueuedRow
-                key={item.id}
-                colors={colors}
-                item={item}
-                onEdit={() => editQueued(item)}
-                onSendNow={() => void sendQueuedNow(item)}
-              />
-            ))}
-          </View>
-        ) : null}
-        {sendError ? (
-          <Text accessibilityRole="alert" style={{ color: RED_500, fontSize: ui(14) }}>
-            {sendError}
-          </Text>
-        ) : null}
+        <QueueList
+          colors={colors}
+          queue={composer.queue}
+          onEdit={sending.editQueued}
+          onSendNow={(item) => void sending.sendQueuedNow(item)}
+        />
+        <SendErrorText message={sending.sendError} />
         <View style={{ position: "relative", width: "100%", flexShrink: 1 }}>
-          {commandsVisible ? (
+          {commands.visible ? (
             <CommandMenu
               colors={colors}
-              commands={commandList}
-              activeIndex={activeCommand}
-              loading={commandState?.agentId !== agentId}
-              error={commandState?.agentId === agentId ? commandState.error : null}
-              onHover={setActiveCommand}
-              onSelect={selectCommand}
+              commands={commands.list}
+              activeIndex={commands.activeIndex}
+              loading={commands.loading}
+              error={commands.error}
+              onHover={commands.setActiveIndex}
+              onSelect={commands.select}
             />
           ) : null}
-          <View
-            style={{
-              flexShrink: 1,
-              gap: 12,
-              backgroundColor: colors.surface1,
-              borderWidth: 1,
-              borderColor: tokens.borderAccent,
-              borderRadius: 16,
-              paddingVertical: layout.compact ? 8 : 16,
-              paddingHorizontal: layout.compact ? 12 : 16,
-            }}
-          >
-            {attachments.length > 0 || pending.length > 0 ? (
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {attachments.map((attachment) => (
-                  <AttachmentPill
-                    key={attachment.id}
-                    colors={colors}
-                    attachment={attachment}
-                    alwaysShowRemove={!web || layout.compact}
-                    disabled={processing}
-                    onRemove={() =>
-                      updateAttachments((current) => current.filter((entry) => entry.id !== attachment.id))
-                    }
-                  />
-                ))}
-                {pending.map((entry) => (
-                  <PendingAttachmentPill key={entry.id} colors={colors} name={entry.name} />
-                ))}
-              </View>
-            ) : null}
-            <TextInput
-              ref={inputRef}
-              accessibilityLabel={`Message ${bot.name}`}
-              value={text}
-              onChangeText={updateText}
-              placeholder={placeholder}
-              placeholderTextColor={placeholderColor(colors)}
-              multiline
-              scrollEnabled={inputHeight.scrollEnabled}
-              editable={!!host.api}
-              onKeyPress={onKeyPress}
-              style={[
-                {
-                  flexShrink: 1,
-                  width: "100%",
-                  color: colors.foreground,
-                  fontSize: content(),
-                  fontWeight: "normal",
-                  padding: 0,
-                  textAlignVertical: "top",
-                },
-                webInputStyle,
-                inputHeight.style,
-              ]}
+          <ComposerCard colors={colors} compact={layout.compact}>
+            <AttachmentTray
+              colors={colors}
+              attachments={draft.attachments}
+              pending={composer.pending}
+              alwaysShowRemove={!web || layout.compact}
+              disabled={sending.processing}
+              onRemove={(id) =>
+                draft.updateAttachments((current) => current.filter((entry) => entry.id !== id))
+              }
             />
-            <View
-              style={{
-                flexShrink: 0,
-                flexDirection: "row",
-                alignItems: "flex-end",
-                justifyContent: "space-between",
-                marginHorizontal: -6,
-              }}
+            <ComposerTextInput
+              colors={colors}
+              inputRef={composer.input.inputRef}
+              botName={bot.name}
+              placeholder={composerPlaceholder(bot.name, agentId, layout.compact)}
+              text={draft.text}
+              onChangeText={draft.updateText}
+              editable={!!host.api}
+              onKeyPress={composer.onKeyPress}
+              height={composer.input.inputHeight}
+            />
+            <ComposerToolbar
+              colors={colors}
+              attachRef={composer.attachRef}
+              iconSize={buttonIconSize}
+              attachDisabled={!host.api}
+              onAttach={() => void composer.openAttachMenu()}
             >
-              <View
-                style={{
-                  minWidth: 0,
-                  flexShrink: 1,
-                  flexGrow: 1,
-                  flexDirection: "row",
-                  alignItems: "flex-end",
-                }}
-              >
-                <AttachButton
+              {agentId ? (
+                <ContextMeterSlot
                   colors={colors}
-                  anchorRef={attachRef}
-                  iconSize={buttonIconSize}
-                  disabled={!host.api}
-                  onPress={() => void openAttachMenu()}
+                  usage={contextUsage(agent?.lastUsage)}
+                  pending={agent?.status === "initializing" || running}
+                  glyphSize={layout.compact ? 16 : buttonIconSize}
                 />
-              </View>
-              <View style={{ flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 4 }}>
-                {agentId ? (
-                  <View
-                    style={{
-                      width: 28,
-                      height: 28,
-                      flexShrink: 0,
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <ContextMeter
-                      colors={colors}
-                      usage={usage}
-                      pending={agent?.status === "initializing" || running}
-                      glyphSize={layout.compact ? 16 : buttonIconSize}
-                    />
-                  </View>
-                ) : null}
-                {primary === "send" ? (
-                  <RoundButton
-                    label={submitAccessibilityLabel({ canPressLoading, behavior, running })}
-                    background={colors.accent}
-                    disabled={sendDisabled}
-                    onPress={canPressLoading ? () => void stop() : defaultAction}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color={colors.accentForeground} />
-                    ) : (
-                      <Icon name="ArrowUp" size={buttonIconSize} color={colors.accentForeground} />
-                    )}
-                  </RoundButton>
-                ) : primary === "active" && canInterrupt ? (
-                  <RoundButton
-                    label={stopping ? "Canceling agent" : "Stop agent"}
-                    background={RED_600}
-                    disabled={stopping}
-                    onPress={() => void stop()}
-                  >
-                    {stopping ? (
-                      <ActivityIndicator size="small" color="#ffffff" />
-                    ) : (
-                      <FilledSquare size={buttonIconSize} />
-                    )}
-                  </RoundButton>
-                ) : null}
-              </View>
-            </View>
-          </View>
+              ) : null}
+              <PrimaryButton
+                colors={colors}
+                primary={composer.primary}
+                iconSize={buttonIconSize}
+                sendLabel={composer.sendLabel}
+                sendDisabled={composer.sendDisabled}
+                loading={composer.loading}
+                canInterrupt={composer.canInterrupt}
+                stopping={composer.stopping}
+                onSend={composer.onSend}
+                onStop={composer.interrupt}
+              />
+            </ComposerToolbar>
+          </ComposerCard>
         </View>
       </View>
-      {pasting ? (
-        <PasteTextSheet
-          colors={colors}
-          onClose={() => setPasting(false)}
-          onAttach={(pasted, title) => {
-            updateAttachments((current) => [
-              ...current,
-              { kind: "text", id: newAttachmentId(), name: title, size: pasted.length, text: pasted },
-            ]);
-            setPasting(false);
-          }}
-        />
-      ) : null}
+      {paste.open ? <PasteTextSheet colors={colors} onClose={paste.close} onAttach={paste.attach} /> : null}
     </View>
   );
 }

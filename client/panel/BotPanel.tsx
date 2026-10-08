@@ -1,18 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, ScrollView } from "@getpaseo/plugin/client/react-native";
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { botProblems, type Bot, type BotGroup, type HistoryEntry, type Library } from "../../shared/bot";
-import { useBotHost, type LocalHost } from "../data";
+import { type Bot, type BotGroup, botProblems, type HistoryEntry, type Library } from "../../shared/bot";
+import { type LocalHost, useBotHost } from "../data";
 import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
+import { tooltip } from "../ui/Tooltip";
 import { AccessSection, ModelSection, PermissionsSection } from "./AgentSections";
 import { Alert, SearchField, useCompact } from "./controls";
 import { IdentitySection } from "./IdentitySection";
 import { MemorySection, PlaybooksSection, SkillsSection, SoulSection } from "./KnowledgeSections";
 import { HistorySection, OverviewSection, UsageSection } from "./OverviewSections";
 import { RoutinesSection } from "./RoutinesSection";
-import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 

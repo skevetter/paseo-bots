@@ -1,13 +1,34 @@
 import { useSettings } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useRef } from "react";
-import { botSettings, type BotSettingsValues } from "../shared/bot";
+import { type BotSettingsValues, botSettings } from "../shared/bot";
 
 export type BotSettingsState = ReturnType<typeof useBotSettingsState>;
 
 function useBotSettingsState() {
   return useSettings(botSettings);
 }
+
+type SaveOutcome = "saved" | "conflict" | "unavailable";
+
+async function saveOnce(
+  current: BotSettingsState,
+  mutate: (values: BotSettingsValues) => BotSettingsValues,
+): Promise<SaveOutcome> {
+  if (current.status !== "ready") return "unavailable";
+  if (await current.save(mutate(current.values), current.revision)) {
+    // Let the hook render the new revision before the next queued write reads it.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return "saved";
+  }
+  await current.reload();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  return "conflict";
+}
+
+export type CommitBotSettings = (
+  mutate: (values: BotSettingsValues) => BotSettingsValues,
+) => Promise<boolean>;
 
 /**
  * The bots settings document with one write queue. Every write reads the latest
@@ -21,18 +42,11 @@ export function useBotSettings() {
   latest.current = settings;
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const commit = (mutate: (values: BotSettingsValues) => BotSettingsValues): Promise<boolean> => {
+  const commit: CommitBotSettings = (mutate) => {
     const run = async () => {
       for (let attempt = 0; attempt < 3; attempt++) {
-        const current = latest.current;
-        if (current.status !== "ready") return false;
-        if (await current.save(mutate(current.values), current.revision)) {
-          // Let the hook render the new revision before the next queued write reads it.
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          return true;
-        }
-        await current.reload();
-        await new Promise((resolve) => setTimeout(resolve, 50));
+        const outcome = await saveOnce(latest.current, mutate);
+        if (outcome !== "conflict") return outcome === "saved";
       }
       toast.error(latest.current.saveError ?? "Couldn't save bots. Try again.");
       return false;

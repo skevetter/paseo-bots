@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, type ReactNode, useContext, useMemo } from "react";
 import { Image, View } from "react-native";
 import { pixelAvatar, SPRITE_SIZE } from "../shared/avatar";
 import type { BotAvatar, BotGroup } from "../shared/bot";
@@ -105,15 +105,16 @@ export function PixelSprite({
       }}
     >
       <View style={{ width: inner, height: inner }}>
-        {sprite.rows.map((runs, y) =>
-          runs.map((run) =>
+        {sprite.rows
+          .flatMap((runs, y) => runs.map((run) => ({ ...run, y })))
+          .map((run) =>
             run.color ? (
               <View
-                key={`${y}-${run.x}`}
+                key={`${run.y}-${run.x}`}
                 style={{
                   position: "absolute",
                   left: run.x * pixel,
-                  top: y * pixel,
+                  top: run.y * pixel,
                   // Overlap by a hair so fractional pixel sizes don't leave seams.
                   width: run.width * pixel + 0.3,
                   height: pixel + 0.3,
@@ -121,8 +122,7 @@ export function PixelSprite({
                 }}
               />
             ) : null,
-          ),
-        )}
+          )}
       </View>
     </View>
   );

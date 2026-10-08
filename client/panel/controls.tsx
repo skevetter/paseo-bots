@@ -1,16 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
-import { useRef, useState, type ReactNode } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  type LayoutRectangle,
   Platform,
   Pressable,
-  Text,
-  View,
-  useWindowDimensions,
-  type LayoutRectangle,
   type StyleProp,
+  Text,
   type TextInputProps,
+  useWindowDimensions,
+  View,
   type ViewStyle,
 } from "react-native";
 import { MONO_FONT, MONO_PROPS, nativeTokens, useHover, withAlpha } from "../native";
@@ -38,6 +38,52 @@ export function useCompact(compact?: boolean): boolean {
 // ---------------------------------------------------------------- button
 
 type ButtonVariant = "default" | "secondary" | "outline" | "ghost";
+type ButtonSize = "xs" | "sm" | "md";
+
+const BUTTON_SIZES: Record<
+  ButtonSize,
+  { minHeight: number; paddingHorizontal: number; borderRadius: number; iconSize: number; fontSize: number }
+> = {
+  xs: { minHeight: 28, paddingHorizontal: 12, borderRadius: 12, iconSize: 14, fontSize: 12 },
+  sm: { minHeight: 32, paddingHorizontal: 12, borderRadius: 12, iconSize: 14, fontSize: 14 },
+  md: { minHeight: 44, paddingHorizontal: 16, borderRadius: 16, iconSize: 16, fontSize: 14 },
+};
+
+function buttonPalette(colors: Colors, variant: ButtonVariant, hovered: boolean) {
+  const tokens = nativeTokens(colors);
+  const palettes: Record<ButtonVariant, { fill: string; border: string; tint: string }> = {
+    default: { fill: colors.accent, border: colors.accent, tint: colors.accentForeground },
+    secondary: { fill: tokens.surface3, border: tokens.surface3, tint: colors.foreground },
+    outline: { fill: "transparent", border: tokens.borderAccent, tint: colors.foreground },
+    ghost: {
+      fill: "transparent",
+      border: "transparent",
+      tint: hovered ? colors.foreground : colors.foregroundMuted,
+    },
+  };
+  return palettes[variant];
+}
+
+function buttonOpacity(inactive: boolean | undefined, pressed: boolean): number {
+  if (inactive) return 0.5;
+  return pressed ? 0.85 : 1;
+}
+
+function ButtonGlyph({
+  loading,
+  icon,
+  size,
+  tint,
+}: {
+  loading?: boolean;
+  icon?: string;
+  size: number;
+  tint: string;
+}) {
+  if (loading) return <ActivityIndicator size="small" color={tint} />;
+  if (icon) return <Icon name={icon} size={size} color={tint} />;
+  return null;
+}
 
 export function Button({
   colors,
@@ -54,31 +100,16 @@ export function Button({
   label: string;
   onPress(): void;
   variant?: ButtonVariant;
-  size?: "xs" | "sm" | "md";
+  size?: ButtonSize;
   disabled?: boolean;
   loading?: boolean;
   icon?: string;
   style?: StyleProp<ViewStyle>;
 }) {
-  const tokens = nativeTokens(colors);
   const { hovered, hoverProps } = useHover();
   const inactive = disabled || loading;
-  const fill =
-    variant === "default" ? colors.accent : variant === "secondary" ? tokens.surface3 : "transparent";
-  const border =
-    variant === "default"
-      ? colors.accent
-      : variant === "secondary"
-        ? tokens.surface3
-        : variant === "outline"
-          ? tokens.borderAccent
-          : "transparent";
-  const tint =
-    variant === "default"
-      ? colors.accentForeground
-      : variant === "ghost" && !hovered
-        ? colors.foregroundMuted
-        : colors.foreground;
+  const { fill, border, tint } = buttonPalette(colors, variant, hovered);
+  const { minHeight, paddingHorizontal, borderRadius, iconSize, fontSize } = BUTTON_SIZES[size];
   return (
     <Pressable
       accessibilityRole="button"
@@ -96,20 +127,16 @@ export function Button({
           borderWidth: 1,
           borderColor: border,
           backgroundColor: fill,
-          minHeight: size === "md" ? 44 : size === "sm" ? 32 : 28,
-          paddingHorizontal: size === "md" ? 16 : 12,
-          borderRadius: size === "md" ? 16 : 12,
-          opacity: inactive ? 0.5 : pressed ? 0.85 : 1,
+          minHeight,
+          paddingHorizontal,
+          borderRadius,
+          opacity: buttonOpacity(inactive, pressed),
         },
         style,
       ]}
     >
-      {loading ? (
-        <ActivityIndicator size="small" color={tint} />
-      ) : icon ? (
-        <Icon name={icon} size={size === "md" ? 16 : 14} color={tint} />
-      ) : null}
-      <Text numberOfLines={1} style={{ fontSize: ui(size === "xs" ? 12 : 14), color: tint }}>
+      <ButtonGlyph loading={loading} icon={icon} size={iconSize} tint={tint} />
+      <Text numberOfLines={1} style={{ fontSize: ui(fontSize), color: tint }}>
         {label}
       </Text>
     </Pressable>
@@ -352,6 +379,66 @@ export function SearchField({
 
 // ---------------------------------------------------------------- alert, badge, switch
 
+const ALERT_ICONS = { default: null, warning: "AlertTriangle", error: "CircleX" } as const;
+
+type AlertVariant = keyof typeof ALERT_ICONS;
+
+function alertAccent(colors: Colors, variant: AlertVariant): string | null {
+  const accents: Record<AlertVariant, string | null> = {
+    default: null,
+    warning: colors.statusWarning,
+    error: colors.statusDanger,
+  };
+  return accents[variant];
+}
+
+function descriptionLines(description: string | string[] | undefined): string[] {
+  if (description === undefined) return [];
+  return Array.isArray(description) ? description : [description];
+}
+
+function withOccurrenceKeys(lines: string[]): { key: string; line: string }[] {
+  const seen = new Map<string, number>();
+  return lines.map((line) => {
+    const occurrence = seen.get(line) ?? 0;
+    seen.set(line, occurrence + 1);
+    return { key: `${line}#${occurrence}`, line };
+  });
+}
+
+function AlertHeading({
+  colors,
+  accent,
+  icon,
+  title,
+  fallback,
+}: {
+  colors: Colors;
+  accent: string | null;
+  icon: string | null;
+  title?: string;
+  fallback: ReactNode;
+}) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+      {icon ? (
+        <View style={{ width: 14, alignItems: "center" }}>
+          <Icon name={icon} size={14} color={accent ?? colors.foreground} />
+        </View>
+      ) : null}
+      <View style={{ flex: 1, minWidth: 0 }}>
+        {title ? (
+          <Text style={{ fontSize: ui(14), fontWeight: "500", color: accent ?? colors.foreground }}>
+            {title}
+          </Text>
+        ) : (
+          fallback
+        )}
+      </View>
+    </View>
+  );
+}
+
 /** Paseo's Alert at size sm: 1px tinted border, transparent fill, 14pt icon, muted body. */
 export function Alert({
   colors,
@@ -360,19 +447,18 @@ export function Alert({
   description,
 }: {
   colors: Colors;
-  variant?: "default" | "warning" | "error";
+  variant?: AlertVariant;
   title?: string;
   description?: string | string[];
 }) {
-  const accent =
-    variant === "warning" ? colors.statusWarning : variant === "error" ? colors.statusDanger : null;
-  const icon = variant === "warning" ? "AlertTriangle" : variant === "error" ? "CircleX" : null;
-  const lines = description === undefined ? [] : Array.isArray(description) ? description : [description];
-  const body = lines.map((line, index) => (
-    <Text key={index} style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+  const accent = alertAccent(colors, variant);
+  const icon = ALERT_ICONS[variant];
+  const body = withOccurrenceKeys(descriptionLines(description)).map(({ key, line }) => (
+    <Text key={key} style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
       {line}
     </Text>
   ));
+  const rest = title ? body : body.slice(1);
   return (
     <View
       accessibilityRole="alert"
@@ -386,30 +472,23 @@ export function Alert({
         gap: 2,
       }}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        {icon ? (
-          <View style={{ width: 14, alignItems: "center" }}>
-            <Icon name={icon} size={14} color={accent ?? colors.foreground} />
-          </View>
-        ) : null}
-        <View style={{ flex: 1, minWidth: 0 }}>
-          {title ? (
-            <Text style={{ fontSize: ui(14), fontWeight: "500", color: accent ?? colors.foreground }}>
-              {title}
-            </Text>
-          ) : (
-            body[0]
-          )}
-        </View>
-      </View>
-      {(title ? body : body.slice(1)).length ? (
-        <View style={{ marginLeft: icon ? 26 : 0 }}>{title ? body : body.slice(1)}</View>
-      ) : null}
+      <AlertHeading colors={colors} accent={accent} icon={icon} title={title} fallback={body[0]} />
+      {rest.length ? <View style={{ marginLeft: icon ? 26 : 0 }}>{rest}</View> : null}
     </View>
   );
 }
 
 export type BadgeVariant = "success" | "warning" | "error" | "muted";
+
+function badgeStatus(colors: Colors, variant: BadgeVariant): string | null {
+  const statuses: Record<BadgeVariant, string | null> = {
+    success: colors.statusSuccess,
+    warning: colors.statusWarning,
+    error: colors.statusDanger,
+    muted: null,
+  };
+  return statuses[variant];
+}
 
 /** Paseo's StatusBadge: surface3 pill, or the status tint (12% light / 16% dark) with the status text. */
 export function StatusBadge({
@@ -422,14 +501,7 @@ export function StatusBadge({
   variant?: BadgeVariant;
 }) {
   const tokens = nativeTokens(colors);
-  const status =
-    variant === "success"
-      ? colors.statusSuccess
-      : variant === "warning"
-        ? colors.statusWarning
-        : variant === "error"
-          ? colors.statusDanger
-          : null;
+  const status = badgeStatus(colors, variant);
   return (
     <View
       style={{

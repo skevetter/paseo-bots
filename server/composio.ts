@@ -2,13 +2,13 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  type AppAccount,
+  type AppCard,
+  type AppTool,
   appDomain,
   appStatus,
   canonicalSlug,
   isComposioUrl,
-  type AppAccount,
-  type AppCard,
-  type AppTool,
 } from "../shared/apps";
 import { pluginDataPath } from "./bot-home";
 
@@ -208,6 +208,46 @@ interface ToolkitItem {
   meta?: { description?: string; logo?: string; app_url?: string };
 }
 
+interface PagedRequest {
+  apiKey: string;
+  url: string;
+  params: Record<string, string>;
+  timeoutMs: number;
+  failed: (response: Response) => Promise<void>;
+}
+
+async function* pagedItems<T>(request: PagedRequest): AsyncGenerator<T[]> {
+  let cursor: string | undefined;
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams(request.params);
+    if (cursor) params.set("cursor", cursor);
+    const response = await fetch(`${request.url}?${params}`, {
+      headers: headers(request.apiKey),
+      signal: deadline(request.timeoutMs),
+    });
+    if (!response.ok) return await request.failed(response);
+    const body = (await response.json()) as { items?: T[]; next_cursor?: string | null };
+    yield body.items ?? [];
+    const next = body.next_cursor?.trim();
+    if (!next || next === cursor) return;
+    cursor = next;
+  }
+}
+
+function appCard(item: ToolkitItem): AppCard | null {
+  const raw = item.slug ?? item.key ?? item.name;
+  if (!raw) return null;
+  const slug = canonicalSlug(raw);
+  return {
+    slug,
+    name: item.name ?? slug,
+    description: (item.meta?.description ?? "").trim(),
+    logo: item.meta?.logo ?? item.logo ?? null,
+    domain: appDomain(item.meta?.app_url),
+    noAuth: item.no_auth === true,
+  };
+}
+
 /** Every app Composio offers, most used first. Cached for ten minutes. */
 export async function catalog(): Promise<{ apps: AppCard[] }> {
   const { apiKey } = await readState();
@@ -217,38 +257,23 @@ export async function catalog(): Promise<{ apps: AppCard[] }> {
     return { apps: catalogCache.apps };
   const apps: AppCard[] = [];
   const seen = new Set<string>();
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({ limit: "500", sort_by: "usage" });
-    if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${CATALOG_API()}/toolkits?${params}`, {
-      headers: headers(apiKey),
-      signal: deadline(20_000),
-    });
-    if (!response.ok) {
+  const pages = pagedItems<ToolkitItem>({
+    apiKey,
+    url: `${CATALOG_API()}/toolkits`,
+    params: { limit: "500", sort_by: "usage" },
+    timeoutMs: 20_000,
+    failed: async (response) => {
       // Keep what earlier pages returned; only the first page failing is an error.
-      if (apps.length) break;
+      if (apps.length) return;
       throw await failure(response, `Composio catalog: HTTP ${response.status}`);
+    },
+  });
+  for await (const items of pages) {
+    for (const card of items.map(appCard)) {
+      if (!card || seen.has(card.slug)) continue;
+      seen.add(card.slug);
+      apps.push(card);
     }
-    const body = (await response.json()) as { items?: ToolkitItem[]; next_cursor?: string | null };
-    for (const item of body.items ?? []) {
-      const raw = item.slug ?? item.key ?? item.name;
-      if (!raw) continue;
-      const slug = canonicalSlug(raw);
-      if (seen.has(slug)) continue;
-      seen.add(slug);
-      apps.push({
-        slug,
-        name: item.name ?? slug,
-        description: (item.meta?.description ?? "").trim(),
-        logo: item.meta?.logo ?? item.logo ?? null,
-        domain: appDomain(item.meta?.app_url),
-        noAuth: item.no_auth === true,
-      });
-    }
-    const next = body.next_cursor?.trim();
-    if (!next || next === cursor) break;
-    cursor = next;
   }
   catalogCache = { key, at: Date.now(), apps };
   return { apps };
@@ -261,6 +286,16 @@ interface ToolItem {
   is_deprecated?: boolean;
 }
 
+function appTool(item: ToolItem): AppTool | null {
+  const tags = item.tags ?? [];
+  if (!item.slug || item.is_deprecated || tags.includes("mcpIgnore")) return null;
+  return {
+    slug: item.slug.toUpperCase(),
+    name: item.name?.trim() || item.slug,
+    readOnly: tags.includes("readOnlyHint"),
+  };
+}
+
 /** An app's tools, without deprecated ones and ones Composio keeps out of MCP. Cached for ten minutes. */
 export async function appTools({ slug }: { slug: string }): Promise<{ tools: AppTool[] }> {
   const { apiKey } = await readState();
@@ -270,28 +305,17 @@ export async function appTools({ slug }: { slug: string }): Promise<{ tools: App
   const cached = toolsCache.get(app);
   if (cached?.key === key && Date.now() - cached.at < CATALOG_TTL_MS) return { tools: cached.tools };
   const tools: AppTool[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({ toolkit_slug: app, limit: "200" });
-    if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${CATALOG_API()}/tools?${params}`, {
-      headers: headers(apiKey),
-      signal: deadline(20_000),
-    });
-    if (!response.ok) throw await failure(response, `Composio tools: HTTP ${response.status}`);
-    const body = (await response.json()) as { items?: ToolItem[]; next_cursor?: string | null };
-    for (const item of body.items ?? []) {
-      const tags = item.tags ?? [];
-      if (!item.slug || item.is_deprecated || tags.includes("mcpIgnore")) continue;
-      tools.push({
-        slug: item.slug.toUpperCase(),
-        name: item.name?.trim() || item.slug,
-        readOnly: tags.includes("readOnlyHint"),
-      });
-    }
-    const next = body.next_cursor?.trim();
-    if (!next || next === cursor) break;
-    cursor = next;
+  const pages = pagedItems<ToolItem>({
+    apiKey,
+    url: `${CATALOG_API()}/tools`,
+    params: { toolkit_slug: app, limit: "200" },
+    timeoutMs: 20_000,
+    failed: async (response) => {
+      throw await failure(response, `Composio tools: HTTP ${response.status}`);
+    },
+  });
+  for await (const items of pages) {
+    for (const tool of items.map(appTool)) if (tool) tools.push(tool);
   }
   tools.sort((a, b) => a.name.localeCompare(b.name));
   toolsCache.set(app, { key, at: Date.now(), tools });
@@ -308,6 +332,22 @@ interface AccountItem {
   data?: { displayName?: unknown };
 }
 
+function appAccount(item: AccountItem): AppAccount | null {
+  if (!item.id || !item.toolkit?.slug) return null;
+  const name =
+    typeof item.data?.displayName === "string" && item.data.displayName.trim()
+      ? item.data.displayName.trim().slice(0, 120)
+      : null;
+  return {
+    id: item.id,
+    slug: canonicalSlug(item.toolkit.slug),
+    status: appStatus(item.status),
+    alias: item.alias?.trim() || null,
+    name,
+    wordId: item.word_id?.trim() || null,
+  };
+}
+
 /** This host's accounts, newest first. Cached briefly; `fresh` skips the cache while a sign-in is pending. */
 export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ accounts: AppAccount[] }> {
   const { apiKey, userId } = await readState();
@@ -316,39 +356,17 @@ export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ a
   if (!fresh && connectedCache?.key === key && Date.now() - connectedCache.at < CONNECTED_TTL_MS)
     return { accounts: connectedCache.accounts };
   const found: AppAccount[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({
-      limit: "50",
-      user_ids: userId,
-      order_by: "updated_at",
-      order_direction: "desc",
-    });
-    if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${API()}/connected_accounts?${params}`, {
-      headers: headers(apiKey),
-      signal: deadline(15_000),
-    });
-    if (!response.ok) throw await failure(response, `Composio accounts: HTTP ${response.status}`);
-    const body = (await response.json()) as { items?: AccountItem[]; next_cursor?: string | null };
-    for (const item of body.items ?? []) {
-      if (!item.id || !item.toolkit?.slug) continue;
-      const name =
-        typeof item.data?.displayName === "string" && item.data.displayName.trim()
-          ? item.data.displayName.trim().slice(0, 120)
-          : null;
-      found.push({
-        id: item.id,
-        slug: canonicalSlug(item.toolkit.slug),
-        status: appStatus(item.status),
-        alias: item.alias?.trim() || null,
-        name,
-        wordId: item.word_id?.trim() || null,
-      });
-    }
-    const next = body.next_cursor?.trim();
-    if (!next || next === cursor) break;
-    cursor = next;
+  const pages = pagedItems<AccountItem>({
+    apiKey,
+    url: `${API()}/connected_accounts`,
+    params: { limit: "50", user_ids: userId, order_by: "updated_at", order_direction: "desc" },
+    timeoutMs: 15_000,
+    failed: async (response) => {
+      throw await failure(response, `Composio accounts: HTTP ${response.status}`);
+    },
+  });
+  for await (const items of pages) {
+    for (const account of items.map(appAccount)) if (account) found.push(account);
   }
   connectedCache = { key, at: Date.now(), accounts: found };
   return { accounts: found };

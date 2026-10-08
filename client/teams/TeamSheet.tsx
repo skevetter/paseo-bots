@@ -12,11 +12,11 @@ import { useState } from "react";
 import { View } from "react-native";
 import { randomSeed } from "../../shared/avatar";
 import type { Bot, BotGroup, TeamLogo as Logo } from "../../shared/bot";
-import { teamLogoOf, teamOf, type TeamDraft } from "../../shared/groups";
+import { type TeamDraft, teamLogoOf, teamOf } from "../../shared/groups";
 import { TeamLogo } from "../Avatar";
 import { errorText, nativeTokens } from "../native";
 import { Button, InputField, SheetActions, TextAreaField } from "../panel/controls";
-import { ColourRow, pickPicture, PictureSource } from "../panel/picture";
+import { ColourRow, PictureSource, pickPicture } from "../panel/picture";
 import { canPickFiles } from "../web";
 
 type Colors = PluginTheme["colors"];
@@ -44,16 +44,12 @@ export function TeamSheet({
   onSave(team: TeamDraft): void;
   onDelete?: () => void;
 }) {
-  const toast = useToast();
-  const [name, setName] = useState(group?.name ?? "");
-  const [logo, setLogo] = useState<Logo>(() =>
-    group ? teamLogoOf(group) : { seed: randomSeed(), palette: null, imageUrl: null },
-  );
-  const [memberIds, setMemberIds] = useState<string[]>(
-    group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : [],
-  );
-  const [leadId, setLeadId] = useState<string | null>(group?.leadId ?? null);
-  const [instructions, setInstructions] = useState(group?.instructions ?? "");
+  const [initial] = useState(() => initialDraft(group));
+  const [name, setName] = useState(initial.name);
+  const [logo, setLogo] = useState<Logo>(initial.logo);
+  const [memberIds, setMemberIds] = useState<string[]>(initial.memberIds);
+  const [leadId, setLeadId] = useState<string | null>(initial.leadId);
+  const [instructions, setInstructions] = useState(initial.instructions);
   const live = bots.filter((bot) => !bot.archived);
   const members = live.filter((bot) => memberIds.includes(bot.id));
   const lead = leadId && memberIds.includes(leadId) ? leadId : null;
@@ -61,10 +57,6 @@ export function TeamSheet({
   const toggle = (botId: string, on: boolean) =>
     setMemberIds((current) => (on ? [...current, botId] : current.filter((id) => id !== botId)));
   const patchLogo = (patch: Partial<Logo>) => setLogo((current) => ({ ...current, ...patch }));
-  const upload = () =>
-    void pickPicture()
-      .then((imageUrl) => imageUrl && patchLogo({ imageUrl }))
-      .catch((error: unknown) => toast.error(errorText(error)));
 
   return (
     <Modal title={group ? "Edit team" : "New team"} open onOpenChange={(open) => !open && onClose()}>
@@ -80,71 +72,14 @@ export function TeamSheet({
             />
           </SettingsCard>
         </View>
-        <SettingsSection title="Logo">
-          <SettingsCard>
-            <SettingsRow
-              label="Picture"
-              hint={
-                logo.imageUrl?.startsWith("data:")
-                  ? "Your picture"
-                  : logo.imageUrl
-                    ? "The image from its URL"
-                    : "Pixel art drawn for this team"
-              }
-            >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                <TeamLogo group={{ id: group?.id ?? "", logo }} size={40} dark={nativeTokens(colors).dark} />
-                <Button
-                  colors={colors}
-                  variant="outline"
-                  size="sm"
-                  label="Reroll"
-                  onPress={() => patchLogo({ seed: randomSeed(), imageUrl: null })}
-                />
-              </View>
-            </SettingsRow>
-            {canPickFiles ? (
-              <SettingsAction
-                label="Upload a picture"
-                hint="Cropped to a square"
-                actionLabel="Upload"
-                onPress={upload}
-              />
-            ) : null}
-            <ColourRow colors={colors} value={logo.palette} onChange={(palette) => patchLogo({ palette })} />
-            <PictureSource
-              colors={colors}
-              imageUrl={logo.imageUrl}
-              hint="Optional. Replaces the pixel logo"
-              placeholder="https://example.com/logo.png"
-              onChange={(imageUrl) => patchLogo({ imageUrl })}
-            />
-          </SettingsCard>
-        </SettingsSection>
-        <SettingsSection
-          title="Members"
-          info="Every member gets the roster and the shared instructions in its prompt. A bot can be on one team at a time."
-        >
-          <SettingsCard>
-            {live.map((bot) => {
-              const other = teamOf(bot.id, groups);
-              const elsewhere = other && other.id !== group?.id ? other : null;
-              return (
-                <SettingsSwitch
-                  key={bot.id}
-                  label={bot.name}
-                  hint={
-                    elsewhere
-                      ? `On ${elsewhere.name || "another team"}; adding moves it here`
-                      : bot.title || undefined
-                  }
-                  value={memberIds.includes(bot.id)}
-                  onValueChange={(on) => toggle(bot.id, on)}
-                />
-              );
-            })}
-          </SettingsCard>
-        </SettingsSection>
+        <LogoSection colors={colors} groupId={group?.id ?? ""} logo={logo} onPatch={patchLogo} />
+        <MembersSection
+          live={live}
+          groups={groups}
+          groupId={group?.id}
+          memberIds={memberIds}
+          onToggle={toggle}
+        />
         <SettingsSection
           title="Chief of Staff"
           info="Your main contact for the team. It decides what to handle itself and asks teammates for the rest."
@@ -203,5 +138,123 @@ export function TeamSheet({
         </SheetActions>
       </Modal.Content>
     </Modal>
+  );
+}
+
+function initialDraft(group: BotGroup | null): TeamDraft & { logo: Logo } {
+  if (!group) {
+    return {
+      name: "",
+      logo: { seed: randomSeed(), palette: null, imageUrl: null },
+      leadId: null,
+      memberIds: [],
+      instructions: "",
+    };
+  }
+  return {
+    name: group.name,
+    logo: teamLogoOf(group),
+    leadId: group.leadId ?? null,
+    memberIds: [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])],
+    instructions: group.instructions ?? "",
+  };
+}
+
+function LogoSection({
+  colors,
+  groupId,
+  logo,
+  onPatch,
+}: {
+  colors: Colors;
+  groupId: string;
+  logo: Logo;
+  onPatch(patch: Partial<Logo>): void;
+}) {
+  const toast = useToast();
+  const upload = () =>
+    void pickPicture()
+      .then((imageUrl) => imageUrl && onPatch({ imageUrl }))
+      .catch((error: unknown) => toast.error(errorText(error)));
+  const pictureHint = logo.imageUrl?.startsWith("data:")
+    ? "Your picture"
+    : logo.imageUrl
+      ? "The image from its URL"
+      : "Pixel art drawn for this team";
+
+  return (
+    <SettingsSection title="Logo">
+      <SettingsCard>
+        <SettingsRow label="Picture" hint={pictureHint}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <TeamLogo group={{ id: groupId, logo }} size={40} dark={nativeTokens(colors).dark} />
+            <Button
+              colors={colors}
+              variant="outline"
+              size="sm"
+              label="Reroll"
+              onPress={() => onPatch({ seed: randomSeed(), imageUrl: null })}
+            />
+          </View>
+        </SettingsRow>
+        {canPickFiles ? (
+          <SettingsAction
+            label="Upload a picture"
+            hint="Cropped to a square"
+            actionLabel="Upload"
+            onPress={upload}
+          />
+        ) : null}
+        <ColourRow colors={colors} value={logo.palette} onChange={(palette) => onPatch({ palette })} />
+        <PictureSource
+          colors={colors}
+          imageUrl={logo.imageUrl}
+          hint="Optional. Replaces the pixel logo"
+          placeholder="https://example.com/logo.png"
+          onChange={(imageUrl) => onPatch({ imageUrl })}
+        />
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function MembersSection({
+  live,
+  groups,
+  groupId,
+  memberIds,
+  onToggle,
+}: {
+  live: readonly Bot[];
+  groups: readonly BotGroup[];
+  groupId: string | undefined;
+  memberIds: readonly string[];
+  onToggle(botId: string, on: boolean): void;
+}) {
+  return (
+    <SettingsSection
+      title="Members"
+      info="Every member gets the roster and the shared instructions in its prompt. A bot can be on one team at a time."
+    >
+      <SettingsCard>
+        {live.map((bot) => {
+          const other = teamOf(bot.id, groups);
+          const elsewhere = other && other.id !== groupId ? other : null;
+          return (
+            <SettingsSwitch
+              key={bot.id}
+              label={bot.name}
+              hint={
+                elsewhere
+                  ? `On ${elsewhere.name || "another team"}; adding moves it here`
+                  : bot.title || undefined
+              }
+              value={memberIds.includes(bot.id)}
+              onValueChange={(on) => onToggle(bot.id, on)}
+            />
+          );
+        })}
+      </SettingsCard>
+    </SettingsSection>
   );
 }

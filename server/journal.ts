@@ -99,7 +99,7 @@ export class MemoryJournal {
       await mkdir(join(path, ".."), { recursive: true });
       await writeFile(path, text, "utf8");
     }
-    await this.append(botId, file, before, text, { actor: "you", via, chat: null });
+    await this.append(botId, { file, before, after: text }, { actor: "you", via, chat: null });
     const seen = this.seen.get(botId);
     if (seen) {
       if (text === null) seen.delete(file);
@@ -133,15 +133,13 @@ export class MemoryJournal {
     for (const file of new Set([...previous.keys(), ...current.keys()])) {
       const before = previous.get(file) ?? null;
       const after = current.get(file) ?? null;
-      if (before !== after) await this.append(botId, file, before, after, who);
+      if (before !== after) await this.append(botId, { file, before, after }, who);
     }
   }
 
   private async append(
     botId: string,
-    file: string,
-    before: string | null,
-    after: string | null,
+    { file, before, after }: { file: string; before: string | null; after: string | null },
     who: Pick<JournalEntry, "actor" | "via" | "chat">,
   ): Promise<void> {
     if (before === after) return;
@@ -159,7 +157,7 @@ export class MemoryJournal {
     };
     const entries = [...(await this.load(botId)), entry].slice(-KEEP);
     await mkdir(join(pluginDataPath(), "journal"), { recursive: true });
-    await writeFile(journalPath(botId), entries.map((item) => JSON.stringify(item)).join("\n") + "\n", {
+    await writeFile(journalPath(botId), `${entries.map((item) => JSON.stringify(item)).join("\n")}\n`, {
       encoding: "utf8",
       mode: 0o600,
     });

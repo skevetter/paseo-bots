@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useState, type ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { PlanOutcome } from "../../../shared/tools";
 import { Markdown } from "../../Markdown";

@@ -110,6 +110,57 @@ export interface AppAccess {
 
 type ToolEntry = { tool_slug?: unknown; account?: unknown };
 
+interface CallReview {
+  apps: Set<string>;
+  tools: Set<string>;
+  account: string | null;
+  pinned: boolean;
+}
+
+function checkWorkbench(message: unknown, access: AppAccess): { refusal: string } | { message: unknown } {
+  const limited = access.limits.size > 0 || access.connected.some((slug) => !access.allowed.includes(slug));
+  return limited
+    ? {
+        refusal:
+          "Composio's remote workbench can run any app's tools, so it's off for bots limited to some apps, tools or accounts. Run tools with COMPOSIO_MULTI_EXECUTE_TOOL.",
+      }
+    : { message };
+}
+
+function pinAccount(
+  entry: ToolEntry,
+  account: NonNullable<AppLimit["account"]>,
+  review: CallReview,
+): ToolEntry {
+  const asked = typeof entry.account === "string" ? entry.account.trim() : "";
+  if (asked && asked !== account.id && asked.toLowerCase() !== account.alias?.toLowerCase())
+    review.account = account.alias ?? account.id;
+  review.pinned = true;
+  return { ...entry, account: account.id };
+}
+
+function reviewEntry(entry: ToolEntry, access: AppAccess, review: CallReview): ToolEntry {
+  const tool = typeof entry.tool_slug === "string" ? entry.tool_slug.trim().toUpperCase() : "";
+  const app = tool ? appForTool(tool, access.connected) : null;
+  if (!app) return entry;
+  if (!access.allowed.includes(app)) review.apps.add(app);
+  const limit = access.limits.get(app);
+  if (!limit) return entry;
+  if (limit.tools && !limit.tools.has(tool)) review.tools.add(tool);
+  return limit.account ? pinAccount(entry, limit.account, review) : entry;
+}
+
+function reviewRefusal(review: CallReview): string | null {
+  const them = (count: number) => (count === 1 ? "it" : "them");
+  if (review.apps.size)
+    return `This bot isn't allowed to use ${[...review.apps].join(", ")}. Ask the user to switch ${them(review.apps.size)} on under the bot's Access settings in Paseo.`;
+  if (review.tools.size)
+    return `This bot isn't allowed to run ${[...review.tools].join(", ")}. Ask the user to allow ${them(review.tools.size)} under the bot's Access settings in Paseo.`;
+  if (review.account)
+    return `This bot may only use the account "${review.account}" for that app. Leave "account" out to use it.`;
+  return null;
+}
+
 /**
  * Checks a JSON-RPC message from a bot against its app access: why it's
  * refused, or the message to forward with pinned accounts filled in. Only
@@ -123,54 +174,19 @@ export function checkAppCall(
 ): { refusal: string } | { message: unknown } {
   const frame = (message ?? {}) as { method?: unknown; params?: { name?: unknown; arguments?: unknown } };
   if (frame.method !== "tools/call" || typeof frame.params?.name !== "string") return { message };
-  if (/^COMPOSIO_REMOTE_(WORKBENCH|BASH_TOOL)$/.test(frame.params.name)) {
-    const limited = access.limits.size > 0 || access.connected.some((slug) => !access.allowed.includes(slug));
-    return limited
-      ? {
-          refusal:
-            "Composio's remote workbench can run any app's tools, so it's off for bots limited to some apps, tools or accounts. Run tools with COMPOSIO_MULTI_EXECUTE_TOOL.",
-        }
-      : { message };
-  }
+  if (/^COMPOSIO_REMOTE_(WORKBENCH|BASH_TOOL)$/.test(frame.params.name))
+    return checkWorkbench(message, access);
   if (!/MULTI_EXECUTE_TOOL$|^COMPOSIO_EXECUTE_TOOL$/.test(frame.params.name)) return { message };
   // `{tools: [{tool_slug, account}]}`, or the older single `{tool_slug, account}`.
   const args = (frame.params.arguments ?? {}) as ToolEntry & { tools?: unknown };
   const entries: ToolEntry[] = Array.isArray(args.tools)
     ? args.tools.map((entry) => (entry && typeof entry === "object" ? (entry as ToolEntry) : {}))
     : [args];
-  const apps = new Set<string>();
-  const tools = new Set<string>();
-  let account: string | null = null;
-  let pinned = false;
-  const next = entries.map((entry) => {
-    const tool = typeof entry.tool_slug === "string" ? entry.tool_slug.trim().toUpperCase() : "";
-    const app = tool ? appForTool(tool, access.connected) : null;
-    if (!app) return entry;
-    if (!access.allowed.includes(app)) apps.add(app);
-    const limit = access.limits.get(app);
-    if (!limit) return entry;
-    if (limit.tools && !limit.tools.has(tool)) tools.add(tool);
-    if (!limit.account) return entry;
-    const asked = typeof entry.account === "string" ? entry.account.trim() : "";
-    if (asked && asked !== limit.account.id && asked.toLowerCase() !== limit.account.alias?.toLowerCase())
-      account = limit.account.alias ?? limit.account.id;
-    pinned = true;
-    return { ...entry, account: limit.account.id };
-  });
-  const them = (count: number) => (count === 1 ? "it" : "them");
-  if (apps.size)
-    return {
-      refusal: `This bot isn't allowed to use ${[...apps].join(", ")}. Ask the user to switch ${them(apps.size)} on under the bot's Access settings in Paseo.`,
-    };
-  if (tools.size)
-    return {
-      refusal: `This bot isn't allowed to run ${[...tools].join(", ")}. Ask the user to allow ${them(tools.size)} under the bot's Access settings in Paseo.`,
-    };
-  if (account)
-    return {
-      refusal: `This bot may only use the account "${account}" for that app. Leave "account" out to use it.`,
-    };
-  if (!pinned) return { message };
+  const review: CallReview = { apps: new Set(), tools: new Set(), account: null, pinned: false };
+  const next = entries.map((entry) => reviewEntry(entry, access, review));
+  const refusal = reviewRefusal(review);
+  if (refusal) return { refusal };
+  if (!review.pinned) return { message };
   return {
     message: {
       ...frame,
@@ -209,27 +225,18 @@ export type AppSignIn = {
   alias: string | null;
 };
 
-/** Composio's `data.results` in a tool output, however the provider wrapped it: JSON text, content blocks or `{output}`. */
-function composioResults(value: unknown, depth = 0): Record<string, unknown> | null {
-  if (depth > 4 || value === null || typeof value !== "object") {
-    if (typeof value !== "string" || depth > 4) return null;
-    try {
-      return composioResults(JSON.parse(value), depth + 1);
-    } catch {
-      return null;
-    }
+function parsedResults(value: string, depth: number): Record<string, unknown> | null {
+  try {
+    return composioResults(JSON.parse(value), depth + 1);
+  } catch {
+    return null;
   }
-  if (Array.isArray(value))
-    return value.reduce<Record<string, unknown> | null>(
-      (found, entry) => found ?? composioResults(entry, depth + 1),
-      null,
-    );
-  const record = value as {
-    data?: { results?: unknown };
-    output?: unknown;
-    text?: unknown;
-    content?: unknown;
-  };
+}
+
+function recordResults(
+  record: { data?: { results?: unknown }; output?: unknown; text?: unknown; content?: unknown },
+  depth: number,
+): Record<string, unknown> | null {
   const results = record.data?.results;
   if (results && typeof results === "object" && !Array.isArray(results))
     return results as Record<string, unknown>;
@@ -238,6 +245,35 @@ function composioResults(value: unknown, depth = 0): Record<string, unknown> | n
     composioResults(record.text, depth + 1) ??
     composioResults(record.content, depth + 1)
   );
+}
+
+/** Composio's `data.results` in a tool output, however the provider wrapped it: JSON text, content blocks or `{output}`. */
+function composioResults(value: unknown, depth = 0): Record<string, unknown> | null {
+  if (depth > 4) return null;
+  if (typeof value === "string") return parsedResults(value, depth);
+  if (value === null || typeof value !== "object") return null;
+  if (Array.isArray(value))
+    return value.reduce<Record<string, unknown> | null>(
+      (found, entry) => found ?? composioResults(entry, depth + 1),
+      null,
+    );
+  return recordResults(value, depth);
+}
+
+function signInOf(slug: string, value: unknown): AppSignIn | null {
+  const result = (value ?? {}) as {
+    redirect_url?: unknown;
+    accounts?: { id?: unknown; alias?: unknown }[];
+  };
+  const url = result.redirect_url;
+  if (typeof url !== "string" || !isComposioUrl(url)) return null;
+  const account = Array.isArray(result.accounts) ? result.accounts[0] : undefined;
+  return {
+    slug: canonicalSlug(slug),
+    url,
+    wordId: typeof account?.id === "string" ? account.id : null,
+    alias: typeof account?.alias === "string" && account.alias.trim() ? account.alias.trim() : null,
+  };
 }
 
 /**
@@ -258,19 +294,8 @@ export function appSignIns(call: {
   const results = composioResults((call.detail as { output?: unknown } | null)?.output) ?? {};
   const signIns: AppSignIn[] = [];
   for (const [slug, value] of Object.entries(results)) {
-    const result = (value ?? {}) as {
-      redirect_url?: unknown;
-      accounts?: { id?: unknown; alias?: unknown }[];
-    };
-    const url = result.redirect_url;
-    if (typeof url !== "string" || !isComposioUrl(url)) continue;
-    const account = Array.isArray(result.accounts) ? result.accounts[0] : undefined;
-    signIns.push({
-      slug: canonicalSlug(slug),
-      url,
-      wordId: typeof account?.id === "string" ? account.id : null,
-      alias: typeof account?.alias === "string" && account.alias.trim() ? account.alias.trim() : null,
-    });
+    const signIn = signInOf(slug, value);
+    if (signIn) signIns.push(signIn);
   }
   return signIns;
 }

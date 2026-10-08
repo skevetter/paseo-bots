@@ -14,6 +14,7 @@ type Colors = PluginTheme["colors"];
 export const PICTURE_SIZE = 192;
 const IMAGE_URL = /^(https?:\/\/\S+|data:image\/\S+)$/i;
 const MAX_UPLOAD = 20 * 1024 * 1024;
+const PALETTES = Array.from({ length: PALETTE_COUNT }, (_, index) => index);
 
 /** Picks an image file (web) and returns it as a square data URL; null when nothing was picked. */
 export async function pickPicture(): Promise<string | null> {
@@ -49,14 +50,14 @@ export function ColourRow({
           selected={value === null}
           onPress={() => onChange(null)}
         />
-        {Array.from({ length: PALETTE_COUNT }, (_, index) => (
+        {PALETTES.map((palette) => (
           <Swatch
-            key={index}
+            key={palette}
             colors={colors}
-            label={`Colour ${index + 1}`}
-            color={paletteSwatch(index)}
-            selected={value === index}
-            onPress={() => onChange(index)}
+            label={`Colour ${palette + 1}`}
+            color={paletteSwatch(palette)}
+            selected={value === palette}
+            onPress={() => onChange(palette)}
           />
         ))}
       </View>

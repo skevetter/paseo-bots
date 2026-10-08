@@ -1,9 +1,9 @@
 import type { WireAttachment } from "./attachments";
 import {
   BOT_LABEL,
+  type Bot,
   buildAgentConfig,
   defaultModelId,
-  type Bot,
   type Library,
   type PluginServers,
 } from "./bot";
@@ -153,7 +153,12 @@ export async function startBotChat(api: ChatApi, input: StartChatInput): Promise
   const workspace = await ensureBotWorkspace(api, bot, input.placement);
   const agent = await workspace.agents.create({
     ...(input.agentId ? { agentId: input.agentId } : {}),
-    config: buildAgentConfig(bot, input.library, model, input.systemPrompt, input.plugin),
+    config: buildAgentConfig(bot, {
+      library: input.library,
+      model,
+      systemPrompt: input.systemPrompt,
+      plugin: input.plugin,
+    }),
     labels: { [BOT_LABEL]: bot.id, ...input.labels },
     prompt: input.prompt,
     ...(input.title ? { title: input.title.slice(0, MAX_TITLE_CHARS) } : {}),

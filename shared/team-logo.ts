@@ -10,12 +10,13 @@ import {
   buildPalette,
   darkBackground,
   PALETTES,
-  pick,
-  rng,
-  toRuns,
   type Palette,
   type PaletteDef,
   type PixelRun,
+  paletteAt,
+  pick,
+  rng,
+  toRuns,
 } from "./pixel";
 
 export const LOGO_SIZE = 16;
@@ -279,42 +280,63 @@ export interface TeamLogoImage {
   rows: PixelRun[][];
 }
 
+interface Canvas {
+  grid: string[][];
+  midY: number;
+}
+
+interface LogoColors {
+  primary: Palette;
+  secondary: Palette;
+}
+
+function paintArt(art: readonly string[]): Canvas {
+  const grid = Array.from({ length: LOGO_SIZE }, () => Array.from({ length: LOGO_SIZE }, () => "."));
+  const top = Math.floor((LOGO_SIZE - art.length) / 2);
+  for (const [dy, line] of art.entries()) {
+    const left = Math.floor((LOGO_SIZE - line.length) / 2);
+    for (const [dx, char] of line.split("").entries()) grid[top + dy][left + dx] = char;
+  }
+  return { grid, midY: top + (art.length - 1) / 2 };
+}
+
+// Thin lines neither take nor cast shading and outline.
+function solidAt(grid: readonly string[][], x: number, y: number): boolean {
+  const char = grid[y]?.[x] ?? ".";
+  return char !== "." && char !== "L";
+}
+
+function shadedColor(canvas: Canvas, palette: Palette, x: number, y: number): string {
+  const { grid, midY } = canvas;
+  const bottom = !solidAt(grid, x, y + 1);
+  if (bottom && y >= midY) return palette.deep;
+  if (bottom || !solidAt(grid, x + 1, y) || (y >= midY && !solidAt(grid, x, y + 2))) return palette.shade;
+  if (!solidAt(grid, x, y - 1) || !solidAt(grid, x - 1, y)) return palette.light;
+  return palette.body;
+}
+
+function cellColor(canvas: Canvas, colors: LogoColors, x: number, y: number): string | null {
+  const char = canvas.grid[y][x];
+  if (char === "#") return shadedColor(canvas, colors.primary, x, y);
+  if (char === "a") return shadedColor(canvas, colors.secondary, x, y);
+  if (char === "h") return colors.primary.highlight;
+  if (char === "L") return colors.primary.outline;
+  if (char !== ".") return FLAT[char] ?? null;
+  const { grid } = canvas;
+  const touchesSolid =
+    solidAt(grid, x + 1, y) || solidAt(grid, x - 1, y) || solidAt(grid, x, y + 1) || solidAt(grid, x, y - 1);
+  return touchesSolid ? colors.primary.outline : null;
+}
+
 function draw(motif: MotifName, team: Palette): TeamLogoImage {
   const def: MotifDef = MOTIFS[motif];
-  const primary = def.primary ? buildPalette(def.primary) : team;
-  const secondary = def.secondary === "team" || !def.secondary ? team : buildPalette(def.secondary);
-  const grid = Array.from({ length: LOGO_SIZE }, () => Array.from({ length: LOGO_SIZE }, () => "."));
-  const top = Math.floor((LOGO_SIZE - def.art.length) / 2);
-  def.art.forEach((line, dy) => {
-    const left = Math.floor((LOGO_SIZE - line.length) / 2);
-    line.split("").forEach((char, dx) => (grid[top + dy]![left + dx] = char));
-  });
-  const at = (x: number, y: number) =>
-    x >= 0 && y >= 0 && x < LOGO_SIZE && y < LOGO_SIZE ? grid[y]![x]! : ".";
-  // Thin lines neither take nor cast shading and outline.
-  const solid = (x: number, y: number) => at(x, y) !== "." && at(x, y) !== "L";
-  const midY = top + (def.art.length - 1) / 2;
-
-  const shaded = (palette: Palette, x: number, y: number) => {
-    const bottom = !solid(x, y + 1);
-    if (bottom && y >= midY) return palette.deep;
-    if (bottom || !solid(x + 1, y) || (y >= midY && !solid(x, y + 2))) return palette.shade;
-    if (!solid(x, y - 1) || !solid(x - 1, y)) return palette.light;
-    return palette.body;
+  const colors: LogoColors = {
+    primary: def.primary ? buildPalette(def.primary) : team,
+    secondary: def.secondary === "team" || !def.secondary ? team : buildPalette(def.secondary),
   };
-
-  const colors = grid.map((line, y) =>
-    line.map((char, x): string | null => {
-      if (char === "#") return shaded(primary, x, y);
-      if (char === "a") return shaded(secondary, x, y);
-      if (char === "h") return primary.highlight;
-      if (char === "L") return primary.outline;
-      if (char !== ".") return FLAT[char] ?? null;
-      const edge = solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1);
-      return edge ? primary.outline : null;
-    }),
-  );
-  return { motif, background: team.background, rows: toRuns(colors) };
+  const canvas = paintArt(def.art);
+  const pixels = canvas.grid.map((line, y) => line.map((_, x) => cellColor(canvas, colors, x, y)));
+  return { motif, background: team.background, rows: toRuns(pixels) };
 }
 
 export interface LogoOptions {
@@ -336,5 +358,5 @@ export function teamLogo(
   const next = rng(`team:${seed}`);
   const motif = pick(next, MOTIF_NAMES);
   const seeded = pick(next, PALETTES);
-  return themed(motif, palette === null ? seeded : PALETTES[palette % PALETTES.length]!, options);
+  return themed(motif, palette === null ? seeded : paletteAt(palette), options);
 }

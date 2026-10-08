@@ -1,6 +1,6 @@
-import type { PaseoAgent, PaseoApi } from "./paseo";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { mergeEntries } from "./chat/stream/model";
+import type { PaseoAgent, PaseoApi } from "./paseo";
 
 type AgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;
 type TimelinePage = Awaited<ReturnType<AgentHandle["timeline"]["refetch"]>>;
@@ -63,6 +63,179 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+type SyncMode = "tail" | "after";
+
+class ChatTimelineSync {
+  private readonly handle: AgentHandle;
+  private readonly setState: Dispatch<SetStateAction<ChatState>>;
+  private disposed = false;
+  private endCursor: Cursor | null = null;
+  private startCursor: Cursor | null = null;
+  private busy = false;
+  private queued: SyncMode | null = null;
+  private olderBusy = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private unsubscribers: Array<() => void> = [];
+
+  constructor(handle: AgentHandle, setState: Dispatch<SetStateAction<ChatState>>) {
+    this.handle = handle;
+    this.setState = setState;
+  }
+
+  start(): void {
+    const timeline = this.handle.timeline.subscribe((event) => {
+      const kind = (event as { event?: { type?: string } }).event?.type;
+      if (kind === "replacement") void this.sync("tail");
+      else this.schedule();
+    });
+    void this.sync("tail");
+    const unsubscribeAgent = this.handle.subscribe(() => {
+      const snapshot = this.handle.current();
+      if (snapshot && !this.disposed) this.setState((current) => ({ ...current, agent: snapshot }));
+    });
+    this.unsubscribers = [timeline, unsubscribeAgent];
+    void this.handle
+      .refresh()
+      .then((result) => {
+        if (result && !this.disposed) this.setState((current) => ({ ...current, agent: result.agent }));
+      })
+      .catch(() => {});
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    clearTimeout(this.timer);
+    for (const unsubscribe of this.unsubscribers) unsubscribe();
+  }
+
+  retry(): void {
+    this.setState((current) => ({ ...current, retrying: true }));
+    void this.sync(this.endCursor ? "after" : "tail");
+  }
+
+  loadOlder(): void {
+    const cursor = this.startCursor;
+    if (this.olderBusy || !cursor || this.disposed) return;
+    this.olderBusy = true;
+    this.setState((current) => (current.hasOlder ? { ...current, loadingOlder: true } : current));
+    void this.handle.timeline
+      .refetch({
+        direction: "before",
+        cursor,
+        projection: "projected",
+        limit: TIMELINE_PAGE_SIZE,
+      })
+      .then((page) => this.applyOlderPage(page))
+      .catch((error: unknown) => {
+        if (!this.disposed)
+          this.setState((current) => ({ ...current, loadingOlder: false, error: message(error) }));
+      })
+      .finally(() => {
+        this.olderBusy = false;
+      });
+  }
+
+  private applyOlderPage(page: TimelinePage): void {
+    if (this.disposed) return;
+    if (page.error) throw new Error(page.error);
+    if (page.staleCursor || page.reset) {
+      this.setState((current) => ({ ...current, loadingOlder: false }));
+      void this.sync("tail");
+      return;
+    }
+    if (page.startCursor) this.startCursor = page.startCursor;
+    this.setState((current) => ({
+      ...current,
+      entries: mergeEntries(current.entries, page.entries),
+      hasOlder: page.hasOlder && page.entries.length > 0,
+      loadingOlder: false,
+    }));
+  }
+
+  private schedule(): void {
+    if (this.timer) return;
+    this.timer = setTimeout(() => {
+      this.timer = undefined;
+      void this.sync("after");
+    }, 80);
+  }
+
+  private async sync(mode: SyncMode): Promise<void> {
+    if (this.busy) {
+      if (this.queued !== "tail") this.queued = mode;
+      return;
+    }
+    this.busy = true;
+    try {
+      await this.syncPages(mode === "tail");
+    } catch (error) {
+      if (!this.disposed)
+        this.setState((current) => ({ ...current, loading: false, retrying: false, error: message(error) }));
+    } finally {
+      this.busy = false;
+      this.runQueued();
+    }
+  }
+
+  private runQueued(): void {
+    if (!this.queued || this.disposed) return;
+    const next = this.queued;
+    this.queued = null;
+    void this.sync(next);
+  }
+
+  private async syncPages(tail: boolean): Promise<void> {
+    let replace = tail;
+    for (let pages = 0; pages < 25 && !this.disposed; pages++) {
+      const more = await this.syncPage(replace ? null : this.endCursor);
+      if (!more) break;
+      replace = false;
+    }
+  }
+
+  private async syncPage(cursor: Cursor | null): Promise<boolean> {
+    const page = await this.fetchPage(cursor);
+    if (this.disposed) return false;
+    if (page.error) throw new Error(page.error);
+    this.applyPage(page, cursor === null);
+    return page.hasNewer && page.entries.length > 0;
+  }
+
+  private fetchPage(after: Cursor | null): Promise<TimelinePage> {
+    if (after === null) {
+      return this.handle.timeline.refetch({
+        direction: "tail",
+        projection: "projected",
+        limit: TIMELINE_PAGE_SIZE,
+      });
+    }
+    return this.handle.timeline.refetch({
+      direction: "after",
+      cursor: after,
+      projection: "projected",
+      limit: TIMELINE_PAGE_SIZE,
+    });
+  }
+
+  private applyPage(page: TimelinePage, replace: boolean): void {
+    // A new epoch or a gap means our cursor no longer lines up: the page is a fresh tail.
+    const reset = replace || page.reset || page.staleCursor || page.gap;
+    if (page.endCursor) this.endCursor = page.endCursor;
+    if (reset) {
+      this.startCursor = page.startCursor;
+    }
+    this.setState((current) => ({
+      ...current,
+      entries: reset ? page.entries : mergeEntries(current.entries, page.entries),
+      agent: (page.agent as PaseoAgent | null) ?? this.handle.current() ?? current.agent,
+      loading: false,
+      error: null,
+      retrying: false,
+      hasOlder: reset ? page.hasOlder : current.hasOlder,
+    }));
+  }
+}
+
 /**
  * Live chat state for one agent, synced the way Paseo's timeline sync does it:
  * the tail page once, then only what's new ("after" the end cursor) on each live
@@ -79,144 +252,10 @@ export function useChat(api: PaseoApi | null, agentId: string | null): ChatState
       return;
     }
     setState({ ...EMPTY, loading: true });
-    const handle = api.agents.ref(agentId);
-    let disposed = false;
-    let endCursor: Cursor | null = null;
-    let startCursor: Cursor | null = null;
-    let busy = false;
-    let queued: "tail" | "after" | null = null;
-    let olderBusy = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const agentFrom = (page: TimelinePage, current: PaseoAgent | null) =>
-      (page.agent as PaseoAgent | null) ?? handle.current() ?? current;
-
-    const sync = async (mode: "tail" | "after"): Promise<void> => {
-      if (busy) {
-        if (queued !== "tail") queued = mode;
-        return;
-      }
-      busy = true;
-      try {
-        let replace = mode === "tail" || endCursor === null;
-        for (let pages = 0; pages < 25 && !disposed; pages++) {
-          const page = replace
-            ? await handle.timeline.refetch({
-                direction: "tail",
-                projection: "projected",
-                limit: TIMELINE_PAGE_SIZE,
-              })
-            : await handle.timeline.refetch({
-                direction: "after",
-                cursor: endCursor!,
-                projection: "projected",
-                limit: TIMELINE_PAGE_SIZE,
-              });
-          if (disposed) return;
-          if (page.error) throw new Error(page.error);
-          // A new epoch or a gap means our cursor no longer lines up: the page is a fresh tail.
-          const reset = replace || page.reset || page.staleCursor || page.gap;
-          if (page.endCursor) endCursor = page.endCursor;
-          if (reset) {
-            startCursor = page.startCursor;
-          }
-          setState((current) => ({
-            ...current,
-            entries: reset ? page.entries : mergeEntries(current.entries, page.entries),
-            agent: agentFrom(page, current.agent),
-            loading: false,
-            error: null,
-            retrying: false,
-            hasOlder: reset ? page.hasOlder : current.hasOlder,
-          }));
-          if (!page.hasNewer || page.entries.length === 0) break;
-          replace = false;
-        }
-      } catch (error) {
-        if (!disposed)
-          setState((current) => ({ ...current, loading: false, retrying: false, error: message(error) }));
-      } finally {
-        busy = false;
-        if (queued && !disposed) {
-          const next = queued;
-          queued = null;
-          void sync(next);
-        }
-      }
-    };
-
-    const schedule = () => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        void sync("after");
-      }, 80);
-    };
-
-    const loadOlder = () => {
-      if (olderBusy || !startCursor || disposed) return;
-      olderBusy = true;
-      setState((current) => (current.hasOlder ? { ...current, loadingOlder: true } : current));
-      void handle.timeline
-        .refetch({
-          direction: "before",
-          cursor: startCursor,
-          projection: "projected",
-          limit: TIMELINE_PAGE_SIZE,
-        })
-        .then((page) => {
-          if (disposed) return;
-          if (page.error) throw new Error(page.error);
-          if (page.staleCursor || page.reset) {
-            setState((current) => ({ ...current, loadingOlder: false }));
-            void sync("tail");
-            return;
-          }
-          if (page.startCursor) startCursor = page.startCursor;
-          setState((current) => ({
-            ...current,
-            entries: mergeEntries(current.entries, page.entries),
-            hasOlder: page.hasOlder && page.entries.length > 0,
-            loadingOlder: false,
-          }));
-        })
-        .catch((error: unknown) => {
-          if (!disposed) setState((current) => ({ ...current, loadingOlder: false, error: message(error) }));
-        })
-        .finally(() => {
-          olderBusy = false;
-        });
-    };
-
-    const retry = () => {
-      setState((current) => ({ ...current, retrying: true }));
-      void sync(endCursor ? "after" : "tail");
-    };
-    actions.current = { loadOlder, retry };
-
-    const timeline = handle.timeline.subscribe((event) => {
-      const kind = (event as { event?: { type?: string } }).event?.type;
-      if (kind === "replacement") void sync("tail");
-      else schedule();
-    });
-    void sync("tail");
-    const unsubscribeAgent = handle.subscribe(() => {
-      const snapshot = handle.current();
-      if (snapshot && !disposed) setState((current) => ({ ...current, agent: snapshot }));
-    });
-    void handle
-      .refresh()
-      .then((result) => {
-        if (result && !disposed) setState((current) => ({ ...current, agent: result.agent }));
-      })
-      .catch(() => {});
-
-    return () => {
-      disposed = true;
-      if (timer) clearTimeout(timer);
-      timeline();
-      unsubscribeAgent();
-    };
+    const sync = new ChatTimelineSync(api.agents.ref(agentId), setState);
+    actions.current = { loadOlder: () => sync.loadOlder(), retry: () => sync.retry() };
+    sync.start();
+    return () => sync.dispose();
   }, [api, agentId]);
 
   const loadOlder = useCallback(() => actions.current.loadOlder(), []);

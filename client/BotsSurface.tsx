@@ -1,74 +1,58 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PaseoAgent } from "./paseo";
 import type { PluginScreenProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
-import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
+import { useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard } from "@getpaseo/plugin/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, type LayoutRectangle, Platform, Text, View } from "react-native";
-import { randomSeed } from "../shared/avatar";
-import {
-  applyDefaults,
-  DEFAULT_BOT_DEFAULTS,
-  DEFAULT_BOT_LIST_UI,
-  EMPTY_LIBRARY,
-  newBotId,
-  newGroupId,
-  presetFromBot,
-  pushHistory,
-  type Bot,
-  type BotGroup,
-  type BotListUi,
-  type Library,
-} from "../shared/bot";
-import { saveTeam, tabOf, teamTabs, withoutBot } from "../shared/groups";
-import { addImportedBots } from "../shared/library";
-import { displayTitle, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
-import { moveKey } from "../shared/sidebar";
-import { chatTranscript } from "../shared/transcript";
-import {
-  ensureBotHomeRpc,
-  mountRpc,
-  exportBotRpc,
-  importBotRpc,
-  importTeamRpc,
-  systemPromptRpc,
-} from "../shared/rpc";
-import { botFromPreset, newBot } from "../shared/templates";
+import { type ReactElement, useEffect, useRef } from "react";
+import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
+import type { Bot, BotGroup, Library } from "../shared/bot";
+import { startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
+import type { TeamTab } from "../shared/groups";
+import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
+import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
-import { botMenuEntries, chatMenuEntries, ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
-import { BotSidebar, type ChatMenuContext, type MenuSource, type Selection } from "./BotSidebar";
+import { ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
+import { BotSidebar, type Selection } from "./BotSidebar";
+import {
+  commitWidth,
+  createBot,
+  deleteTeam,
+  importBots,
+  openBotMenu,
+  openBotMenuFromPane,
+  openChatMenu,
+  openDisplayMenu,
+  openTeamMenu,
+  renameBot,
+  type SurfaceContext,
+  saveTeamDraft,
+  select,
+  surfaceContext,
+} from "./botsSurfaceActions";
 import { ChatPane, type OutgoingMessage } from "./ChatPane";
-import { useBotHost, useChatInvalidation, useHostResolver, useProviders, type LocalHost } from "./data";
-import { takeNewBotRequest } from "./intent";
+import { type BotHost, type LocalHost, useBotHost } from "./data";
 import { LibraryView } from "./library/LibraryView";
-import { onLibraryTarget, type LibraryTarget } from "./navigation";
+import { errorText, nativeTokens } from "./native";
+import { BotPanel } from "./panel/BotPanel";
 import { Splash } from "./Splash";
+import { newMessageId } from "./sent-attachments";
 import { TeamMap } from "./teams/TeamMap";
 import { TeamSheet } from "./teams/TeamSheet";
-import { TeamTabsRow, TeamTabSwitcher } from "./teams/TeamTabs";
+import { TeamTabSwitcher, TeamTabsRow } from "./teams/TeamTabs";
+import { ui } from "./typography";
 import { ResizeHandle, SlideOver } from "./ui/Columns";
-import { fitColumns } from "../shared/layout";
-import { confirmDialog, errorText, nativeTokens } from "./native";
-import { measureAnchor, MenuProvider, useMenu } from "./ui/Menu";
+import { MenuProvider } from "./ui/Menu";
 import { useTooltipTheme } from "./ui/Tooltip";
-import { homeIndicatorInset, useKeyboardHeight } from "./keyboard";
-import { newMessageId } from "./sent-attachments";
-import { BotPanel, type SectionId } from "./panel/BotPanel";
-import { useBotSettings } from "./useBotSettings";
-import { fullTimeline, useChat } from "./useChat";
-import { newUuid } from "../shared/uuid";
-import { ui, useTypeScale } from "./typography";
+import type { BotSettingsState } from "./useBotSettings";
+import { useBotsSurface } from "./useBotsSurface";
+import { useChat } from "./useChat";
 
 type Colors = PluginTheme["colors"];
 
 const SETUP_PROMPT =
   "Let's set you up. Interview me one short question at a time about what I want from you, how I like to work, and what you should never do. " +
   "Then propose standing instructions for yourself and a starting MEMORY.md. Write the memory file once I confirm, and give me the instructions to paste into your Soul settings.";
-
-/** Autosave delay after the last edit in the settings panel. */
-const SAVE_DELAY_MS = 600;
 
 export function BotsSurface(props: PluginScreenProps) {
   const { colors } = props.theme;
@@ -82,557 +66,84 @@ export function BotsSurface(props: PluginScreenProps) {
   );
 }
 
-function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginScreenProps) {
-  const { colors } = theme;
-  const { settings, latest, commit } = useBotSettings();
-  const toast = useToast();
-  const menu = useMenu();
-  const queryClient = useQueryClient();
-  const localHost: LocalHost = { id: host.id, label: host.label };
-  const localProviders = useProviders(useBotHost(null, localHost));
-  const resolveHost = useHostResolver(localHost);
-  const exportBot = useRpc(exportBotRpc);
-  const importBot = useRpc(importBotRpc);
-  const importTeam = useRpc(importTeamRpc);
+function BotsSurfaceContent(props: PluginScreenProps) {
+  const model = useBotsSurface(props);
+  const { settings } = model;
+  if (settings.status !== "ready") return <SettingsUnavailable colors={model.colors} settings={settings} />;
+  return <BotsScreen ctx={surfaceContext(model, settings.values)} />;
+}
 
-  const [selection, setSelection] = useState<Selection | null>(null);
-  const [panel, setPanel] = useState<{ open: boolean; section: SectionId | null }>({
-    open: false,
-    section: null,
-  });
-  const [panelVersion, setPanelVersion] = useState(0);
-  const [creating, setCreating] = useState(false);
-  /** The team map replaces the chat pane while open. */
-  const [teamMap, setTeamMap] = useState(false);
-  const [editingTeam, setEditingTeam] = useState<BotGroup | "new" | null>(null);
-  /** Skills & Tools replaces the bot list and chat while open; `target` is its page (null: the list, on compact). */
-  const [libraryView, setLibraryView] = useState<{ target: LibraryTarget | null } | null>(null);
-  const [renaming, setRenaming] = useState<Bot | null>(null);
-  const [exporting, setExporting] = useState<Bot | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, Bot>>({});
-  // List state (collapsed groups, pins, order, display options) applies at once and saves behind.
-  const [uiOverride, setUiOverride] = useState<BotListUi | null>(null);
-  const uiRef = useRef<BotListUi | null>(null);
-  const paneRef = useRef<View>(null);
-  const keyboardHeight = useKeyboardHeight();
-  /** The home indicator on phones; the keyboard covers it while it's up. */
-  const bottomInset = keyboardHeight > 0 ? 0 : homeIndicatorInset();
-  const [surfaceWidth, setSurfaceWidth] = useState(0);
-  /** Widths while a resize handle is being dragged; saved to the list UI on release. */
-  const [dragWidths, setDragWidths] = useState<{ list?: number; panel?: number }>({});
-  // Re-renders the whole surface when Paseo's interface/content/code sizes change.
-  const typeVersion = useTypeScale();
-  useChatInvalidation();
-
-  // ------------------------------------------------------------ persistence
-  const draftsRef = useRef(drafts);
-  draftsRef.current = drafts;
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flush = async () => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = null;
-    const pending = draftsRef.current;
-    if (Object.keys(pending).length === 0) return;
-    const ok = await commit((values) => {
-      let history = values.history;
-      const bots = values.bots.map((bot) => {
-        const draft = pending[bot.id];
-        if (!draft) return bot;
-        history = pushHistory(history, bot);
-        return draft;
-      });
-      return { ...values, bots, history };
-    });
-    if (ok) {
-      setDrafts((current) => {
-        const next = { ...current };
-        for (const [id, bot] of Object.entries(pending)) if (next[id] === bot) delete next[id];
-        return next;
-      });
-    }
-  };
-
-  const patchBot = (botId: string, patch: Partial<Bot>) => {
-    setDrafts((current) => {
-      const base =
-        current[botId] ??
-        (latest.current.status === "ready"
-          ? latest.current.values.bots.find((bot) => bot.id === botId)
-          : undefined);
-      return base
-        ? { ...current, [botId]: { ...base, ...patch, updatedAt: new Date().toISOString() } }
-        : current;
-    });
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
-  };
-
-  // Save pending edits when the surface closes.
-  useEffect(() => () => void flush(), []);
-
-  const currentUi = (): BotListUi =>
-    uiRef.current ??
-    (latest.current.status === "ready" ? latest.current.values.ui : undefined) ??
-    DEFAULT_BOT_LIST_UI;
-
-  const updateUi = (mutate: (current: BotListUi) => BotListUi) => {
-    const next = mutate(currentUi());
-    uiRef.current = next;
-    setUiOverride(next);
-    void commit((values) => ({ ...values, ui: uiRef.current ?? next }));
-  };
-
-  /** Applies a patch to the saved bot and to any unsaved draft of it, so autosave can't undo it. */
-  const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
-    setDrafts((current) =>
-      current[botId] ? { ...current, [botId]: { ...current[botId], ...patch } } : current,
-    );
-    return commit((values) => {
-      const previous = values.bots.find((entry) => entry.id === botId);
-      if (!previous) return values;
-      return {
-        ...values,
-        bots: values.bots.map((entry) =>
-          entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry,
-        ),
-        history: recordHistory ? pushHistory(values.history, previous) : values.history,
-      };
-    });
-  };
-
-  /** Opens Skills & Tools. Unsaved bot edits are saved first so the library sees them. */
-  const enterLibrary = (target: LibraryTarget | null) => {
-    void flush();
-    setLibraryView({ target });
-  };
-
-  // A bot's settings and the bot list ask for Skills & Tools through the navigation store.
-  const enterLibraryRef = useRef(enterLibrary);
-  enterLibraryRef.current = enterLibrary;
-  useEffect(
-    () =>
-      onLibraryTarget((target) => {
-        enterLibraryRef.current(target);
-      }),
-    [],
+function SettingsUnavailable({
+  colors,
+  settings,
+}: {
+  colors: Colors;
+  settings: Exclude<BotSettingsState, { status: "ready" }>;
+}) {
+  const loading = settings.status === "loading";
+  return (
+    <View
+      style={{
+        flex: 1,
+        padding: 24,
+        gap: 12,
+        backgroundColor: colors.surface0,
+        justifyContent: loading ? "center" : "flex-start",
+        alignItems: loading ? "center" : "stretch",
+      }}
+    >
+      {settings.status === "loading" ? (
+        <ActivityIndicator size="large" color={colors.foregroundMuted} accessibilityLabel="Loading bots" />
+      ) : (
+        <Text style={{ fontSize: ui(14), color: colors.statusDanger }}>
+          Couldn't read bots: {settings.error}
+        </Text>
+      )}
+      {settings.status === "invalid" ? (
+        <SettingsCard>
+          <SettingsAction
+            label="Reset bots"
+            hint="Replaces the unreadable bot list with an empty one."
+            actionLabel="Reset"
+            onPress={() => void settings.reset()}
+          />
+        </SettingsCard>
+      ) : null}
+    </View>
   );
+}
 
-  // One step back through the Bots screen, as Paseo's own screens go back: a settings page to
-  // the settings list, then the settings, Skills & Tools (page, then list), and on phones the
-  // team map or a chat back to the bot list. Android's Back and the phone swipes use it; with
-  // nothing left to step back from, Back leaves the plugin.
-  const back = useRef({ panel, compact: layout.compact, selection, teamMap, libraryView });
-  back.current = { panel, compact: layout.compact, selection, teamMap, libraryView };
-  const goBack = (): boolean => {
-    const state = back.current;
-    if (state.libraryView) {
-      setLibraryView(state.compact && state.libraryView.target ? { target: null } : null);
-      return true;
-    }
-    if (state.panel.open) {
-      setPanel(state.panel.section ? { open: true, section: null } : { open: false, section: null });
-      return true;
-    }
-    if (!state.compact) return false;
-    if (state.teamMap) {
-      setTeamMap(false);
-      return true;
-    }
-    if (state.selection) {
-      setSelection(null);
-      return true;
-    }
-    return false;
-  };
-  const goBackRef = useRef(goBack);
-  goBackRef.current = goBack;
-  useEffect(() => {
-    if (Platform.OS !== "android") return;
-    const subscription = BackHandler.addEventListener("hardwareBackPress", () => goBackRef.current());
-    return () => subscription.remove();
-  }, []);
+interface TeamTabProps {
+  colors: Colors;
+  tabs: TeamTab[];
+  openTab: TeamTab;
+  onTab(tab: string): void;
+  onTeamMenu(group: BotGroup, anchor: LayoutRectangle): void;
+  onNewTeam(): void;
+}
 
-  useEffect(() => {
-    if (takeNewBotRequest(params)) setCreating(true);
-  }, [params]);
+interface ScreenParts {
+  sidebar: ReactElement;
+  tabProps: TeamTabProps | null;
+  pane: ReactElement;
+  settingsPanel: ReactElement | null;
+  libraryScreen: ReactElement | null;
+}
 
-  if (settings.status !== "ready") {
-    return (
-      <View
-        style={{
-          flex: 1,
-          padding: 24,
-          gap: 12,
-          backgroundColor: colors.surface0,
-          justifyContent: settings.status === "loading" ? "center" : "flex-start",
-          alignItems: settings.status === "loading" ? "center" : "stretch",
-        }}
-      >
-        {settings.status === "loading" ? (
-          <ActivityIndicator size="large" color={colors.foregroundMuted} accessibilityLabel="Loading bots" />
-        ) : (
-          <Text style={{ fontSize: ui(14), color: colors.statusDanger }}>
-            Couldn't read bots: {settings.error}
-          </Text>
-        )}
-        {settings.status === "invalid" ? (
-          <SettingsCard>
-            <SettingsAction
-              label="Reset bots"
-              hint="Replaces the unreadable bot list with an empty one."
-              actionLabel="Reset"
-              onPress={() => void settings.reset()}
-            />
-          </SettingsCard>
-        ) : null}
-      </View>
-    );
-  }
-
-  const listUi = uiOverride ?? settings.values.ui ?? DEFAULT_BOT_LIST_UI;
-  const columns = fitColumns(
-    surfaceWidth || 1600,
-    dragWidths.list ?? listUi.listWidth,
-    panel.open && selection ? (dragWidths.panel ?? listUi.panelWidth) : null,
-  );
-  const commitWidth = (key: "listWidth" | "panelWidth", width: number) => {
-    setDragWidths({});
-    updateUi((current) => ({ ...current, [key]: Math.round(width) }));
-  };
-  const allBots = settings.values.bots.map((bot) => drafts[bot.id] ?? bot);
-  const library = settings.values.library ?? EMPTY_LIBRARY;
-  const groups = settings.values.groups ?? [];
-  const listed = allBots
-    .filter((bot) => listUi.showArchived || !bot.archived)
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  const selectedBot = selection ? allBots.find((bot) => bot.id === selection.botId) : undefined;
-  const archivedCount = allBots.filter((bot) => bot.archived).length;
-  const tabs = teamTabs(groups, listed);
-  const openTab = tabs.find((tab) => tab.id === listUi.tab) ?? tabs[0] ?? null;
-
-  // ------------------------------------------------------------ actions
-
-  /** Opens a chat, showing its bot in the list: expanded, and its team's tab open. */
-  const select = (next: Selection) => {
-    setSelection(next);
-    setTeamMap(false);
-    const tab = openTab && tabOf(next.botId, groups) !== openTab.id ? tabOf(next.botId, groups) : null;
-    if (tab || currentUi().collapsed.includes(next.botId)) {
-      updateUi((current) => ({
-        ...current,
-        tab: tab ?? current.tab,
-        collapsed: current.collapsed.filter((id) => id !== next.botId),
-      }));
-    }
-  };
-
-  const openPanel = (bot: Bot, section: SectionId | null) => {
-    if (selection?.botId !== bot.id) select({ botId: bot.id, chatId: null });
-    setPanel({ open: true, section });
-  };
-
-  /** Saves a new bot and opens it with its settings. */
-  const addBot = async (bot: Bot, section: SectionId = "identity") => {
-    const saved = await commit((values) => ({ ...values, bots: [...values.bots, bot] }));
-    if (saved) {
-      select({ botId: bot.id, chatId: null });
-      setPanel({ open: true, section });
-    }
-  };
-
-  const defaultProvider = () => {
-    const ready = (localProviders.data ?? []).filter((entry) => entry.status === "ready");
-    return (ready.find((entry) => entry.provider === "claude") ?? ready[0])?.provider ?? "";
-  };
-
-  const duplicate = async (bot: Bot) => {
-    await flush();
-    const { json } = await exportBot({ bot, includeMemory: false });
-    const { bot: copy } = await importBot({ botId: newBotId(), json });
-    // Same library items as the original; the copy's own file only carries redacted server settings.
-    await addBot({
-      ...copy,
-      name: `${bot.name} copy`,
-      hostId: bot.hostId,
-      cwd: bot.cwd,
-      alwaysAllow: bot.alwaysAllow,
-      skillIds: bot.skillIds,
-      mcpServerIds: bot.mcpServerIds,
-      avatar: { ...bot.avatar, seed: randomSeed() },
-    });
-  };
-
-  const remove = async (bot: Bot) => {
-    const ok = await commit((values) => ({
-      ...values,
-      bots: values.bots.filter((entry) => entry.id !== bot.id),
-      history: values.history.filter((entry) => entry.botId !== bot.id),
-      groups: withoutBot(values.groups ?? [], bot.id, new Date().toISOString()),
-    }));
-    if (!ok) return;
-    if (selection?.botId === bot.id) setSelection(null);
-    updateUi((current) => {
-      const { [bot.id]: _order, ...chatOrder } = current.chatOrder;
-      return {
-        ...current,
-        collapsed: current.collapsed.filter((id) => id !== bot.id),
-        pinnedChats: current.pinnedChats.filter((pin) => pin.botId !== bot.id),
-        chatOrder,
-      };
-    });
-  };
-
-  /**
-   * Swaps a bot with its neighbour as the list shows it: on a team's tab within the team,
-   * whose Chief of Staff stays first; otherwise among the listed bots, where pinned and
-   * unpinned bots keep their own runs.
-   */
-  const moveBot = (bot: Bot, delta: -1 | 1): (() => void) | undefined => {
-    const shown = openTab?.bots ?? listed;
-    const index = shown.findIndex((entry) => entry.id === bot.id);
-    const neighbour = shown[index + delta];
-    if (index === -1 || !neighbour) return undefined;
-    const swap = (ids: readonly string[]) =>
-      ids.map((id) => (id === bot.id ? neighbour.id : id === neighbour.id ? bot.id : id));
-    const group = openTab?.group;
-    if (group) {
-      if (bot.id === group.leadId || neighbour.id === group.leadId) return undefined;
-      return () =>
-        void commit((values) => ({
-          ...values,
-          groups: (values.groups ?? []).map((entry) =>
-            entry.id === group.id
-              ? { ...entry, memberIds: swap(entry.memberIds), updatedAt: new Date().toISOString() }
-              : entry,
-          ),
-        }));
-    }
-    if (neighbour.pinned !== bot.pinned) return undefined;
-    return () =>
-      void commit((values) => {
-        const order = swap(values.bots.map((entry) => entry.id));
-        return { ...values, bots: order.map((id) => values.bots.find((entry) => entry.id === id)!) };
-      });
-  };
-
-  const copy = (text: string, done: string) =>
-    void copyText(text)
-      .then(() => toast.show(done, { variant: "success" }))
-      .catch(() => toast.error("Unable to copy"));
-
-  const openBotMenu = (bot: Bot, anchor: LayoutRectangle, source: MenuSource) => {
-    const botHost = resolveHost(bot.hostId);
-    const chats = queryClient.getQueryData<PaseoAgent[]>(["paseo-bots", "chats", botHost.key, bot.id]) ?? [];
-    const workspaceId = chats.find((chat) => chat.workspaceId)?.workspaceId;
-    const openWorkspace = navigation?.openWorkspace;
-    menu.open({
-      anchor,
-      align: source === "kebab" ? "end" : "start",
-      width: 220,
-      title: "Bot actions",
-      entries: botMenuEntries({
-        bot,
-        onOpenInPaseo:
-          openWorkspace && workspaceId && botHost.online
-            ? () => openWorkspace({ workspaceId, serverId: botHost.key })
-            : undefined,
-        onOpenSettings: () => openPanel(bot, "identity"),
-        onTogglePin: () => void updateBot(bot.id, { pinned: !bot.pinned }),
-        onMoveUp: moveBot(bot, -1),
-        onMoveDown: moveBot(bot, 1),
-        onRename: () => setRenaming(bot),
-        onDuplicate: () =>
-          duplicate(bot).catch((error: unknown) => toast.error(`Couldn't duplicate: ${errorText(error)}`)),
-        onExport: () => setExporting(bot),
-        onCopyId: () => copy(bot.id, "Bot ID copied"),
-        onSaveAsPreset: () =>
-          void flush()
-            .then(() =>
-              commit((values) => ({
-                ...values,
-                presets: [
-                  ...(values.presets ?? []),
-                  presetFromBot(values.bots.find((entry) => entry.id === bot.id) ?? bot),
-                ],
-              })),
-            )
-            .then(
-              (saved) =>
-                saved &&
-                toast.show(`Saved ${bot.name} as a preset. It's under New bot.`, { variant: "success" }),
-            ),
-        onToggleArchive: () => void updateBot(bot.id, { archived: !bot.archived }),
-        onDelete: async () => {
-          const confirmed = await confirmDialog({
-            title: "Delete bot?",
-            message: `Delete "${bot.name}"?\n\nIts chats stay on the host and remain in Paseo's history.`,
-            confirmLabel: "Delete",
-            cancelLabel: "Cancel",
-            destructive: true,
-          });
-          if (confirmed) await remove(bot);
-        },
-      }),
-    });
-  };
-
-  const deleteTeam = async (group: BotGroup) => {
-    const confirmed = await confirmDialog({
-      title: "Delete team?",
-      message: `Delete the "${group.name}" team? Its bots stay, without a team.`,
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
-      destructive: true,
-    });
-    if (!confirmed) return false;
-    await commit((values) => ({
-      ...values,
-      groups: (values.groups ?? []).filter((entry) => entry.id !== group.id),
-    }));
-    return true;
-  };
-
-  const openTeamMenu = (group: BotGroup, anchor: LayoutRectangle) =>
-    menu.open({
-      anchor,
-      align: "end",
-      width: 200,
-      title: "Team actions",
-      entries: [
-        { label: "Edit team", icon: "Pencil", onSelect: () => setEditingTeam(group) },
-        { label: "Team map", icon: "Network", onSelect: () => setTeamMap(true) },
-        { kind: "separator" },
-        { label: "Delete team", icon: "Trash2", destructive: true, onSelect: () => void deleteTeam(group) },
-      ],
-    });
-
-  const openChatMenu = (
-    bot: Bot,
-    chat: PaseoAgent,
-    anchor: LayoutRectangle,
-    source: MenuSource,
-    context: ChatMenuContext,
-  ) => {
-    const botHost = resolveHost(bot.hostId);
-    const move = (delta: -1 | 1) => {
-      const order = moveKey(context.siblings, chat.id, delta);
-      return order
-        ? () => updateUi((current) => ({ ...current, chatOrder: { ...current.chatOrder, [bot.id]: order } }))
-        : undefined;
-    };
-    const unpin = (current: BotListUi) => ({
-      ...current,
-      pinnedChats: current.pinnedChats.filter((pin) => pin.chatId !== chat.id),
-    });
-    const openAgent = navigation?.openAgent;
-    menu.open({
-      anchor,
-      align: source === "kebab" ? "end" : "start",
-      width: 260,
-      title: "Chat actions",
-      entries: chatMenuEntries({
-        pinned: context.pinned,
-        onCopyPath: () => (chat.cwd ? copy(chat.cwd, "Path copied") : toast.error("Chat path not available")),
-        onCopyId: () => copy(chat.id, "Chat ID copied"),
-        onCopyTranscript: async () => {
-          if (!botHost.api) {
-            toast.error("Host is not connected");
-            return;
-          }
-          try {
-            const entries = await fullTimeline(botHost.api, chat.id);
-            await copyText(
-              chatTranscript({
-                title: displayTitle(chat.title),
-                botName: bot.name,
-                entries,
-                exportedAt: new Date(),
-              }),
-            );
-            toast.show("Transcript copied", { variant: "success" });
-          } catch (error) {
-            toast.error(`Couldn't copy the transcript: ${errorText(error)}`);
-          }
-        },
-        onTogglePin: () =>
-          updateUi((current) =>
-            context.pinned
-              ? unpin(current)
-              : { ...current, pinnedChats: [...current.pinnedChats, { botId: bot.id, chatId: chat.id }] },
-          ),
-        move: context.pinned || listUi.chatSort !== "manual" ? null : { up: move(-1), down: move(1) },
-        onOpenInPaseo:
-          openAgent && botHost.online
-            ? () => openAgent({ agentId: chat.id, serverId: botHost.key })
-            : undefined,
-        onArchive: async () => {
-          if (!botHost.api) {
-            toast.error("Host is not connected");
-            return;
-          }
-          try {
-            await botHost.api.agents.ref(chat.id).archive();
-            if (selection?.chatId === chat.id) setSelection({ botId: bot.id, chatId: null });
-            if (context.pinned) updateUi(unpin);
-            await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "chats", botHost.key, bot.id] });
-          } catch (error) {
-            toast.error(`Failed to archive chat: ${errorText(error)}`);
-          }
-        },
-      }),
-    });
-  };
-
-  const openDisplayMenu = (anchor: LayoutRectangle) => {
-    menu.open({
-      anchor,
-      align: "end",
-      width: 232,
-      title: "Display",
-      entries: [
-        {
-          label: "Archived bots",
-          trailing: listUi.showArchived ? "Shown" : archivedCount ? `Hidden (${archivedCount})` : "Hidden",
-          onSelect: () => updateUi((current) => ({ ...current, showArchived: !current.showArchived })),
-        },
-        {
-          label: "Chat order",
-          trailing: listUi.chatSort === "manual" ? "Manual" : "Last activity",
-          onSelect: () =>
-            updateUi((current) => ({
-              ...current,
-              chatSort: current.chatSort === "manual" ? "activity" : "manual",
-            })),
-        },
-      ],
-    });
-  };
-
-  /** The chat header's bot menu has no anchor of its own; hang it from the pane's top-right corner. */
-  const openBotMenuFromPane = (bot: Bot) =>
-    void measureAnchor(paneRef).then((rect) =>
-      openBotMenu(
-        bot,
-        rect
-          ? { x: rect.x + rect.width - 44, y: rect.y, width: 36, height: 36 }
-          : { x: 0, y: 0, width: 0, height: 0 },
-        "kebab",
-      ),
-    );
-
-  const sidebar = (
+function renderSidebar(ctx: SurfaceContext): ReactElement {
+  const { colors, layout, listUi, archivedCount, updateUi } = ctx;
+  return (
     <BotSidebar
       colors={colors}
-      bots={listed}
-      openTab={openTab}
+      bots={ctx.listed}
+      openTab={ctx.openTab}
       hiddenArchivedCount={listUi.showArchived ? 0 : archivedCount}
-      selection={selection}
+      selection={ctx.selection}
       ui={listUi}
-      localHost={localHost}
+      localHost={ctx.localHost}
       touch={layout.compact || layout.platform !== "web"}
       splash={layout.compact}
-      bottomInset={bottomInset}
+      bottomInset={ctx.bottomInset}
       onToggle={(botId) =>
         updateUi((current) => ({
           ...current,
@@ -645,115 +156,259 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
         updateUi((current) => ({ ...current, pinnedCollapsed: !current.pinnedCollapsed }))
       }
       onShowArchived={() => updateUi((current) => ({ ...current, showArchived: true }))}
-      onSelect={select}
-      onNewBot={() => setCreating(true)}
-      onBotMenu={openBotMenu}
-      onChatMenu={openChatMenu}
-      onDisplayMenu={openDisplayMenu}
-      onEditTeam={setEditingTeam}
-      onTeamMap={() => setTeamMap(true)}
+      onSelect={(next) => select(ctx, next)}
+      onNewBot={() => ctx.setCreating(true)}
+      onBotMenu={(bot, anchor, source) => openBotMenu(ctx, bot, anchor, source)}
+      onChatMenu={(request) => openChatMenu(ctx, request)}
+      onDisplayMenu={(anchor) => openDisplayMenu(ctx, anchor)}
+      onEditTeam={ctx.setEditingTeam}
+      onTeamMap={() => ctx.setTeamMap(true)}
     />
   );
+}
 
-  const tabProps = openTab
+function teamTabProps(ctx: SurfaceContext): TeamTabProps | null {
+  const { openTab } = ctx;
+  return openTab
     ? {
-        colors,
-        tabs,
+        colors: ctx.colors,
+        tabs: ctx.tabs,
         openTab,
-        onTab: (tab: string) => updateUi((current) => ({ ...current, tab })),
-        onTeamMenu: openTeamMenu,
-        onNewTeam: () => setEditingTeam("new" as const),
+        onTab: (tab) => ctx.updateUi((current) => ({ ...current, tab })),
+        onTeamMenu: (group, anchor) => openTeamMenu(ctx, group, anchor),
+        onNewTeam: () => ctx.setEditingTeam("new"),
       }
     : null;
+}
 
-  const pane = teamMap ? (
+function renderTeamMap(ctx: SurfaceContext): ReactElement {
+  const { layout } = ctx;
+  return (
     <TeamMap
-      colors={colors}
-      groups={groups}
-      bots={allBots}
-      localHost={localHost}
+      colors={ctx.colors}
+      groups={ctx.groups}
+      bots={ctx.allBots}
+      localHost={ctx.localHost}
       compact={layout.compact}
-      bottomInset={bottomInset}
-      onBack={layout.compact ? () => setTeamMap(false) : undefined}
-      onNewTeam={() => setEditingTeam("new")}
-      onEditTeam={setEditingTeam}
+      bottomInset={ctx.bottomInset}
+      onBack={layout.compact ? () => ctx.setTeamMap(false) : undefined}
+      onNewTeam={() => ctx.setEditingTeam("new")}
+      onEditTeam={ctx.setEditingTeam}
       onOpenBot={(bot) => {
-        select({ botId: bot.id, chatId: null });
-        setPanel({ open: true, section: "overview" });
+        select(ctx, { botId: bot.id, chatId: null });
+        ctx.setPanel({ open: true, section: "overview" });
       }}
     />
-  ) : selectedBot && selection ? (
+  );
+}
+
+function renderPane(ctx: SurfaceContext): ReactElement {
+  const { selectedBot, selection, layout, panel } = ctx;
+  if (ctx.teamMap) return renderTeamMap(ctx);
+  if (!selectedBot || !selection) return <Splash colors={ctx.colors} />;
+  return (
     <SelectedChat
       key={`${selectedBot.id}:${selection.chatId ?? "new"}`}
-      colors={colors}
+      colors={ctx.colors}
       bot={selectedBot}
-      library={library}
+      library={ctx.library}
       selection={selection}
-      localHost={localHost}
+      localHost={ctx.localHost}
       panelOpen={panel.open}
       layout={layout}
-      keyboardOpen={keyboardHeight > 0}
-      typeVersion={typeVersion}
-      onBack={layout.compact ? () => setSelection(null) : undefined}
+      keyboardOpen={ctx.keyboardHeight > 0}
+      typeVersion={ctx.typeVersion}
+      onBack={layout.compact ? () => ctx.setSelection(null) : undefined}
       onBotMenu={(anchor) =>
-        anchor ? openBotMenu(selectedBot, anchor, "kebab") : openBotMenuFromPane(selectedBot)
+        anchor ? openBotMenu(ctx, selectedBot, anchor, "kebab") : openBotMenuFromPane(ctx, selectedBot)
       }
-      onTogglePanel={() => setPanel({ open: !panel.open, section: panel.section })}
-      onStarted={(chatId) => setSelection({ botId: selectedBot.id, chatId })}
+      onTogglePanel={() => ctx.setPanel({ open: !panel.open, section: panel.section })}
+      onStarted={(chatId) => ctx.setSelection({ botId: selectedBot.id, chatId })}
     />
-  ) : (
-    <Splash colors={colors} />
   );
+}
 
-  const settingsPanel =
-    selectedBot && panel.open ? (
-      <BotPanel
-        key={`${selectedBot.id}:${panelVersion}`}
-        colors={colors}
-        compact={layout.compact}
-        bottomInset={bottomInset}
-        bot={selectedBot}
-        localHost={localHost}
-        history={settings.values.history}
-        library={library}
-        groups={groups}
-        section={panel.section}
-        onSection={(section) => setPanel({ open: true, section })}
-        onClose={() => setPanel({ open: false, section: panel.section })}
-        onPatch={(patch) => patchBot(selectedBot.id, patch)}
-        flush={flush}
-        onRestore={(snapshot) => {
-          patchBot(selectedBot.id, snapshot);
-          setPanelVersion((version) => version + 1);
-          toast.show("Restored. Undo it from History if needed.", { variant: "success" });
-        }}
-        onSetup={() => select({ botId: selectedBot.id, chatId: null, prompt: SETUP_PROMPT })}
-        onOpenChat={(chatId) => {
-          select({ botId: selectedBot.id, chatId });
-          // On phones the panel covers the chat.
-          if (layout.compact) setPanel({ open: false, section: panel.section });
-        }}
-      />
-    ) : null;
-
-  const libraryScreen = libraryView ? (
-    <LibraryView
-      colors={colors}
-      layout={layout}
-      bottomInset={bottomInset}
-      values={settings.values}
-      commit={commit}
-      target={libraryView.target}
-      onTarget={(target) => setLibraryView({ target })}
-      onBack={() => setLibraryView(null)}
+function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
+  const { selectedBot, panel, layout } = ctx;
+  if (!selectedBot || !panel.open) return null;
+  return (
+    <BotPanel
+      key={`${selectedBot.id}:${ctx.panelVersion}`}
+      colors={ctx.colors}
+      compact={layout.compact}
+      bottomInset={ctx.bottomInset}
+      bot={selectedBot}
+      localHost={ctx.localHost}
+      history={ctx.values.history}
+      library={ctx.library}
+      groups={ctx.groups}
+      section={panel.section}
+      onSection={(section) => ctx.setPanel({ open: true, section })}
+      onClose={() => ctx.setPanel({ open: false, section: panel.section })}
+      onPatch={(patch) => ctx.patchBot(selectedBot.id, patch)}
+      flush={ctx.flush}
+      onRestore={(snapshot) => {
+        ctx.patchBot(selectedBot.id, snapshot);
+        ctx.setPanelVersion((version) => version + 1);
+        ctx.toast.show("Restored. Undo it from History if needed.", { variant: "success" });
+      }}
+      onSetup={() => select(ctx, { botId: selectedBot.id, chatId: null, prompt: SETUP_PROMPT })}
+      onOpenChat={(chatId) => {
+        select(ctx, { botId: selectedBot.id, chatId });
+        // On phones the panel covers the chat.
+        if (layout.compact) ctx.setPanel({ open: false, section: panel.section });
+      }}
     />
-  ) : null;
+  );
+}
+
+function renderLibrary(ctx: SurfaceContext): ReactElement | null {
+  const { libraryView } = ctx;
+  if (!libraryView) return null;
+  return (
+    <LibraryView
+      colors={ctx.colors}
+      layout={ctx.layout}
+      bottomInset={ctx.bottomInset}
+      values={ctx.values}
+      commit={ctx.commit}
+      target={libraryView.target}
+      onTarget={(target) => ctx.setLibraryView({ target })}
+      onBack={() => ctx.setLibraryView(null)}
+    />
+  );
+}
+
+function renderCompact(ctx: SurfaceContext, parts: ScreenParts): ReactElement {
+  const { teamMap, panel } = ctx;
+  return (
+    <View ref={ctx.paneRef} collapsable={false} style={{ flex: 1 }}>
+      {parts.tabProps ? <TeamTabSwitcher {...parts.tabProps} /> : null}
+      {parts.sidebar}
+      {ctx.selection || teamMap ? (
+        <SlideOver onClose={() => (teamMap ? ctx.setTeamMap(false) : ctx.setSelection(null))}>
+          {parts.pane}
+        </SlideOver>
+      ) : null}
+      {parts.settingsPanel ? (
+        <SlideOver
+          onClose={() => ctx.setPanel({ open: false, section: null })}
+          onBack={() => (panel.section ? ctx.goBack() : false)}
+        >
+          {parts.settingsPanel}
+        </SlideOver>
+      ) : null}
+      {parts.libraryScreen ? (
+        <SlideOver onClose={() => ctx.setLibraryView(null)}>{parts.libraryScreen}</SlideOver>
+      ) : null}
+    </View>
+  );
+}
+
+function renderDesktop(ctx: SurfaceContext, parts: ScreenParts): ReactElement {
+  const { colors, columns, setDragWidths } = ctx;
+  return (
+    <>
+      {parts.tabProps ? <TeamTabsRow {...parts.tabProps} /> : null}
+      <View style={{ flex: 1, flexDirection: "row" }}>
+        <View
+          style={{
+            width: columns.list,
+            borderRightWidth: 1,
+            borderRightColor: colors.border,
+            backgroundColor: nativeTokens(colors).surfaceSidebar,
+          }}
+        >
+          {parts.sidebar}
+          <ResizeHandle
+            side="right"
+            width={columns.list}
+            onResize={(width) => setDragWidths((current) => ({ ...current, list: width }))}
+            onCommit={(width) => commitWidth(ctx, "listWidth", width)}
+          />
+        </View>
+        <View ref={ctx.paneRef} collapsable={false} style={{ flex: 1, minWidth: 0 }}>
+          {parts.pane}
+        </View>
+        {parts.settingsPanel && columns.panel !== null ? (
+          <View style={{ width: columns.panel, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+            {parts.settingsPanel}
+            <ResizeHandle
+              side="left"
+              width={columns.panel}
+              onResize={(width) => setDragWidths((current) => ({ ...current, panel: width }))}
+              onCommit={(width) => commitWidth(ctx, "panelWidth", width)}
+            />
+          </View>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function renderTeamSheet(ctx: SurfaceContext): ReactElement | null {
+  const { editingTeam } = ctx;
+  if (!editingTeam) return null;
+  return (
+    <TeamSheet
+      colors={ctx.colors}
+      group={editingTeam === "new" ? null : editingTeam}
+      groups={ctx.groups}
+      bots={ctx.allBots}
+      onClose={() => ctx.setEditingTeam(null)}
+      onSave={(draft) => saveTeamDraft(ctx, editingTeam, draft)}
+      onDelete={
+        editingTeam === "new"
+          ? undefined
+          : () => void deleteTeam(ctx, editingTeam).then((deleted) => deleted && ctx.setEditingTeam(null))
+      }
+    />
+  );
+}
+
+function renderNewBotDialog(ctx: SurfaceContext): ReactElement | null {
+  if (!ctx.creating) return null;
+  return (
+    <NewBotDialog
+      colors={ctx.colors}
+      onClose={() => ctx.setCreating(false)}
+      presets={ctx.values.presets ?? []}
+      onCreate={(start) => createBot(ctx, start)}
+      onImport={(json) => importBots(ctx, json)}
+    />
+  );
+}
+
+function renderRenameDialog(ctx: SurfaceContext): ReactElement | null {
+  const { renaming } = ctx;
+  if (!renaming) return null;
+  return (
+    <RenameDialog
+      colors={ctx.colors}
+      title="Rename bot"
+      initialValue={renaming.name}
+      placeholder={renaming.name}
+      onClose={() => ctx.setRenaming(null)}
+      onSubmit={(name) => renameBot(ctx, renaming, name)}
+    />
+  );
+}
+
+function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
+  const { colors, layout, keyboardHeight } = ctx;
+  const parts: ScreenParts = {
+    sidebar: renderSidebar(ctx),
+    tabProps: teamTabProps(ctx),
+    pane: renderPane(ctx),
+    settingsPanel: renderSettingsPanel(ctx),
+    libraryScreen: renderLibrary(ctx),
+  };
 
   // On desktop Skills & Tools takes over the screen, like Paseo's settings.
-  if (libraryScreen && !layout.compact) {
+  if (parts.libraryScreen && !layout.compact) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}>
-        {libraryScreen}
+        {parts.libraryScreen}
       </View>
     );
   }
@@ -763,134 +418,16 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
       {/* The host gives plugin surfaces no keyboard handling; lift everything above the keyboard. */}
       <View
         style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}
-        onLayout={(event) => setSurfaceWidth(event.nativeEvent.layout.width)}
+        onLayout={(event) => ctx.setSurfaceWidth(event.nativeEvent.layout.width)}
       >
-        {layout.compact ? (
-          <View ref={paneRef} collapsable={false} style={{ flex: 1 }}>
-            {tabProps ? <TeamTabSwitcher {...tabProps} /> : null}
-            {sidebar}
-            {selection || teamMap ? (
-              <SlideOver onClose={() => (teamMap ? setTeamMap(false) : setSelection(null))}>{pane}</SlideOver>
-            ) : null}
-            {settingsPanel ? (
-              <SlideOver
-                onClose={() => setPanel({ open: false, section: null })}
-                onBack={() => (panel.section ? goBack() : false)}
-              >
-                {settingsPanel}
-              </SlideOver>
-            ) : null}
-            {libraryScreen ? (
-              <SlideOver onClose={() => setLibraryView(null)}>{libraryScreen}</SlideOver>
-            ) : null}
-          </View>
-        ) : (
-          <>
-            {tabProps ? <TeamTabsRow {...tabProps} /> : null}
-            <View style={{ flex: 1, flexDirection: "row" }}>
-              <View
-                style={{
-                  width: columns.list,
-                  borderRightWidth: 1,
-                  borderRightColor: colors.border,
-                  backgroundColor: nativeTokens(colors).surfaceSidebar,
-                }}
-              >
-                {sidebar}
-                <ResizeHandle
-                  side="right"
-                  width={columns.list}
-                  onResize={(width) => setDragWidths((current) => ({ ...current, list: width }))}
-                  onCommit={(width) => commitWidth("listWidth", width)}
-                />
-              </View>
-              <View ref={paneRef} collapsable={false} style={{ flex: 1, minWidth: 0 }}>
-                {pane}
-              </View>
-              {settingsPanel && columns.panel !== null ? (
-                <View style={{ width: columns.panel, borderLeftWidth: 1, borderLeftColor: colors.border }}>
-                  {settingsPanel}
-                  <ResizeHandle
-                    side="left"
-                    width={columns.panel}
-                    onResize={(width) => setDragWidths((current) => ({ ...current, panel: width }))}
-                    onCommit={(width) => commitWidth("panelWidth", width)}
-                  />
-                </View>
-              ) : null}
-            </View>
-          </>
-        )}
+        {layout.compact ? renderCompact(ctx, parts) : renderDesktop(ctx, parts)}
+        {renderTeamSheet(ctx)}
+        {renderNewBotDialog(ctx)}
 
-        {editingTeam ? (
-          <TeamSheet
-            colors={colors}
-            group={editingTeam === "new" ? null : editingTeam}
-            groups={groups}
-            bots={allBots}
-            onClose={() => setEditingTeam(null)}
-            onSave={(draft) => {
-              const id = editingTeam === "new" ? null : editingTeam.id;
-              const teamId = id ?? newGroupId();
-              setEditingTeam(null);
-              // A new team opens in its tab.
-              void commit((values) => ({
-                ...values,
-                groups: saveTeam(values.groups ?? [], id, draft, teamId, new Date().toISOString()),
-              })).then((saved) => saved && !id && updateUi((current) => ({ ...current, tab: teamId })));
-            }}
-            onDelete={
-              editingTeam === "new"
-                ? undefined
-                : () => void deleteTeam(editingTeam).then((deleted) => deleted && setEditingTeam(null))
-            }
-          />
-        ) : null}
-        {creating ? (
-          <NewBotDialog
-            colors={colors}
-            onClose={() => setCreating(false)}
-            presets={settings.status === "ready" ? (settings.values.presets ?? []) : []}
-            onCreate={(start) => {
-              setCreating(false);
-              const bot = start?.preset
-                ? botFromPreset(defaultProvider(), start.preset)
-                : newBot(defaultProvider(), start?.template);
-              const defaults =
-                (settings.status === "ready" ? settings.values.defaults : undefined) ?? DEFAULT_BOT_DEFAULTS;
-              void addBot(applyDefaults(bot, defaults, defaultProvider()), start ? "overview" : "identity");
-            }}
-            onImport={async (json) => {
-              const { bots, teams } = await importTeam({ json });
-              setCreating(false);
-              const saved = await commit((values) => addImportedBots(values, bots, teams));
-              const first = bots[0]?.bot;
-              if (saved && first) {
-                select({ botId: first.id, chatId: null });
-                setPanel({ open: true, section: "overview" });
-                if (bots.length > 1) toast.show(`Added ${bots.length} bots`, { variant: "success" });
-              }
-            }}
-          />
-        ) : null}
+        {renderRenameDialog(ctx)}
 
-        {renaming ? (
-          <RenameDialog
-            colors={colors}
-            title="Rename bot"
-            initialValue={renaming.name}
-            placeholder={renaming.name}
-            onClose={() => setRenaming(null)}
-            onSubmit={async (name) => {
-              if (!(await updateBot(renaming.id, { name }, true))) throw new Error("Unable to save");
-              // The identity section holds its own copy of the name.
-              if (panel.open && selection?.botId === renaming.id) setPanelVersion((version) => version + 1);
-            }}
-          />
-        ) : null}
-
-        {exporting ? (
-          <ExportDialog colors={colors} bot={exporting} onClose={() => setExporting(null)} />
+        {ctx.exporting ? (
+          <ExportDialog colors={colors} bot={ctx.exporting} onClose={() => ctx.setExporting(null)} />
         ) : null}
       </View>
     </>
@@ -913,30 +450,22 @@ interface SelectedChatProps {
   onStarted(chatId: string): void;
 }
 
-function SelectedChat({
-  colors,
-  bot,
-  library,
-  selection,
-  localHost,
-  panelOpen,
-  layout,
-  keyboardOpen,
-  typeVersion,
-  onBack,
-  onBotMenu,
-  onTogglePanel,
-  onStarted,
-}: SelectedChatProps) {
-  const host = useBotHost(bot.hostId, localHost);
-  const chat = useChat(host.api, selection.chatId);
+interface StartChatOptions {
+  bot: Bot;
+  library: Library;
+  host: BotHost;
+  onStarted(chatId: string): void;
+}
+
+type StartChat = (message: OutgoingMessage) => Promise<void>;
+
+function useStartChat({ bot, library, host, onStarted }: StartChatOptions): StartChat {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const compose = useRpc(systemPromptRpc);
   const mountServers = useRpc(mountRpc);
   const queryClient = useQueryClient();
-  const toast = useToast();
 
-  const start = async (message: OutgoingMessage) => {
+  return async (message) => {
     if (!host.api) throw new Error(`${host.label} is offline.`);
     // The bot's folder holds its memory and skills even when it works elsewhere.
     const home = await ensureHome({ botId: bot.id });
@@ -962,30 +491,66 @@ function SelectedChat({
     await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "chats", host.key, bot.id] });
     onStarted(id);
   };
+}
 
-  // Keep the bot's workspace named after the bot.
+// Keep the bot's workspace named after the bot.
+function useWorkspaceTitle(bot: Bot, host: BotHost) {
+  const ensureHome = useRpc(ensureBotHomeRpc);
+  const latest = useRef({ bot, ensureHome });
+  latest.current = { bot, ensureHome };
+  const name = bot.name;
+  const hostApi = host.api;
   useEffect(() => {
-    if (!host.api || bot.cwd || !bot.name.trim()) return;
-    const api = host.api;
+    const { bot: current, ensureHome: ensure } = latest.current;
+    if (!hostApi || current.cwd || !name.trim()) return;
     const timer = setTimeout(() => {
-      void ensureHome({ botId: bot.id })
-        .then((home) => syncBotWorkspaceTitle(api, bot, { path: home.path, projectRoot: home.root }))
+      void ensure({ botId: current.id })
+        .then((home) => syncBotWorkspaceTitle(hostApi, current, { path: home.path, projectRoot: home.root }))
         .catch(() => {});
     }, 1000);
     return () => clearTimeout(timer);
     // Only the name matters here.
-  }, [bot.name, host.api]);
+  }, [name, hostApi]);
+}
 
-  // "Set up with the bot" opens a new chat that sends its first message straight away.
+// "Set up with the bot" opens a new chat that sends its first message straight away.
+function useAutoStart(selection: Selection, host: BotHost, start: StartChat) {
+  const toast = useToast();
   const autoStarted = useRef(false);
+  const latest = useRef({ selection, start, toast });
+  latest.current = { selection, start, toast };
+  const hostApi = host.api;
   useEffect(() => {
-    if (selection.chatId !== null || !selection.prompt || autoStarted.current || !host.api) return;
+    const { selection: current, start: begin, toast: notify } = latest.current;
+    if (current.chatId !== null || !current.prompt || autoStarted.current || !hostApi) return;
     autoStarted.current = true;
-    start({ text: selection.prompt, messageId: newMessageId(), images: [], attachments: [] }).catch(
-      (error: unknown) => toast.error(`Couldn't start: ${errorText(error)}`),
+    begin({ text: current.prompt, messageId: newMessageId(), images: [], attachments: [] }).catch(
+      (error: unknown) => notify.error(`Couldn't start: ${errorText(error)}`),
     );
     // Runs once for the selection that carries the prompt.
-  }, [host.api]);
+  }, [hostApi]);
+}
+
+function SelectedChat({
+  colors,
+  bot,
+  library,
+  selection,
+  localHost,
+  panelOpen,
+  layout,
+  keyboardOpen,
+  typeVersion,
+  onBack,
+  onBotMenu,
+  onTogglePanel,
+  onStarted,
+}: SelectedChatProps) {
+  const host = useBotHost(bot.hostId, localHost);
+  const chat = useChat(host.api, selection.chatId);
+  const start = useStartChat({ bot, library, host, onStarted });
+  useWorkspaceTitle(bot, host);
+  useAutoStart(selection, host, start);
 
   return (
     <ChatPane

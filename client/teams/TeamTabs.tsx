@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useRef } from "react";
-import { Pressable, Text, View, type LayoutRectangle } from "react-native";
+import { type LayoutRectangle, Pressable, Text, View } from "react-native";
 import type { BotGroup } from "../../shared/bot";
 import type { TeamTab } from "../../shared/groups";
 import { TeamLogo } from "../Avatar";
@@ -59,16 +59,19 @@ export function TeamTabsRow({ colors, tabs, openTab, onTab, onTeamMenu, onNewTea
         style={{ flexGrow: 0, flexShrink: 1 }}
         contentContainerStyle={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 4 }}
       >
-        {tabs.map((tab) => (
-          <TabChip
-            key={tab.id}
-            colors={colors}
-            tab={tab}
-            active={tab.id === openTab.id}
-            onPress={() => onTab(tab.id)}
-            onMenu={tab.group ? (anchor) => onTeamMenu(tab.group!, anchor) : undefined}
-          />
-        ))}
+        {tabs.map((tab) => {
+          const group = tab.group;
+          return (
+            <TabChip
+              key={tab.id}
+              colors={colors}
+              tab={tab}
+              active={tab.id === openTab.id}
+              onPress={() => onTab(tab.id)}
+              onMenu={group ? (anchor) => onTeamMenu(group, anchor) : undefined}
+            />
+          );
+        })}
       </ScrollView>
       <View style={{ paddingHorizontal: 4 }}>
         <Pressable

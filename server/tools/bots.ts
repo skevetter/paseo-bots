@@ -1,8 +1,8 @@
-import type { PaseoApi } from "../paseo";
 import { z } from "zod";
 import { foldText, lastTurn } from "../../shared/activity";
 import { BOT_LABEL } from "../../shared/bot";
 import { startChat } from "../chats";
+import type { PaseoApi } from "../paseo";
 import { defineTool, type ToolCaller } from "./mcp";
 
 // Other bots on this host: who they are, so a bot can hand work to the right one.
@@ -55,22 +55,24 @@ async function readChat(
   const page = await paseo.agents
     .ref(chatId)
     .timeline.refetch({ direction: "tail", projection: "projected", limit: 80 });
-  const busy = agent.status === "running" || agent.status === "initializing";
   return {
     title: agent.title ?? "Untitled chat",
     labels: agent.labels ?? {},
-    state: agent.pendingPermissions?.length
-      ? "permission"
-      : busy
-        ? "running"
-        : agent.status === "error"
-          ? "error"
-          : "idle",
+    state: chatStatus(agent),
     error: agent.lastError ?? null,
     reply: lastTurn(
       page.entries.map((entry) => entry.item as { type: string; text?: unknown; name?: unknown }),
     ).reply,
   };
+}
+
+function chatStatus(agent: {
+  status: string;
+  pendingPermissions?: readonly unknown[] | null;
+}): ChatState["state"] {
+  if (agent.pendingPermissions?.length) return "permission";
+  if (agent.status === "running" || agent.status === "initializing") return "running";
+  return agent.status === "error" ? "error" : "idle";
 }
 
 function describeChat(chat: ChatState, who: string, chatId: string): string {

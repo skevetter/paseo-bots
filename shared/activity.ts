@@ -45,7 +45,7 @@ interface TimelineItemLike {
 /** The latest turn in a chat's timeline: the bot's last reply and the tools it used. */
 export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; tools: string[] } {
   let start = items.length;
-  while (start > 0 && items[start - 1]!.type !== "user_message") start--;
+  while (start > 0 && items[start - 1]?.type !== "user_message") start--;
   const turn = items.slice(start);
   const reply = [...turn]
     .reverse()
@@ -105,10 +105,11 @@ export function parseLog(day: string, text: string): LogEntry[] {
   for (const line of text.split("\n")) {
     const match = LOG_LINE.exec(line.trim());
     if (!match || !year || !month || !date) continue;
+    const [, hours, minutes, chat = "", said = ""] = match;
     entries.push({
-      at: new Date(year, month - 1, date, Number(match[1]), Number(match[2])),
-      chat: match[3]!,
-      text: match[4]!,
+      at: new Date(year, month - 1, date, Number(hours), Number(minutes)),
+      chat,
+      text: said,
     });
   }
   return entries;
@@ -121,21 +122,25 @@ function dayLabel(at: Date, now: Date): string {
   return day === today ? "today" : day === yesterday ? "yesterday" : day;
 }
 
-/**
- * OpenMausBot's recent-work brief: the newest thing the bot said in each chat
- * over the last two days, newest first, within 10 lines and 1,400 characters.
- */
-export function recentWork(entries: readonly LogEntry[], now: Date): string[] {
-  const since = now.getTime() - BRIEF_HOURS * 3_600_000;
+function newestPerChat(entries: readonly LogEntry[], since: number): LogEntry[] {
   const newest = new Map<string, LogEntry>();
   for (const entry of entries) {
     if (entry.at.getTime() < since || entry.text.startsWith("(turn failed")) continue;
     const seen = newest.get(entry.chat);
     if (!seen || seen.at <= entry.at) newest.set(entry.chat, entry);
   }
+  return [...newest.values()];
+}
+
+/**
+ * OpenMausBot's recent-work brief: the newest thing the bot said in each chat
+ * over the last two days, newest first, within 10 lines and 1,400 characters.
+ */
+export function recentWork(entries: readonly LogEntry[], now: Date): string[] {
+  const since = now.getTime() - BRIEF_HOURS * 3_600_000;
   const lines: string[] = [];
   let length = 0;
-  for (const entry of [...newest.values()].sort((a, b) => b.at.getTime() - a.at.getTime())) {
+  for (const entry of newestPerChat(entries, since).sort((a, b) => b.at.getTime() - a.at.getTime())) {
     const said = foldText(entry.text.replace(/\s*\[tools: [^\]]*\]/, ""), BRIEF_QUOTE_MAX);
     const line = `- ${whenLabel(entry.at, now)} · "${entry.chat}" · you said: "${said}"`;
     if (lines.length >= BRIEF_LINES || length + line.length > BRIEF_CHARS) break;
@@ -243,8 +248,8 @@ export function journalSource(row: JournalRowLike): string {
 
 /** "Today", "Yesterday" or "Sat, Sep 26" for a log day (YYYY-MM-DD). */
 export function dayName(day: string, now: Date): string {
-  const [year, month, date] = day.split("-").map(Number);
-  const at = new Date(year!, month! - 1, date!);
+  const [year = Number.NaN, month = Number.NaN, date = Number.NaN] = day.split("-").map(Number);
+  const at = new Date(year, month - 1, date);
   const label = dayLabel(at, now);
   if (label === "today") return "Today";
   if (label === "yesterday") return "Yesterday";

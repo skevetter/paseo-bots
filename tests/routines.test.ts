@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrateV1, pushHistory, toolGrants, type Bot, type Routine } from "../shared/bot";
+import { type Bot, migrateV1, pushHistory, type Routine, toolGrants } from "../shared/bot";
 import { decide, describeSchedule, latestDue, nextRun } from "../shared/routines";
 
 const at = (text: string) => new Date(text);

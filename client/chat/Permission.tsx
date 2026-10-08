@@ -1,8 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import type { PaseoAgent, PaseoAgentPermissionResponse, PaseoApi } from "../paseo";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Text, View } from "react-native";
 import { botToolName } from "../../shared/bot-tools";
 import { shellCommand } from "../../shared/commands";
@@ -10,6 +9,7 @@ import { commandAllowRpc } from "../../shared/rpc";
 import { permissionInput, permissionToolName } from "../../shared/tool-name";
 import { humanizeToolName, type ToolCallDetail } from "../../shared/tools";
 import { errorText } from "../native";
+import type { PaseoAgent, PaseoAgentPermissionResponse, PaseoApi } from "../paseo";
 import { ui } from "../typography";
 import { ToolCallDetailsContent } from "./stream/details";
 import { PlanCard } from "./stream/PlanCard";
@@ -32,27 +32,39 @@ interface PermissionCardProps {
   cwd?: string | null;
 }
 
-/** Paseo's PermissionRequestCard (agent-stream/view.tsx): plan, question and tool requests. */
-export function PermissionCard({
-  colors,
+function permissionPlanText(permission: Permission): string | undefined {
+  const fromMetadata = permission.metadata?.planText;
+  if (typeof fromMetadata === "string" && fromMetadata) return fromMetadata;
+  const fromInput = permission.input?.plan;
+  return typeof fromInput === "string" ? fromInput : undefined;
+}
+
+function useRespondingState(permissionId: string) {
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [responding, setResponding] = useState(false);
+  const shownPermissionId = useRef(permissionId);
+
+  useEffect(() => {
+    if (shownPermissionId.current === permissionId) return;
+    shownPermissionId.current = permissionId;
+    setResponding(false);
+    setRespondingId(null);
+  }, [permissionId]);
+
+  return { respondingId, setRespondingId, responding, setResponding };
+}
+
+function usePermissionResponse({
   permission,
   api,
   agentId,
-  compact = false,
   botId,
   cwd,
-}: PermissionCardProps) {
+}: Pick<PermissionCardProps, "permission" | "api" | "agentId" | "botId" | "cwd">) {
   const toast = useToast();
   const allowCommand = useRpc(commandAllowRpc);
   const shell = botId && cwd && permission.kind === "tool" ? shellCommand(permission, cwd) : null;
-  const [respondingId, setRespondingId] = useState<string | null>(null);
-  const [responding, setResponding] = useState(false);
-  const isPlan = permission.kind === "plan";
-
-  useEffect(() => {
-    setResponding(false);
-    setRespondingId(null);
-  }, [permission.id]);
+  const { respondingId, setRespondingId, responding, setResponding } = useRespondingState(permission.id);
 
   const respond = async (response: PaseoAgentPermissionResponse) => {
     if (!api || !agentId) return;
@@ -65,44 +77,6 @@ export function PermissionCard({
       toast.error(`Couldn't answer: ${errorText(error)}`);
     }
   };
-
-  const actions = useMemo((): Action[] => {
-    if (permission.kind === "question") return [];
-    if (permission.actions?.length) return permission.actions;
-    return [
-      { id: "reject", label: "Deny", behavior: "deny", variant: "danger", intent: "dismiss" },
-      { id: "accept", label: isPlan ? "Implement" : "Accept", behavior: "allow", variant: "primary" },
-    ];
-  }, [permission, isPlan]);
-
-  const planText = useMemo(() => {
-    const fromMetadata = permission.metadata?.planText;
-    if (typeof fromMetadata === "string" && fromMetadata) return fromMetadata;
-    const fromInput = permission.input?.plan;
-    return typeof fromInput === "string" ? fromInput : undefined;
-  }, [permission]);
-
-  const detail = useMemo(
-    () =>
-      (permission.detail ?? {
-        type: "unknown",
-        input: permission.input ?? null,
-        output: null,
-      }) as ToolCallDetail,
-    [permission.detail, permission.input],
-  );
-
-  if (permission.kind === "question") {
-    return (
-      <QuestionFormCard
-        colors={colors}
-        input={permission.input}
-        compact={compact}
-        isResponding={responding}
-        onRespond={(response) => void respond(response)}
-      />
-    );
-  }
 
   // OpenMausBot's "Always allow": this exact command in this folder won't ask again for this bot.
   const always = async () => {
@@ -127,10 +101,31 @@ export function PermissionCard({
     );
   };
 
-  const title = isPlan ? "Plan" : (permissionTitle(permission) ?? "Permission Required");
-  const description = permission.description ?? "";
+  return { shell, responding, respondingId, respond, always, press };
+}
 
-  const footer = (
+interface PermissionFooterProps {
+  colors: Colors;
+  compact: boolean;
+  actions: Action[];
+  canAlwaysAllow: boolean;
+  responding: boolean;
+  respondingId: string | null;
+  onPress: (action: Action) => void;
+  onAlways: () => void;
+}
+
+function PermissionFooter({
+  colors,
+  compact,
+  actions,
+  canAlwaysAllow,
+  responding,
+  respondingId,
+  onPress,
+  onAlways,
+}: PermissionFooterProps) {
+  return (
     <>
       <Text style={{ fontSize: ui(14), marginVertical: 4, color: colors.foregroundMuted }}>
         How would you like to proceed?
@@ -158,21 +153,90 @@ export function PermissionCard({
             primary={action.variant === "primary"}
             busy={responding}
             spinning={responding && respondingId === action.id}
-            onPress={() => press(action)}
+            onPress={() => onPress(action)}
           />
         ))}
-        {shell ? (
+        {canAlwaysAllow ? (
           <CardButton
             colors={colors}
             label="Always allow"
             icon="CheckCheck"
             busy={responding || respondingId === "always"}
             spinning={respondingId === "always"}
-            onPress={() => void always()}
+            onPress={onAlways}
           />
         ) : null}
       </View>
     </>
+  );
+}
+
+/** Paseo's PermissionRequestCard (agent-stream/view.tsx): plan, question and tool requests. */
+export function PermissionCard({
+  colors,
+  permission,
+  api,
+  agentId,
+  compact = false,
+  botId,
+  cwd,
+}: PermissionCardProps) {
+  const { shell, responding, respondingId, respond, always, press } = usePermissionResponse({
+    permission,
+    api,
+    agentId,
+    botId,
+    cwd,
+  });
+  const isPlan = permission.kind === "plan";
+
+  const actions = useMemo((): Action[] => {
+    if (permission.kind === "question") return [];
+    if (permission.actions?.length) return permission.actions;
+    return [
+      { id: "reject", label: "Deny", behavior: "deny", variant: "danger", intent: "dismiss" },
+      { id: "accept", label: isPlan ? "Implement" : "Accept", behavior: "allow", variant: "primary" },
+    ];
+  }, [permission, isPlan]);
+
+  const planText = useMemo(() => permissionPlanText(permission), [permission]);
+
+  const detail = useMemo(
+    () =>
+      (permission.detail ?? {
+        type: "unknown",
+        input: permission.input ?? null,
+        output: null,
+      }) as ToolCallDetail,
+    [permission.detail, permission.input],
+  );
+
+  if (permission.kind === "question") {
+    return (
+      <QuestionFormCard
+        colors={colors}
+        input={permission.input}
+        compact={compact}
+        isResponding={responding}
+        onRespond={(response) => void respond(response)}
+      />
+    );
+  }
+
+  const title = isPlan ? "Plan" : (permissionTitle(permission) ?? "Permission Required");
+  const description = permission.description ?? "";
+
+  const footer = (
+    <PermissionFooter
+      colors={colors}
+      compact={compact}
+      actions={actions}
+      canAlwaysAllow={!!shell}
+      responding={responding}
+      respondingId={respondingId}
+      onPress={press}
+      onAlways={() => void always()}
+    />
   );
 
   if (isPlan && planText) {

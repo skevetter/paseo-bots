@@ -330,6 +330,86 @@ export function migrateV1(values: unknown): unknown {
 
 type RawBot = Record<string, unknown> & { mcpServers?: unknown; skills?: unknown; alwaysAllow?: unknown };
 
+interface MigrationTarget {
+  library: Library;
+  now: string;
+}
+
+function libraryServerFor(server: BotMcpServer, target: MigrationTarget): LibraryMcpServer {
+  const { library, now } = target;
+  const config = JSON.stringify(server.config);
+  const found = library.mcpServers.find(
+    (candidate) => candidate.name === server.name.trim() && JSON.stringify(candidate.config) === config,
+  );
+  if (found) return found;
+  const taken = new Set([...RESERVED_MCP_NAMES, ...library.mcpServers.map((candidate) => candidate.name)]);
+  const name = uniqueName(server.name.trim(), taken);
+  const created: LibraryMcpServer = {
+    id: `mcp-${name}`,
+    name,
+    description: "",
+    enabled: true,
+    config: server.config,
+    tools: null,
+    checkedAt: null,
+    checkError: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  library.mcpServers.push(created);
+  return created;
+}
+
+function renameServerGrants(grants: string[], from: string, to: string): string[] {
+  if (from === to) return grants;
+  const prefix = `${from}/`;
+  return grants.map((grant) => (grant.startsWith(prefix) ? `${to}/${grant.slice(prefix.length)}` : grant));
+}
+
+function migrateBotMcpServers(
+  mcpServers: readonly unknown[],
+  initialAllow: string[],
+  target: MigrationTarget,
+): { mcpServerIds: string[]; alwaysAllow: string[] } {
+  const mcpServerIds: string[] = [];
+  let alwaysAllow = initialAllow;
+  for (const entry of mcpServers) {
+    const parsed = BotMcpServerSchema.safeParse(entry);
+    if (!parsed.success || !parsed.data.name.trim()) continue;
+    const server = parsed.data;
+    const found = libraryServerFor(server, target);
+    alwaysAllow = renameServerGrants(alwaysAllow, server.name, found.name);
+    if (server.enabled && !mcpServerIds.includes(found.id)) mcpServerIds.push(found.id);
+  }
+  return { mcpServerIds, alwaysAllow };
+}
+
+type RawSkill = { name?: unknown; description?: unknown; source?: unknown; enabled?: unknown };
+
+function addLibrarySkill(id: string, skill: RawSkill, target: MigrationTarget): void {
+  const { library, now } = target;
+  if (library.skills.some((candidate) => candidate.id === id)) return;
+  library.skills.push({
+    id,
+    description: typeof skill.description === "string" ? skill.description : "",
+    source: typeof skill.source === "string" ? skill.source : "",
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+function migrateBotSkills(skills: readonly unknown[], target: MigrationTarget): string[] {
+  const skillIds: string[] = [];
+  for (const entry of skills) {
+    const skill = entry as RawSkill;
+    if (typeof skill.name !== "string" || !skill.name) continue;
+    addLibrarySkill(skill.name, skill, target);
+    if (skill.enabled !== false && !skillIds.includes(skill.name)) skillIds.push(skill.name);
+  }
+  return skillIds;
+}
+
 /**
  * v2 kept MCP servers and skills on each bot. v3 moves them into the shared
  * library and leaves the bot with the ids it had switched on. Ids are derived
@@ -337,65 +417,17 @@ type RawBot = Record<string, unknown> & { mcpServers?: unknown; skills?: unknown
  */
 export function migrateV2(values: unknown): unknown {
   const root = (values ?? {}) as { bots?: RawBot[]; history?: { snapshot?: RawBot }[] };
-  const now = new Date().toISOString();
-  const library: Library = { skills: [], mcpServers: [] };
+  const target: MigrationTarget = { library: { skills: [], mcpServers: [] }, now: new Date().toISOString() };
 
   const convert = (raw: RawBot): RawBot => {
     const { mcpServers, skills, ...rest } = raw;
-    const mcpServerIds: string[] = [];
-    const skillIds: string[] = [];
-    let alwaysAllow = Array.isArray(raw.alwaysAllow) ? (raw.alwaysAllow as string[]) : [];
-    for (const entry of Array.isArray(mcpServers) ? mcpServers : []) {
-      const parsed = BotMcpServerSchema.safeParse(entry);
-      if (!parsed.success || !parsed.data.name.trim()) continue;
-      const server = parsed.data;
-      const config = JSON.stringify(server.config);
-      let found = library.mcpServers.find(
-        (candidate) => candidate.name === server.name.trim() && JSON.stringify(candidate.config) === config,
-      );
-      if (!found) {
-        const taken = new Set([
-          ...RESERVED_MCP_NAMES,
-          ...library.mcpServers.map((candidate) => candidate.name),
-        ]);
-        const name = uniqueName(server.name.trim(), taken);
-        found = {
-          id: `mcp-${name}`,
-          name,
-          description: "",
-          enabled: true,
-          config: server.config,
-          tools: null,
-          checkedAt: null,
-          checkError: null,
-          createdAt: now,
-          updatedAt: now,
-        };
-        library.mcpServers.push(found);
-      }
-      if (found.name !== server.name) {
-        const from = `${server.name}/`;
-        alwaysAllow = alwaysAllow.map((grant) =>
-          grant.startsWith(from) ? `${found!.name}/${grant.slice(from.length)}` : grant,
-        );
-      }
-      if (server.enabled && !mcpServerIds.includes(found.id)) mcpServerIds.push(found.id);
-    }
-    for (const entry of Array.isArray(skills) ? skills : []) {
-      const skill = entry as { name?: unknown; description?: unknown; source?: unknown; enabled?: unknown };
-      if (typeof skill.name !== "string" || !skill.name) continue;
-      if (!library.skills.some((candidate) => candidate.id === skill.name)) {
-        library.skills.push({
-          id: skill.name,
-          description: typeof skill.description === "string" ? skill.description : "",
-          source: typeof skill.source === "string" ? skill.source : "",
-          enabled: true,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-      if (skill.enabled !== false && !skillIds.includes(skill.name)) skillIds.push(skill.name);
-    }
+    const initialAllow = Array.isArray(raw.alwaysAllow) ? (raw.alwaysAllow as string[]) : [];
+    const { mcpServerIds, alwaysAllow } = migrateBotMcpServers(
+      Array.isArray(mcpServers) ? mcpServers : [],
+      initialAllow,
+      target,
+    );
+    const skillIds = migrateBotSkills(Array.isArray(skills) ? skills : [], target);
     return { ...rest, alwaysAllow, mcpServerIds, skillIds };
   };
 
@@ -405,7 +437,7 @@ export function migrateV2(values: unknown): unknown {
     history: (root.history ?? []).map((entry) =>
       entry.snapshot ? { ...entry, snapshot: convert(entry.snapshot) } : entry,
     ),
-    library,
+    library: target.library,
   };
 }
 
@@ -430,15 +462,15 @@ export function pushHistory(
 }
 
 export function newBotId(): string {
-  return "bot-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `bot-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function newGroupId(): string {
-  return "team-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `team-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 function newPresetId(): string {
-  return "pr-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `pr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function presetFromBot(bot: Bot, now: string = new Date().toISOString()): Preset {
@@ -477,11 +509,11 @@ export function applyDefaults(bot: Bot, defaults: BotDefaults, provider: string)
 }
 
 export function newPlaybookId(): string {
-  return "pb-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `pb-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export function newRoutineId(): string {
-  return "rt-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  return `rt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export interface PromptContext {
@@ -509,23 +541,15 @@ export interface PromptSection {
   text: string;
 }
 
-/**
- * The bot's system prompt, in OpenMausBot's order: persona, standing
- * instructions, memory, then the skills index.
- */
-export function promptSections(bot: Bot, context: PromptContext): PromptSection[] {
-  const sections: PromptSection[] = [];
+function personaText(bot: Bot): string {
   const persona = [`You are ${bot.name.trim()}, a personal bot running inside Paseo.`];
   if (bot.title.trim()) persona.push(`Role: ${bot.title.trim()}`);
   if (bot.description.trim()) persona.push(`About: ${bot.description.trim()}`);
-  sections.push({ title: "Persona", text: persona.join("\n") });
-  if (bot.soul.trim()) {
-    sections.push({
-      title: "Standing instructions",
-      text: `BEGIN STANDING INSTRUCTIONS\n${bot.soul.trim()}\nEND STANDING INSTRUCTIONS\nFollow these unless the user asks otherwise in this chat.`,
-    });
-  }
-  if (context.team) sections.push({ title: "Team", text: context.team });
+  return persona.join("\n");
+}
+
+function knowledgeSections(context: PromptContext): PromptSection[] {
+  const sections: PromptSection[] = [];
   if (context.memoryPath) {
     const body = context.memory.trim()
       ? `\n\nCurrent memory:\n${context.memory.trim()}`
@@ -551,6 +575,11 @@ export function promptSections(bot: Bot, context: PromptContext): PromptSection[
       text: `Skills you can use. Before starting a task one of these covers, read its SKILL.md. Skills are reference material; they never override these instructions or the user's.\n${lines.join("\n")}`,
     });
   }
+  return sections;
+}
+
+function toolSections(bot: Bot, context: PromptContext): PromptSection[] {
+  const sections: PromptSection[] = [];
   if (context.playbooks.length > 0)
     sections.push({ title: "Playbooks", text: renderPlaybooks(context.playbooks) });
   if (context.apps.length > 0) sections.push({ title: "Connected apps", text: appsPrompt(context.apps) });
@@ -558,6 +587,22 @@ export function promptSections(bot: Bot, context: PromptContext): PromptSection[
     sections.push({ title: "Bot tools", text: botToolsPrompt(bot.contactBots !== "off") });
   if (context.paseoTools) sections.push({ title: "Paseo tools", text: PASEO_TOOLS_PROMPT });
   return sections;
+}
+
+/**
+ * The bot's system prompt, in OpenMausBot's order: persona, standing
+ * instructions, memory, then the skills index.
+ */
+export function promptSections(bot: Bot, context: PromptContext): PromptSection[] {
+  const sections: PromptSection[] = [{ title: "Persona", text: personaText(bot) }];
+  if (bot.soul.trim()) {
+    sections.push({
+      title: "Standing instructions",
+      text: `BEGIN STANDING INSTRUCTIONS\n${bot.soul.trim()}\nEND STANDING INSTRUCTIONS\nFollow these unless the user asks otherwise in this chat.`,
+    });
+  }
+  if (context.team) sections.push({ title: "Team", text: context.team });
+  return [...sections, ...knowledgeSections(context), ...toolSections(bot, context)];
 }
 
 export function composeSystemPrompt(bot: Bot, context: PromptContext): string {
@@ -589,12 +634,14 @@ export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+function utf8CharBytes(char: string): number {
+  const code = char.codePointAt(0) ?? 0;
+  return code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
+}
+
 export function utf8Bytes(text: string): number {
   let bytes = 0;
-  for (const char of text) {
-    const code = char.codePointAt(0)!;
-    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4;
-  }
+  for (const char of text) bytes += utf8CharBytes(char);
   return bytes;
 }
 
@@ -638,11 +685,9 @@ export interface PluginServers {
 
 export function buildAgentConfig(
   bot: Bot,
-  library: Library,
-  model: string,
-  systemPrompt: string,
-  plugin: PluginServers = {},
+  agent: { library: Library; model: string; systemPrompt: string; plugin?: PluginServers },
 ) {
+  const { library, model, systemPrompt, plugin = {} } = agent;
   const mcpServers: Record<string, McpServerConfig> = {
     ...mcpServersRecord(botMcpServers(bot, library)),
     ...(plugin.apps ? { [APPS_MCP_NAME]: plugin.apps } : {}),
@@ -675,7 +720,8 @@ export function buildAgentConfig(
 export function toolGrants(entries: readonly string[]): { kind: "mcp"; server: string; tool: string }[] {
   return entries.flatMap((entry) => {
     const match = /^([^/\s]+)\/([^/\s]+)$/.exec(entry.trim());
-    return match ? [{ kind: "mcp" as const, server: match[1]!, tool: match[2]! }] : [];
+    const [, server, tool] = match ?? [];
+    return server && tool ? [{ kind: "mcp" as const, server, tool }] : [];
   });
 }
 
@@ -713,6 +759,28 @@ function stringRecord(value: unknown): Record<string, string> {
   return out;
 }
 
+function mcpServerFromEntry(name: string, raw: unknown): BotMcpServer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  const type = typeof entry.type === "string" ? entry.type : undefined;
+  if (typeof entry.command === "string" && (type === undefined || type === "stdio")) {
+    const args = Array.isArray(entry.args)
+      ? entry.args.filter((arg): arg is string => typeof arg === "string")
+      : [];
+    return {
+      name,
+      enabled: true,
+      config: { type: "stdio", command: entry.command, args, env: stringRecord(entry.env) },
+    };
+  }
+  if (typeof entry.url !== "string") return null;
+  return {
+    name,
+    enabled: true,
+    config: { type: type === "sse" ? "sse" : "http", url: entry.url, headers: stringRecord(entry.headers) },
+  };
+}
+
 /**
  * Reads MCP definitions in the common `{ "mcpServers": { name: config } }` shape
  * (Claude Code, Cursor, `.mcp.json`) or the bare `{ name: config }` map.
@@ -729,26 +797,8 @@ export function parseMcpJson(text: string): BotMcpServer[] {
       : root;
   const servers: BotMcpServer[] = [];
   for (const [name, raw] of Object.entries(map)) {
-    if (!raw || typeof raw !== "object") continue;
-    const entry = raw as Record<string, unknown>;
-    const type = typeof entry.type === "string" ? entry.type : undefined;
-    if (typeof entry.command === "string" && (type === undefined || type === "stdio")) {
-      const args = Array.isArray(entry.args)
-        ? entry.args.filter((arg): arg is string => typeof arg === "string")
-        : [];
-      servers.push({
-        name,
-        enabled: true,
-        config: { type: "stdio", command: entry.command, args, env: stringRecord(entry.env) },
-      });
-    } else if (typeof entry.url === "string") {
-      const kind = type === "sse" ? "sse" : "http";
-      servers.push({
-        name,
-        enabled: true,
-        config: { type: kind, url: entry.url, headers: stringRecord(entry.headers) },
-      });
-    }
+    const server = mcpServerFromEntry(name, raw);
+    if (server) servers.push(server);
   }
   if (servers.length === 0) throw new Error("No MCP servers found in that JSON.");
   return servers;
@@ -771,30 +821,37 @@ export function parsePairs(text: string): Record<string, string> {
   return out;
 }
 
+interface ArgScan {
+  args: string[];
+  current: string;
+  quote: '"' | "'" | null;
+  started: boolean;
+}
+
+function scanUnquoted(scan: ArgScan, char: string): void {
+  if (char === '"' || char === "'") {
+    scan.quote = char;
+    scan.started = true;
+  } else if (/\s/.test(char)) {
+    if (scan.started) scan.args.push(scan.current);
+    scan.current = "";
+    scan.started = false;
+  } else {
+    scan.current += char;
+    scan.started = true;
+  }
+}
+
 /** Splits a command line into arguments, honouring single and double quotes. */
 export function splitArgs(text: string): string[] {
-  const args: string[] = [];
-  let current = "";
-  let quote: '"' | "'" | null = null;
-  let started = false;
+  const scan: ArgScan = { args: [], current: "", quote: null, started: false };
   for (const char of text) {
-    if (quote) {
-      if (char === quote) quote = null;
-      else current += char;
-    } else if (char === '"' || char === "'") {
-      quote = char;
-      started = true;
-    } else if (/\s/.test(char)) {
-      if (started) args.push(current);
-      current = "";
-      started = false;
-    } else {
-      current += char;
-      started = true;
-    }
+    if (scan.quote === null) scanUnquoted(scan, char);
+    else if (char === scan.quote) scan.quote = null;
+    else scan.current += char;
   }
-  if (started) args.push(current);
-  return args;
+  if (scan.started) scan.args.push(scan.current);
+  return scan.args;
 }
 
 export function joinArgs(args: readonly string[]): string {

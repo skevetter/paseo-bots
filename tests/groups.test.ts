@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { promptSections, type BotGroup } from "../shared/bot";
+import { type BotGroup, promptSections } from "../shared/bot";
 import {
   groupBots,
   OTHER_BOTS_TAB,
@@ -11,7 +11,7 @@ import {
   teamTabs,
   withoutBot,
 } from "../shared/groups";
-import { LOGO_SIZE, MOTIF_NAMES, teamLogo, type TeamLogoImage } from "../shared/team-logo";
+import { LOGO_SIZE, MOTIF_NAMES, type TeamLogoImage, teamLogo } from "../shared/team-logo";
 import { makeBot } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";
@@ -26,12 +26,29 @@ const team = (patch: Partial<BotGroup> = {}): BotGroup => ({
   updatedAt: NOW,
   ...patch,
 });
+const chiefBot = makeBot({ id: "chief", name: "Chief", title: "Runs the house" });
+const scoutBot = makeBot({ id: "scout", name: "Scout", title: "Researcher" });
 const bots = [
-  makeBot({ id: "chief", name: "Chief", title: "Runs the house" }),
-  makeBot({ id: "scout", name: "Scout", title: "Researcher" }),
+  chiefBot,
+  scoutBot,
   makeBot({ id: "inbox", name: "Inbox", archived: true }),
   makeBot({ id: "solo", name: "Solo" }),
 ];
+
+function expectFitsWithFreeEdge(motif: string, rows: TeamLogoImage["rows"]) {
+  expect(rows).toHaveLength(LOGO_SIZE);
+  for (const runs of rows) expect(runs.reduce((width, run) => width + run.width, 0)).toBe(LOGO_SIZE);
+  for (const y of [0, LOGO_SIZE - 1])
+    expect(
+      rows[y]?.every((run) => run.color === null),
+      `${motif} row ${y}`,
+    ).toBe(true);
+  for (const runs of rows) {
+    const first = runs[0];
+    const last = runs.at(-1);
+    expect(first?.x === 0 && first.color === null && last?.color === null, motif).toBe(true);
+  }
+}
 
 describe("teams", () => {
   it("finds a bot's team and its live members", () => {
@@ -44,7 +61,7 @@ describe("teams", () => {
 
   it("tells the lead to coordinate and members who leads", () => {
     const withInstructions = team({ instructions: "Keep account numbers out of replies." });
-    const chief = teamPrompt(withInstructions, bots[0]!, bots);
+    const chief = teamPrompt(withInstructions, chiefBot, bots);
     expect(chief).toMatch(
       /^You are the Chief of Staff of the "Ops" team and the user's main contact for it\./,
     );
@@ -52,11 +69,11 @@ describe("teams", () => {
     expect(chief).toContain(
       "Shared instructions for the team. The user manages them for every bot on the team; you can't edit them.\nKeep account numbers out of replies.",
     );
-    const scout = teamPrompt(withInstructions, bots[1]!, bots);
+    const scout = teamPrompt(withInstructions, scoutBot, bots);
     expect(scout).toMatch(/^You're on the "Ops" team\. Chief leads it\./);
     expect(scout).toContain("- Chief (Chief of Staff): Runs the house");
     expect(
-      promptSections(bots[1]!, {
+      promptSections(scoutBot, {
         memory: "",
         memoryPath: null,
         recentWork: [],
@@ -72,26 +89,24 @@ describe("teams", () => {
 
   it("keeps a bot on one team and drops leads that aren't members", () => {
     const other = team({ id: "t2", name: "Home", leadId: "solo", memberIds: ["solo"] });
-    const moved = saveTeam(
-      [team(), other],
-      null,
-      { name: "New", logo: null, leadId: "scout", memberIds: ["scout", "solo"], instructions: "" },
-      "t3",
-      NOW,
-    );
+    const moved = saveTeam([team(), other], {
+      id: null,
+      newId: "t3",
+      draft: { name: "New", logo: null, leadId: "scout", memberIds: ["scout", "solo"], instructions: "" },
+      now: NOW,
+    });
     expect(moved.map((group) => [group.id, group.leadId, group.memberIds])).toEqual([
       ["t1", "chief", ["chief", "inbox"]],
       ["t2", null, []],
       ["t3", "scout", ["scout", "solo"]],
     ]);
     expect(
-      saveTeam(
-        [team()],
-        "t1",
-        { name: "Ops", logo: null, leadId: "ghost", memberIds: ["chief"], instructions: "" },
-        "x",
-        NOW,
-      )[0]!.leadId,
+      saveTeam([team()], {
+        id: "t1",
+        newId: "x",
+        draft: { name: "Ops", logo: null, leadId: "ghost", memberIds: ["chief"], instructions: "" },
+        now: NOW,
+      })[0]?.leadId,
     ).toBeNull();
     expect(withoutBot([team()], "chief", NOW)[0]).toMatchObject({
       leadId: null,
@@ -144,19 +159,6 @@ describe("team logos", () => {
       if (!logos.has(logo.motif)) logos.set(logo.motif, logo);
     }
     expect([...logos.keys()].sort()).toEqual([...MOTIF_NAMES].sort());
-    for (const [motif, { rows }] of logos) {
-      expect(rows).toHaveLength(LOGO_SIZE);
-      for (const runs of rows) expect(runs.reduce((width, run) => width + run.width, 0)).toBe(LOGO_SIZE);
-      for (const y of [0, LOGO_SIZE - 1])
-        expect(
-          rows[y]!.every((run) => run.color === null),
-          `${motif} row ${y}`,
-        ).toBe(true);
-      for (const runs of rows)
-        expect(
-          runs[0]!.x === 0 && runs[0]!.color === null && runs[runs.length - 1]!.color === null,
-          motif,
-        ).toBe(true);
-    }
+    for (const [motif, { rows }] of logos) expectFitsWithFreeEdge(motif, rows);
   });
 });
