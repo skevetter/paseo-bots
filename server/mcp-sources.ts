@@ -8,7 +8,12 @@ import { join } from "node:path";
 function sources(): { label: string; path: string }[] {
   const home = homedir();
   const os = platform();
-  const desktop = os === "darwin" ? join(home, "Library", "Application Support", "Claude") : os === "win32" ? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude") : join(home, ".config", "Claude");
+  const desktop =
+    os === "darwin"
+      ? join(home, "Library", "Application Support", "Claude")
+      : os === "win32"
+        ? join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Claude")
+        : join(home, ".config", "Claude");
   return [
     // User-scoped servers; project ones stay with their projects.
     { label: "Claude Code", path: join(home, ".claude.json") },

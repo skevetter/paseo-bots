@@ -1,6 +1,13 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
-import { BotGroupSchema, BotMcpServerSchema, BotSchema, McpServerConfigSchema, McpToolSchema, TeamFileTeamSchema } from "./bot";
+import {
+  BotGroupSchema,
+  BotMcpServerSchema,
+  BotSchema,
+  McpServerConfigSchema,
+  McpToolSchema,
+  TeamFileTeamSchema,
+} from "./bot";
 import { ProposalSchema } from "./proposals";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
@@ -34,12 +41,22 @@ export const systemPromptRpc = defineRpc({
   output: z.object({ systemPrompt: z.string(), sections: z.array(PromptSectionSchema) }),
 });
 
-const MemoryFileSchema = z.object({ name: MemoryFileName, bytes: z.number(), lines: z.number(), topic: z.boolean() });
+const MemoryFileSchema = z.object({
+  name: MemoryFileName,
+  bytes: z.number(),
+  lines: z.number(),
+  topic: z.boolean(),
+});
 
 export const memoryListRpc = defineRpc({
   name: "bots.memory.list",
   input: z.object({ botId: BotId }),
-  output: z.object({ folder: z.string(), files: z.array(MemoryFileSchema), injectedLines: z.number(), injectedBytes: z.number() }),
+  output: z.object({
+    folder: z.string(),
+    files: z.array(MemoryFileSchema),
+    injectedLines: z.number(),
+    injectedBytes: z.number(),
+  }),
 });
 
 export const memoryReadRpc = defineRpc({
@@ -66,7 +83,10 @@ const LogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const memoryLogRpc = defineRpc({
   name: "bots.memory.log",
   input: z.object({ botId: BotId, day: LogDay.optional() }),
-  output: z.object({ days: z.array(z.object({ day: z.string(), lines: z.number() })), text: z.string().nullable() }),
+  output: z.object({
+    days: z.array(z.object({ day: z.string(), lines: z.number() })),
+    text: z.string().nullable(),
+  }),
 });
 
 export const memoryLogDeleteRpc = defineRpc({
@@ -116,7 +136,13 @@ export const skillImportRpc = defineRpc({
 export const skillReadRpc = defineRpc({
   name: "bots.library.read-skill",
   input: z.object({ id: SkillName }),
-  output: z.object({ text: z.string(), sha: z.string().nullable(), missing: z.boolean(), path: z.string(), files: z.array(z.string()) }),
+  output: z.object({
+    text: z.string(),
+    sha: z.string().nullable(),
+    missing: z.boolean(),
+    path: z.string(),
+    files: z.array(z.string()),
+  }),
 });
 
 /** Creates or replaces a library skill's SKILL.md; returns its frontmatter description and hash. */
@@ -136,14 +162,19 @@ export const skillDeleteRpc = defineRpc({
 export const mcpProbeRpc = defineRpc({
   name: "bots.library.test-mcp",
   input: z.object({ config: McpServerConfigSchema }),
-  output: z.discriminatedUnion("ok", [z.object({ ok: z.literal(true), tools: z.array(McpToolSchema) }), z.object({ ok: z.literal(false), error: z.string() })]),
+  output: z.discriminatedUnion("ok", [
+    z.object({ ok: z.literal(true), tools: z.array(McpToolSchema) }),
+    z.object({ ok: z.literal(false), error: z.string() }),
+  ]),
 });
 
 /** MCP servers other apps on this computer have (Claude Code, Claude Desktop, Cursor), to import. */
 export const mcpSourcesRpc = defineRpc({
   name: "bots.library.mcp-sources",
   input: z.object({}),
-  output: z.object({ sources: z.array(z.object({ label: z.string(), count: z.number(), json: z.string() })) }),
+  output: z.object({
+    sources: z.array(z.object({ label: z.string(), count: z.number(), json: z.string() })),
+  }),
 });
 
 // ---------------------------------------------------------------- avatar pictures
@@ -170,7 +201,12 @@ export const avatarRemoveKeyRpc = defineRpc({
 /** Draws an avatar from a bot's name, role and an optional direction; returns a WebP data URL. */
 export const avatarGenerateRpc = defineRpc({
   name: "bots.avatar.generate",
-  input: z.object({ name: z.string().max(200), title: z.string().max(400), description: z.string().max(4000), direction: z.string().max(400) }),
+  input: z.object({
+    name: z.string().max(200),
+    title: z.string().max(400),
+    description: z.string().max(4000),
+    direction: z.string().max(400),
+  }),
   output: z.object({ image: z.string() }),
 });
 
@@ -191,7 +227,14 @@ const RoutineRunSchema = z.object({
 export type RoutineRun = z.infer<typeof RoutineRunSchema>;
 
 /** A run's card in the routine's results chat: a plugin timeline item that's replaced (same id) when the run finishes. */
-export const RoutineRunCardSchema = RoutineRunSchema.pick({ trigger: true, scheduledFor: true, status: true, agentId: true, output: true, error: true }).extend({ routineName: z.string() });
+export const RoutineRunCardSchema = RoutineRunSchema.pick({
+  trigger: true,
+  scheduledFor: true,
+  status: true,
+  agentId: true,
+  output: true,
+  error: true,
+}).extend({ routineName: z.string() });
 export type RoutineRunCard = z.infer<typeof RoutineRunCardSchema>;
 export const ROUTINE_RUN_CARD = { kind: "routine-run", version: 1 } as const;
 
@@ -233,15 +276,27 @@ export const exportBotRpc = defineRpc({
 export const importBotRpc = defineRpc({
   name: "bots.import",
   input: z.object({ botId: BotId, json: z.string().max(5_000_000) }),
-  output: z.object({ bot: BotSchema, skills: z.array(ImportedSkillSchema), mcpServers: z.array(BotMcpServerSchema) }),
+  output: z.object({
+    bot: BotSchema,
+    skills: z.array(ImportedSkillSchema),
+    mcpServers: z.array(BotMcpServerSchema),
+  }),
 });
 
-const ImportedBotSchema = z.object({ bot: BotSchema, skills: z.array(ImportedSkillSchema), mcpServers: z.array(BotMcpServerSchema) });
+const ImportedBotSchema = z.object({
+  bot: BotSchema,
+  skills: z.array(ImportedSkillSchema),
+  mcpServers: z.array(BotMcpServerSchema),
+});
 
 /** Several bots in one team file, with the teams they're on; secrets are redacted as in single exports. */
 export const exportTeamRpc = defineRpc({
   name: "bots.export-team",
-  input: z.object({ bots: z.array(BotSchema).min(1).max(50), groups: z.array(BotGroupSchema).max(50).default([]), includeMemory: z.boolean() }),
+  input: z.object({
+    bots: z.array(BotSchema).min(1).max(50),
+    groups: z.array(BotGroupSchema).max(50).default([]),
+    includeMemory: z.boolean(),
+  }),
   output: z.object({ json: z.string() }),
 });
 
@@ -255,19 +310,45 @@ export const importTeamRpc = defineRpc({
 /** Stores a picked file on this host so it can be sent as an `uploaded_file` attachment. */
 export const uploadRpc = defineRpc({
   name: "bots.upload",
-  input: z.object({ botId: BotId, fileName: z.string().min(1).max(255), dataBase64: z.string().max(36_000_000) }),
+  input: z.object({
+    botId: BotId,
+    fileName: z.string().min(1).max(255),
+    dataBase64: z.string().max(36_000_000),
+  }),
   output: z.object({ path: z.string(), size: z.number() }),
 });
 
 // ---------------------------------------------------------------- connected apps
 
-const AppCardSchema = z.object({ slug: z.string(), name: z.string(), description: z.string(), logo: z.string().nullable(), domain: z.string().nullable(), noAuth: z.boolean() });
-const AppAccountSchema = z.object({ id: z.string(), slug: z.string(), status: z.enum(["connected", "pending", "failed"]), alias: z.string().nullable(), name: z.string().nullable(), wordId: z.string().nullable() });
+const AppCardSchema = z.object({
+  slug: z.string(),
+  name: z.string(),
+  description: z.string(),
+  logo: z.string().nullable(),
+  domain: z.string().nullable(),
+  noAuth: z.boolean(),
+});
+const AppAccountSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  status: z.enum(["connected", "pending", "failed"]),
+  alias: z.string().nullable(),
+  name: z.string().nullable(),
+  wordId: z.string().nullable(),
+});
 
 /** A sign-in a bot started, as its chat shows it. */
 export const APP_SIGN_IN_CARD = { kind: "app-sign-in", version: 1 } as const;
-export const AppSignInSchema = z.object({ slug: z.string(), url: z.string(), wordId: z.string().nullable(), alias: z.string().nullable() });
-const Alias = z.string().max(40).regex(/^[\w .@+-]*$/, "Use letters, numbers, spaces, dots and dashes");
+export const AppSignInSchema = z.object({
+  slug: z.string(),
+  url: z.string(),
+  wordId: z.string().nullable(),
+  alias: z.string().nullable(),
+});
+const Alias = z
+  .string()
+  .max(40)
+  .regex(/^[\w .@+-]*$/, "Use letters, numbers, spaces, dots and dashes");
 const AppSlug = z.string().regex(/^[a-z0-9_-]+$/);
 
 /** Whether a Composio project key is saved on this host; only its last characters are shown. */
@@ -320,7 +401,9 @@ export const appsRenameRpc = defineRpc({
 export const appsToolsRpc = defineRpc({
   name: "bots.apps.tools",
   input: z.object({ slug: AppSlug }),
-  output: z.object({ tools: z.array(z.object({ slug: z.string(), name: z.string(), readOnly: z.boolean() })) }),
+  output: z.object({
+    tools: z.array(z.object({ slug: z.string(), name: z.string(), readOnly: z.boolean() })),
+  }),
 });
 
 export const appsDisconnectRpc = defineRpc({
@@ -355,7 +438,10 @@ export const proposalGetRpc = defineRpc({
 export const proposalAcceptRpc = defineRpc({
   name: "bots.proposals.accept",
   input: z.object({ id: ProposalId }),
-  output: z.object({ proposal: ProposalSchema, skill: z.object({ id: SkillName, description: z.string(), sha: z.string() }).optional() }),
+  output: z.object({
+    proposal: ProposalSchema,
+    skill: z.object({ id: SkillName, description: z.string(), sha: z.string() }).optional(),
+  }),
 });
 
 export const proposalDismissRpc = defineRpc({
@@ -377,7 +463,11 @@ export const commandListRpc = defineRpc({
 
 export const commandAllowRpc = defineRpc({
   name: "bots.commands.allow",
-  input: z.object({ botId: BotId, command: z.string().min(1).max(16_384), cwd: z.string().min(1).max(4_096) }),
+  input: z.object({
+    botId: BotId,
+    command: z.string().min(1).max(16_384),
+    cwd: z.string().min(1).max(4_096),
+  }),
   output: z.object({ rule: CommandRuleSchema }),
 });
 

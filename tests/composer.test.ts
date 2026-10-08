@@ -29,15 +29,30 @@ import {
   type ComposerDraft,
 } from "../client/chat/composer/logic";
 
-const image = (id: string, bytes = 4): ComposerAttachment => ({ kind: "image", id, name: `${id}.png`, mimeType: "image/png", size: bytes, data: "A".repeat(bytes) });
-const note = (id: string): ComposerAttachment => ({ kind: "text", id, name: `${id}.md`, size: 2, text: "hi" });
+const image = (id: string, bytes = 4): ComposerAttachment => ({
+  kind: "image",
+  id,
+  name: `${id}.png`,
+  mimeType: "image/png",
+  size: bytes,
+  data: "A".repeat(bytes),
+});
+const note = (id: string): ComposerAttachment => ({
+  kind: "text",
+  id,
+  name: `${id}.md`,
+  size: 2,
+  text: "hi",
+});
 
 describe("send behaviour", () => {
   it("reads Paseo's sendBehavior setting, defaulting to steer", () => {
     expect(parseSendBehavior(null)).toBe("steer");
     expect(parseSendBehavior("not json")).toBe("steer");
     expect(parseSendBehavior(JSON.stringify({ sendBehavior: "queue" }))).toBe("queue");
-    expect(parseSendBehavior(JSON.stringify({ sendBehavior: "interrupt", uiBaseFontSize: 14 }))).toBe("interrupt");
+    expect(parseSendBehavior(JSON.stringify({ sendBehavior: "interrupt", uiBaseFontSize: 14 }))).toBe(
+      "interrupt",
+    );
     expect(parseSendBehavior(JSON.stringify({ sendBehavior: "bogus" }))).toBe("steer");
   });
 
@@ -63,11 +78,21 @@ describe("send behaviour", () => {
   });
 
   it("labels the submit button", () => {
-    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "steer", running: false })).toBe("Send message");
-    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "steer", running: true })).toBe("Send and steer");
-    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "interrupt", running: true })).toBe("Send and interrupt");
-    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "queue", running: true })).toBe("Queue message");
-    expect(submitAccessibilityLabel({ canPressLoading: true, behavior: "queue", running: true })).toBe("Interrupt agent");
+    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "steer", running: false })).toBe(
+      "Send message",
+    );
+    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "steer", running: true })).toBe(
+      "Send and steer",
+    );
+    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "interrupt", running: true })).toBe(
+      "Send and interrupt",
+    );
+    expect(submitAccessibilityLabel({ canPressLoading: false, behavior: "queue", running: true })).toBe(
+      "Queue message",
+    );
+    expect(submitAccessibilityLabel({ canPressLoading: true, behavior: "queue", running: true })).toBe(
+      "Interrupt agent",
+    );
   });
 
   it("hides the send button when empty and idle", () => {
@@ -107,7 +132,11 @@ describe("input height", () => {
 
 describe("queue", () => {
   it("queues non-empty messages and takes them back out", () => {
-    const queue = enqueue(enqueue([], { id: "1", text: "first", attachments: [] }), { id: "2", text: "", attachments: [note("n")] });
+    const queue = enqueue(enqueue([], { id: "1", text: "first", attachments: [] }), {
+      id: "2",
+      text: "",
+      attachments: [note("n")],
+    });
     expect(enqueue(queue, { id: "3", text: "  ", attachments: [] })).toHaveLength(2);
     const { item, rest } = takeQueued(queue, "1");
     expect(item?.text).toBe("first");
@@ -161,8 +190,13 @@ describe("drafts", () => {
   it("restores a failed send without losing what was typed meanwhile", () => {
     const failed = { text: "first", attachments: [note("a")] };
     expect(restoreFailedSend(failed, { text: "", attachments: [] })).toEqual(failed);
-    expect(restoreFailedSend(failed, { text: "more", attachments: [note("b")] })).toEqual({ text: "first\nmore", attachments: [note("a"), note("b")] });
-    expect(restoreFailedSend({ text: "", attachments: [note("a")] }, { text: "typed", attachments: [] }).text).toBe("typed");
+    expect(restoreFailedSend(failed, { text: "more", attachments: [note("b")] })).toEqual({
+      text: "first\nmore",
+      attachments: [note("a"), note("b")],
+    });
+    expect(
+      restoreFailedSend({ text: "", attachments: [note("a")] }, { text: "typed", attachments: [] }).text,
+    ).toBe("typed");
   });
 });
 
@@ -170,7 +204,9 @@ describe("context window meter", () => {
   it("reads usage only when the numbers are valid", () => {
     expect(contextUsage(null)).toBeNull();
     expect(contextUsage({ contextWindowMaxTokens: 0, contextWindowUsedTokens: 5 })).toBeNull();
-    expect(contextUsage({ contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 50_000, totalCostUsd: 0.5 })).toEqual({ percent: 25, used: 50_000, max: 200_000, costUsd: 0.5 });
+    expect(
+      contextUsage({ contextWindowMaxTokens: 200_000, contextWindowUsedTokens: 50_000, totalCostUsd: 0.5 }),
+    ).toEqual({ percent: 25, used: 50_000, max: 200_000, costUsd: 0.5 });
   });
 
   it("uses Paseo's thresholds", () => {
@@ -214,8 +250,17 @@ describe("slash commands", () => {
   });
 
   it("ranks prefix matches before substring matches", () => {
-    expect(filterCommands(commands, "c").map((command) => command.name)).toEqual(["clear", "compact", "pr-comments"]);
-    expect(filterCommands(commands, "").map((command) => command.name)).toEqual(["clear", "compact", "pr-comments", "review"]);
+    expect(filterCommands(commands, "c").map((command) => command.name)).toEqual([
+      "clear",
+      "compact",
+      "pr-comments",
+    ]);
+    expect(filterCommands(commands, "").map((command) => command.name)).toEqual([
+      "clear",
+      "compact",
+      "pr-comments",
+      "review",
+    ]);
     expect(applyCommand(commands[0]!)).toBe("/review ");
   });
 });

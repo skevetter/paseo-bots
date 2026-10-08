@@ -11,11 +11,23 @@ import { installTooltips } from "./client/ui/Tooltip";
 import { appSignIns } from "./shared/apps";
 import { BOT_LABEL } from "./shared/bot";
 import { proposalIdOf } from "./shared/proposals";
-import { APP_SIGN_IN_CARD, AppSignInSchema, helloRpc, ROUTINE_RUN_CARD, RoutineRunCardSchema } from "./shared/rpc";
+import {
+  APP_SIGN_IN_CARD,
+  AppSignInSchema,
+  helloRpc,
+  ROUTINE_RUN_CARD,
+  RoutineRunCardSchema,
+} from "./shared/rpc";
 import { LEARN_COMMAND, learnPrompt } from "./shared/skills";
 
 function BotsSidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
-  return <SidebarRow icon="Bot" active={currentScreen?.screenId === BOTS_SCREEN} onPress={() => openScreen({ screenId: BOTS_SCREEN })} />;
+  return (
+    <SidebarRow
+      icon="Bot"
+      active={currentScreen?.screenId === BOTS_SCREEN}
+      onPress={() => openScreen({ screenId: BOTS_SCREEN })}
+    />
+  );
 }
 
 export default function contribute(client: PluginClientContext) {
@@ -59,14 +71,18 @@ export default function contribute(client: PluginClientContext) {
     query: { itemType: "tool_call" },
     transform({ item }) {
       const proposalId = proposalIdOf(item);
-      return proposalId ? { items: [{ type: "plugin", kind: "proposal", version: 1, data: { proposalId } }] } : undefined;
+      return proposalId
+        ? { items: [{ type: "plugin", kind: "proposal", version: 1, data: { proposalId } }] }
+        : undefined;
     },
   });
   client.addTimelineRenderer({
     kind: "proposal",
     version: 1,
     schema: z.object({ proposalId: z.string() }),
-    Component: ({ item, theme, layout }) => <ProposalCard colors={theme.colors} compact={layout.compact} proposalId={item.data.proposalId} />,
+    Component: ({ item, theme, layout }) => (
+      <ProposalCard colors={theme.colors} compact={layout.compact} proposalId={item.data.proposalId} />
+    ),
   });
   // A bot's request to connect an app, in Paseo's view too.
   client.addTimelineTransformer({
@@ -74,13 +90,22 @@ export default function contribute(client: PluginClientContext) {
     query: { itemType: "tool_call" },
     transform({ item }) {
       const signIns = appSignIns(item);
-      return signIns.length ? { items: signIns.map((data) => ({ type: "plugin", ...APP_SIGN_IN_CARD, data })) } : undefined;
+      return signIns.length
+        ? { items: signIns.map((data) => ({ type: "plugin", ...APP_SIGN_IN_CARD, data })) }
+        : undefined;
     },
   });
   client.addTimelineRenderer({
     ...APP_SIGN_IN_CARD,
     schema: AppSignInSchema,
-    Component: ({ item, agentId, timestamp, theme }) => <NativeConnectCard colors={theme.colors} signIn={item.data} since={timestamp.getTime()} agentId={agentId} />,
+    Component: ({ item, agentId, timestamp, theme }) => (
+      <NativeConnectCard
+        colors={theme.colors}
+        signIn={item.data}
+        since={timestamp.getTime()}
+        agentId={agentId}
+      />
+    ),
   });
   // A routine's results chat opened in Paseo's view shows its run cards too (no navigation there).
   client.addTimelineRenderer({

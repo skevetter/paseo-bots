@@ -6,7 +6,14 @@ import { Animated, Easing, Platform, Pressable, Text, View, type LayoutRectangle
 import type { Bot, BotGroup, BotListUi } from "../shared/bot";
 import { displayTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
-import { aggregateBuckets, BUCKET_LABELS, chatBucket, orderChats, SIDEBAR_GROUP_LIMIT, type ChatBucket } from "../shared/sidebar";
+import {
+  aggregateBuckets,
+  BUCKET_LABELS,
+  chatBucket,
+  orderChats,
+  SIDEBAR_GROUP_LIMIT,
+  type ChatBucket,
+} from "../shared/sidebar";
 import { Avatar } from "./Avatar";
 import { useBotChats, useBotHost, type LocalHost } from "./data";
 import { openLibrary } from "./navigation";
@@ -59,7 +66,13 @@ interface BotSidebarProps {
   onSelect(selection: Selection): void;
   onNewBot(): void;
   onBotMenu(bot: Bot, anchor: LayoutRectangle, source: MenuSource): void;
-  onChatMenu(bot: Bot, chat: PaseoAgent, anchor: LayoutRectangle, source: MenuSource, context: ChatMenuContext): void;
+  onChatMenu(
+    bot: Bot,
+    chat: PaseoAgent,
+    anchor: LayoutRectangle,
+    source: MenuSource,
+    context: ChatMenuContext,
+  ): void;
   onDisplayMenu(anchor: LayoutRectangle): void;
   onEditTeam(group: BotGroup): void;
   onTeamMap(): void;
@@ -70,7 +83,18 @@ const noSelect = { userSelect: "none" } as object;
 const CHEVRON_COLOR = "#9ca3af";
 
 export function BotSidebar(props: BotSidebarProps) {
-  const { colors, bots, openTab, ui: listUi, hiddenArchivedCount, bottomInset, onNewBot, onShowArchived, onTeamMap, onEditTeam } = props;
+  const {
+    colors,
+    bots,
+    openTab,
+    ui: listUi,
+    hiddenArchivedCount,
+    bottomInset,
+    onNewBot,
+    onShowArchived,
+    onTeamMap,
+    onEditTeam,
+  } = props;
   const tokens = nativeTokens(colors);
   const shown = openTab?.bots ?? bots;
   const pinnedIds = new Set(listUi.pinnedChats.map((pin) => pin.chatId));
@@ -93,13 +117,29 @@ export function BotSidebar(props: BotSidebarProps) {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 2, paddingBottom: 16 }}
       >
-        {pins.length > 0 ? <PinnedSection {...props} pins={pins} botById={listedBots} tokens={tokens} /> : null}
-        {shown.length > 0 || hiddenArchivedCount > 0 ? <SectionHeader colors={colors} onDisplayMenu={props.onDisplayMenu} /> : null}
+        {pins.length > 0 ? (
+          <PinnedSection {...props} pins={pins} botById={listedBots} tokens={tokens} />
+        ) : null}
+        {shown.length > 0 || hiddenArchivedCount > 0 ? (
+          <SectionHeader colors={colors} onDisplayMenu={props.onDisplayMenu} />
+        ) : null}
         {shown.map((bot) => (
-          <BotGroup key={bot.id} {...props} tokens={tokens} bot={bot} lead={bot.id === leadId} pinnedIds={pinnedIds} />
+          <BotGroup
+            key={bot.id}
+            {...props}
+            tokens={tokens}
+            bot={bot}
+            lead={bot.id === leadId}
+            pinnedIds={pinnedIds}
+          />
         ))}
         {openTab?.group && shown.length === 0 ? (
-          <EmptyState colors={colors} title="No bots on this team" description="Add bots to it in the team's settings." action={{ icon: "Pencil", label: "Edit team", onPress: () => onEditTeam(openTab.group!) }} />
+          <EmptyState
+            colors={colors}
+            title="No bots on this team"
+            description="Add bots to it in the team's settings."
+            action={{ icon: "Pencil", label: "Edit team", onPress: () => onEditTeam(openTab.group!) }}
+          />
         ) : bots.length === 0 ? (
           hiddenArchivedCount > 0 ? (
             <EmptyState
@@ -109,7 +149,12 @@ export function BotSidebar(props: BotSidebarProps) {
               action={{ icon: "Archive", label: "Show archived", onPress: onShowArchived }}
             />
           ) : (
-            <EmptyState colors={colors} title="No bots yet" description="Create a bot to get started" action={{ icon: "Plus", label: "New bot", onPress: onNewBot }} />
+            <EmptyState
+              colors={colors}
+              title="No bots yet"
+              description="Create a bot to get started"
+              action={{ icon: "Plus", label: "New bot", onPress: onNewBot }}
+            />
           )
         ) : null}
       </ScrollView>
@@ -120,11 +165,28 @@ export function BotSidebar(props: BotSidebarProps) {
 
 // ------------------------------------------------------------------ header / footer / empty
 
-function SectionHeader({ colors, onDisplayMenu }: { colors: Colors; onDisplayMenu(anchor: LayoutRectangle): void }) {
+function SectionHeader({
+  colors,
+  onDisplayMenu,
+}: {
+  colors: Colors;
+  onDisplayMenu(anchor: LayoutRectangle): void;
+}) {
   const ref = useRef<View>(null);
   const { hovered, hoverProps } = useHover();
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, paddingLeft: 8, paddingRight: 4, paddingTop: 4, paddingBottom: 4 }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+        paddingLeft: 8,
+        paddingRight: 4,
+        paddingTop: 4,
+        paddingBottom: 4,
+      }}
+    >
       <Text style={[{ fontSize: ui(12), color: colors.foregroundMuted }, noSelect]}>Bots</Text>
       <Pressable
         ref={ref}
@@ -133,7 +195,14 @@ function SectionHeader({ colors, onDisplayMenu }: { colors: Colors; onDisplayMen
         {...tooltip("Display preferences", "bottom")}
         onPress={() => void measureAnchor(ref).then((anchor) => anchor && onDisplayMenu(anchor))}
         {...hoverProps}
-        style={{ width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 6, backgroundColor: hovered ? colors.surface1 : "transparent" }}
+        style={{
+          width: 28,
+          height: 28,
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 6,
+          backgroundColor: hovered ? colors.surface1 : "transparent",
+        }}
       >
         <Icon name="Settings2" size={14} color={colors.foregroundMuted} />
       </Pressable>
@@ -144,7 +213,17 @@ function SectionHeader({ colors, onDisplayMenu }: { colors: Colors; onDisplayMen
 function Footer({ colors, onNewBot, onTeamMap }: { colors: Colors; onNewBot(): void; onTeamMap(): void }) {
   const { hovered, hoverProps } = useHover();
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 12, borderTopWidth: 1, borderTopColor: colors.border }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 8,
+        paddingVertical: 12,
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+      }}
+    >
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="New bot"
@@ -167,7 +246,15 @@ function Footer({ colors, onNewBot, onTeamMap }: { colors: Colors; onNewBot(): v
         ]}
       >
         <Icon name="Plus" size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
-        <Text numberOfLines={1} style={{ minWidth: 0, flexShrink: 1, fontSize: ui(14), color: hovered ? colors.foreground : colors.foregroundMuted }}>
+        <Text
+          numberOfLines={1}
+          style={{
+            minWidth: 0,
+            flexShrink: 1,
+            fontSize: ui(14),
+            color: hovered ? colors.foreground : colors.foregroundMuted,
+          }}
+        >
           New bot
         </Text>
       </Pressable>
@@ -178,7 +265,17 @@ function Footer({ colors, onNewBot, onTeamMap }: { colors: Colors; onNewBot(): v
 }
 
 /** The sidebar footer's trailing icon buttons (Paseo's host, import and settings buttons): 32 box, 16pt icon. */
-function FooterIconButton({ colors, icon, label, onPress }: { colors: Colors; icon: string; label: string; onPress(): void }) {
+function FooterIconButton({
+  colors,
+  icon,
+  label,
+  onPress,
+}: {
+  colors: Colors;
+  icon: string;
+  label: string;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   return (
     <Pressable
@@ -188,7 +285,14 @@ function FooterIconButton({ colors, icon, label, onPress }: { colors: Colors; ic
       onPress={onPress}
       {...hoverProps}
       style={({ pressed }) => [
-        { width: 32, height: 32, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: pressed ? colors.surface2 : hovered ? colors.surface1 : "transparent" },
+        {
+          width: 32,
+          height: 32,
+          borderRadius: 8,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: pressed ? colors.surface2 : hovered ? colors.surface1 : "transparent",
+        },
         noSelect,
       ]}
     >
@@ -198,18 +302,54 @@ function FooterIconButton({ colors, icon, label, onPress }: { colors: Colors; ic
 }
 
 /** Paseo's SidebarProjectEmptyState (sidebar/empty-states.tsx). */
-function EmptyState({ colors, title, description, action }: { colors: Colors; title: string; description: string; action: { icon: string; label: string; onPress(): void } }) {
+function EmptyState({
+  colors,
+  title,
+  description,
+  action,
+}: {
+  colors: Colors;
+  title: string;
+  description: string;
+  action: { icon: string; label: string; onPress(): void };
+}) {
   return (
-    <View style={{ marginHorizontal: 8, marginTop: 16, paddingTop: 24, paddingBottom: 16, paddingHorizontal: 16, borderRadius: 8, backgroundColor: colors.surface0, alignItems: "center", gap: 12 }}>
-      <Text style={{ color: colors.foreground, fontSize: ui(12), fontWeight: "500", textAlign: "center" }}>{title}</Text>
-      <Text style={{ color: colors.foregroundMuted, fontSize: ui(12), textAlign: "center" }}>{description}</Text>
+    <View
+      style={{
+        marginHorizontal: 8,
+        marginTop: 16,
+        paddingTop: 24,
+        paddingBottom: 16,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        backgroundColor: colors.surface0,
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      <Text style={{ color: colors.foreground, fontSize: ui(12), fontWeight: "500", textAlign: "center" }}>
+        {title}
+      </Text>
+      <Text style={{ color: colors.foregroundMuted, fontSize: ui(12), textAlign: "center" }}>
+        {description}
+      </Text>
       <GhostButton colors={colors} icon={action.icon} label={action.label} onPress={action.onPress} />
     </View>
   );
 }
 
 /** Paseo's Button variant="ghost" size="sm". */
-function GhostButton({ colors, icon, label, onPress }: { colors: Colors; icon: string; label: string; onPress(): void }) {
+function GhostButton({
+  colors,
+  icon,
+  label,
+  onPress,
+}: {
+  colors: Colors;
+  icon: string;
+  label: string;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   const tint = hovered ? colors.foreground : colors.foregroundMuted;
   return (
@@ -239,7 +379,11 @@ function GhostButton({ colors, icon, label, onPress }: { colors: Colors; icon: s
 
 // ------------------------------------------------------------------ pinned
 
-type PinnedProps = BotSidebarProps & { pins: BotListUi["pinnedChats"]; botById: ReadonlyMap<string, Bot>; tokens: NativeTokens };
+type PinnedProps = BotSidebarProps & {
+  pins: BotListUi["pinnedChats"];
+  botById: ReadonlyMap<string, Bot>;
+  tokens: NativeTokens;
+};
 
 function PinnedSection(props: PinnedProps) {
   const { colors, pins, ui: listUi, touch, onTogglePinnedSection } = props;
@@ -255,24 +399,54 @@ function PinnedSection(props: PinnedProps) {
         accessibilityState={{ expanded: !collapsed }}
         onPress={onTogglePinnedSection}
         {...hoverProps}
-        style={[{ minHeight: 36, flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 4, paddingHorizontal: 8, paddingVertical: 4 }, noSelect]}
+        style={[
+          {
+            minHeight: 36,
+            flexDirection: "row",
+            alignItems: "center",
+            alignSelf: "flex-start",
+            gap: 4,
+            paddingHorizontal: 8,
+            paddingVertical: 4,
+          },
+          noSelect,
+        ]}
       >
         <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>Pinned</Text>
-        {hovered || touch ? <Icon name={collapsed ? "ChevronRight" : "ChevronDown"} size={12} color={colors.foregroundMuted} /> : null}
+        {hovered || touch ? (
+          <Icon name={collapsed ? "ChevronRight" : "ChevronDown"} size={12} color={colors.foregroundMuted} />
+        ) : null}
       </Pressable>
       {collapsed ? null : (
         <>
           {visible.map((pin) => (
-            <PinnedChatRow key={pin.chatId} {...props} bot={props.botById.get(pin.botId)!} chatId={pin.chatId} />
+            <PinnedChatRow
+              key={pin.chatId}
+              {...props}
+              bot={props.botById.get(pin.botId)!}
+              chatId={pin.chatId}
+            />
           ))}
-          {pins.length > SIDEBAR_GROUP_LIMIT ? <ShowMoreRow colors={colors} expanded={expanded} onPress={() => setExpanded(!expanded)} /> : null}
+          {pins.length > SIDEBAR_GROUP_LIMIT ? (
+            <ShowMoreRow colors={colors} expanded={expanded} onPress={() => setExpanded(!expanded)} />
+          ) : null}
         </>
       )}
     </View>
   );
 }
 
-function PinnedChatRow({ colors, tokens, bot, chatId, selection, localHost, touch, onSelect, onChatMenu }: PinnedProps & { bot: Bot; chatId: string }) {
+function PinnedChatRow({
+  colors,
+  tokens,
+  bot,
+  chatId,
+  selection,
+  localHost,
+  touch,
+  onSelect,
+  onChatMenu,
+}: PinnedProps & { bot: Bot; chatId: string }) {
   const host = useBotHost(bot.hostId, localHost);
   const chats = useBotChats(host, bot.id);
   const chat = chats.data?.find((entry) => entry.id === chatId);
@@ -294,10 +468,26 @@ function PinnedChatRow({ colors, tokens, bot, chatId, selection, localHost, touc
 
 // ------------------------------------------------------------------ bot group
 
-type GroupProps = BotSidebarProps & { bot: Bot; tokens: NativeTokens; pinnedIds: ReadonlySet<string>; /** The team's Chief of Staff. */ lead?: boolean };
+type GroupProps = BotSidebarProps & {
+  bot: Bot;
+  tokens: NativeTokens;
+  pinnedIds: ReadonlySet<string> /** The team's Chief of Staff. */;
+  lead?: boolean;
+};
 
 function BotGroup(props: GroupProps) {
-  const { colors, tokens, bot, selection, ui: listUi, localHost, touch, pinnedIds, onSelect, onChatMenu } = props;
+  const {
+    colors,
+    tokens,
+    bot,
+    selection,
+    ui: listUi,
+    localHost,
+    touch,
+    pinnedIds,
+    onSelect,
+    onChatMenu,
+  } = props;
   const host = useBotHost(bot.hostId, localHost);
   const chats = useBotChats(host, bot.id);
   const [expanded, setExpanded] = useState(false);
@@ -319,7 +509,14 @@ function BotGroup(props: GroupProps) {
     else if (ordered.length > 0 || draftSelected) {
       children = (
         <>
-          {draftSelected && ordered.length > 0 ? <NewChatGhostRow colors={colors} tokens={tokens} selected onPress={() => onSelect({ botId: bot.id, chatId: null })} /> : null}
+          {draftSelected && ordered.length > 0 ? (
+            <NewChatGhostRow
+              colors={colors}
+              tokens={tokens}
+              selected
+              onPress={() => onSelect({ botId: bot.id, chatId: null })}
+            />
+          ) : null}
           {visible.map((chat) => (
             <ChatRow
               key={chat.id}
@@ -333,12 +530,28 @@ function BotGroup(props: GroupProps) {
               onMenu={(anchor, source) => onChatMenu(bot, chat, anchor, source, { siblings, pinned: false })}
             />
           ))}
-          {ordered.length > SIDEBAR_GROUP_LIMIT ? <ShowMoreRow colors={colors} expanded={expanded} onPress={() => setExpanded(!expanded)} /> : null}
-          {ordered.length === 0 ? <NewChatGhostRow colors={colors} tokens={tokens} selected onPress={() => onSelect({ botId: bot.id, chatId: null })} /> : null}
+          {ordered.length > SIDEBAR_GROUP_LIMIT ? (
+            <ShowMoreRow colors={colors} expanded={expanded} onPress={() => setExpanded(!expanded)} />
+          ) : null}
+          {ordered.length === 0 ? (
+            <NewChatGhostRow
+              colors={colors}
+              tokens={tokens}
+              selected
+              onPress={() => onSelect({ botId: bot.id, chatId: null })}
+            />
+          ) : null}
         </>
       );
     } else if (host.api) {
-      children = <NewChatGhostRow colors={colors} tokens={tokens} selected={false} onPress={() => onSelect({ botId: bot.id, chatId: null })} />;
+      children = (
+        <NewChatGhostRow
+          colors={colors}
+          tokens={tokens}
+          selected={false}
+          onPress={() => onSelect({ botId: bot.id, chatId: null })}
+        />
+      );
     }
   }
 
@@ -350,7 +563,19 @@ function BotGroup(props: GroupProps) {
   );
 }
 
-function BotRow({ colors, tokens, bot, lead, touch, isOpen, aggregate, hostLabel, onToggle, onSelect, onBotMenu }: GroupProps & { isOpen: boolean; aggregate: ChatBucket | null; hostLabel: string | null }) {
+function BotRow({
+  colors,
+  tokens,
+  bot,
+  lead,
+  touch,
+  isOpen,
+  aggregate,
+  hostLabel,
+  onToggle,
+  onSelect,
+  onBotMenu,
+}: GroupProps & { isOpen: boolean; aggregate: ChatBucket | null; hostLabel: string | null }) {
   const [hovered, setHovered] = useState(false);
   const kebabRef = useRef<View>(null);
   const plus = useHover();
@@ -385,27 +610,61 @@ function BotRow({ colors, tokens, bot, lead, touch, isOpen, aggregate, hostLabel
         accessibilityState={{ expanded: isOpen }}
         onPress={() => onToggle(bot.id)}
         {...contextMenuProps((anchor) => onBotMenu(bot, anchor, "context"))}
-        style={({ pressed }) => ({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: pressed ? colors.surface2 : "transparent" })}
+        style={({ pressed }) => ({
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          borderRadius: 8,
+          backgroundColor: pressed ? colors.surface2 : "transparent",
+        })}
       />
-      <View pointerEvents="none" style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
-        <View style={{ width: 16, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
+      <View
+        pointerEvents="none"
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}
+      >
+        <View
+          style={{ width: 16, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" }}
+        >
           {hovered ? (
             <Icon name={isOpen ? "ChevronDown" : "ChevronRight"} size={14} color={CHEVRON_COLOR} />
           ) : (
             <View style={{ position: "relative", width: 16, height: 16 }}>
               <Avatar avatar={bot.avatar} size={16} />
-              {aggregate ? <StatusBadge colors={colors} tokens={tokens} bucket={aggregate} backdrop={backdrop} /> : null}
+              {aggregate ? (
+                <StatusBadge colors={colors} tokens={tokens} bucket={aggregate} backdrop={backdrop} />
+              ) : null}
             </View>
           )}
         </View>
-        <Text numberOfLines={1} style={{ minWidth: 0, flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted, opacity: bot.archived ? 0.6 : 1 }}>
+        <Text
+          numberOfLines={1}
+          style={{
+            minWidth: 0,
+            flexShrink: 1,
+            fontSize: ui(14),
+            color: colors.foregroundMuted,
+            opacity: bot.archived ? 0.6 : 1,
+          }}
+        >
           {bot.name}
           {hostLabel ? ` · ${hostLabel} offline` : ""}
         </Text>
         {lead ? <Icon name="Crown" size={12} color={colors.foregroundMuted} /> : null}
       </View>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 2, flexShrink: 0, marginRight: -6 }}>
-        <View style={{ width: 24, height: 24, alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: actionsVisible ? 1 : 0 }} pointerEvents={actionsVisible ? "auto" : "none"}>
+        <View
+          style={{
+            width: 24,
+            height: 24,
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            opacity: actionsVisible ? 1 : 0,
+          }}
+          pointerEvents={actionsVisible ? "auto" : "none"}
+        >
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`New chat with ${bot.name}`}
@@ -422,7 +681,13 @@ function BotRow({ colors, tokens, bot, lead, touch, isOpen, aggregate, hostLabel
               backgroundColor: plus.hovered || down ? colors.surface1 : "transparent",
             })}
           >
-            {({ pressed: down }) => <Icon name="Plus" size={15} color={plus.hovered || down ? colors.foreground : colors.foregroundMuted} />}
+            {({ pressed: down }) => (
+              <Icon
+                name="Plus"
+                size={15}
+                color={plus.hovered || down ? colors.foreground : colors.foregroundMuted}
+              />
+            )}
           </Pressable>
         </View>
         <View style={{ opacity: actionsVisible ? 1 : 0 }} pointerEvents={actionsVisible ? "auto" : "none"}>
@@ -431,7 +696,9 @@ function BotRow({ colors, tokens, bot, lead, touch, isOpen, aggregate, hostLabel
             buttonRef={kebabRef}
             label="Bot actions"
             box
-            onPress={() => void measureAnchor(kebabRef).then((anchor) => anchor && onBotMenu(bot, anchor, "kebab"))}
+            onPress={() =>
+              void measureAnchor(kebabRef).then((anchor) => anchor && onBotMenu(bot, anchor, "kebab"))
+            }
           />
         </View>
       </View>
@@ -455,7 +722,17 @@ interface ChatRowProps {
 }
 
 /** Paseo's workspace row (sidebar-workspace-list.tsx workspaceRow + sidebar-workspace-row-content.tsx). */
-const ChatRow = memo(function ChatRow({ colors, tokens, chat, bot, selected, touch, hoisted, onPress, onMenu }: ChatRowProps) {
+const ChatRow = memo(function ChatRow({
+  colors,
+  tokens,
+  chat,
+  bot,
+  selected,
+  touch,
+  hoisted,
+  onPress,
+  onMenu,
+}: ChatRowProps) {
   const [hovered, setHovered] = useState(false);
   const kebabRef = useRef<View>(null);
   const bucket = chatBucket(chat);
@@ -489,14 +766,40 @@ const ChatRow = memo(function ChatRow({ colors, tokens, chat, bot, selected, tou
         accessibilityState={{ selected }}
         onPress={onPress}
         {...contextMenuProps((anchor) => onMenu(anchor, "context"))}
-        style={({ pressed }) => ({ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, borderRadius: 8, backgroundColor: pressed ? colors.surface2 : "transparent" })}
+        style={({ pressed }) => ({
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          borderRadius: 8,
+          backgroundColor: pressed ? colors.surface2 : "transparent",
+        })}
       />
-      <View pointerEvents="none" style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}>
+      <View
+        pointerEvents="none"
+        style={{ flexDirection: "row", alignItems: "flex-start", gap: 8, width: "100%" }}
+      >
         {hoisted ? (
-          <View style={{ width: 16, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
+          <View
+            style={{ width: 16, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" }}
+          >
             <View style={{ position: "relative", width: 16, height: 16 }}>
               <Avatar avatar={bot.avatar} size={16} />
-              {bucket !== "done" ? <StatusBadge colors={colors} tokens={tokens} bucket={bucket} backdrop={selected ? tokens.surfaceSidebarSelected : hovered ? colors.surface1 : tokens.surfaceSidebar} /> : null}
+              {bucket !== "done" ? (
+                <StatusBadge
+                  colors={colors}
+                  tokens={tokens}
+                  bucket={bucket}
+                  backdrop={
+                    selected
+                      ? tokens.surfaceSidebarSelected
+                      : hovered
+                        ? colors.surface1
+                        : tokens.surfaceSidebar
+                  }
+                />
+              ) : null}
             </View>
           </View>
         ) : (
@@ -504,14 +807,28 @@ const ChatRow = memo(function ChatRow({ colors, tokens, chat, bot, selected, tou
         )}
         <View style={{ flex: 1, minWidth: 0 }}>
           <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
-            <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: ui(14), fontWeight: "400", lineHeight: 20, color: colors.foreground, opacity: hovered ? 1 : 0.76 }}>
+            <Text
+              numberOfLines={1}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                fontSize: ui(14),
+                fontWeight: "400",
+                lineHeight: 20,
+                color: colors.foreground,
+                opacity: hovered ? 1 : 0.76,
+              }}
+            >
               {title}
             </Text>
             {/* On touch the kebab stays, so its space is reserved; on desktop it overlays the title's tail. */}
             {touch ? <View style={{ width: 18, height: 20 }} /> : null}
           </View>
           {hoisted ? (
-            <Text numberOfLines={1} style={{ fontSize: ui(12), lineHeight: 16, color: colors.foregroundMuted }}>
+            <Text
+              numberOfLines={1}
+              style={{ fontSize: ui(12), lineHeight: 16, color: colors.foregroundMuted }}
+            >
               {bot.name}
             </Text>
           ) : null}
@@ -520,9 +837,19 @@ const ChatRow = memo(function ChatRow({ colors, tokens, chat, bot, selected, tou
       {showKebab ? (
         <View style={{ position: "absolute", top: 8, right: 12, flexDirection: "row" }}>
           {/* A short scrim in the row's colour hides the title's tail under the kebab, as native does. */}
-          {touch ? null : <View pointerEvents="none" style={{ width: 16, backgroundColor: hovered ? colors.surface1 : "transparent" }} />}
+          {touch ? null : (
+            <View
+              pointerEvents="none"
+              style={{ width: 16, backgroundColor: hovered ? colors.surface1 : "transparent" }}
+            />
+          )}
           <View style={{ backgroundColor: selected ? tokens.surfaceSidebarSelected : colors.surface1 }}>
-            <KebabButton colors={colors} buttonRef={kebabRef} label="Chat actions" onPress={() => void measureAnchor(kebabRef).then((anchor) => anchor && onMenu(anchor, "kebab"))} />
+            <KebabButton
+              colors={colors}
+              buttonRef={kebabRef}
+              label="Chat actions"
+              onPress={() => void measureAnchor(kebabRef).then((anchor) => anchor && onMenu(anchor, "kebab"))}
+            />
           </View>
         </View>
       ) : null}
@@ -531,7 +858,17 @@ const ChatRow = memo(function ChatRow({ colors, tokens, chat, bot, selected, tou
 });
 
 /** Paseo's NewWorkspaceGhostRow: the one row indented 16 so it reads as belonging to its bot. */
-function NewChatGhostRow({ colors, tokens, selected, onPress }: { colors: Colors; tokens: NativeTokens; selected: boolean; onPress(): void }) {
+function NewChatGhostRow({
+  colors,
+  tokens,
+  selected,
+  onPress,
+}: {
+  colors: Colors;
+  tokens: NativeTokens;
+  selected: boolean;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   return (
     <Pressable
@@ -551,17 +888,37 @@ function NewChatGhostRow({ colors, tokens, selected, onPress }: { colors: Colors
           flexDirection: "row",
           alignItems: "center",
           gap: 8,
-          backgroundColor: pressed ? colors.surface2 : selected ? tokens.surfaceSidebarSelected : hovered ? colors.surface1 : "transparent",
+          backgroundColor: pressed
+            ? colors.surface2
+            : selected
+              ? tokens.surfaceSidebarSelected
+              : hovered
+                ? colors.surface1
+                : "transparent",
         },
         noSelect,
       ]}
     >
       {({ pressed }) => (
         <>
-          <View style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Icon name="Plus" size={14} color={hovered || pressed || selected ? colors.foreground : colors.foregroundMuted} />
+          <View
+            style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            <Icon
+              name="Plus"
+              size={14}
+              color={hovered || pressed || selected ? colors.foreground : colors.foregroundMuted}
+            />
           </View>
-          <Text numberOfLines={1} style={{ minWidth: 0, flexShrink: 1, fontSize: ui(14), color: hovered || pressed || selected ? colors.foreground : colors.foregroundMuted }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              minWidth: 0,
+              flexShrink: 1,
+              fontSize: ui(14),
+              color: hovered || pressed || selected ? colors.foreground : colors.foregroundMuted,
+            }}
+          >
             New chat
           </Text>
         </>
@@ -599,10 +956,24 @@ function ShowMoreRow({ colors, expanded, onPress }: { colors: Colors; expanded: 
     >
       {({ pressed }) => (
         <>
-          <View style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-            <Icon name={expanded ? "ChevronUp" : "ChevronDown"} size={14} color={hovered || pressed ? colors.foreground : colors.foregroundMuted} />
+          <View
+            style={{ width: 16, height: 16, alignItems: "center", justifyContent: "center", flexShrink: 0 }}
+          >
+            <Icon
+              name={expanded ? "ChevronUp" : "ChevronDown"}
+              size={14}
+              color={hovered || pressed ? colors.foreground : colors.foregroundMuted}
+            />
           </View>
-          <Text numberOfLines={1} style={{ minWidth: 0, flexShrink: 1, fontSize: ui(14), color: hovered || pressed ? colors.foreground : colors.foregroundMuted }}>
+          <Text
+            numberOfLines={1}
+            style={{
+              minWidth: 0,
+              flexShrink: 1,
+              fontSize: ui(14),
+              color: hovered || pressed ? colors.foreground : colors.foregroundMuted,
+            }}
+          >
             {label}
           </Text>
         </>
@@ -615,7 +986,19 @@ function ShowMoreRow({ colors, expanded, onPress }: { colors: Colors; expanded: 
  * Kebab triggers. Chat rows use Paseo's workspace trigger (padding 2, radius 4, pulled
  * onto the rail with marginRight -7); bot rows use the 24pt project kebab (`box`).
  */
-function KebabButton({ colors, buttonRef, label, box, onPress }: { colors: Colors; buttonRef: RefObject<View | null>; label: string; box?: boolean; onPress(): void }) {
+function KebabButton({
+  colors,
+  buttonRef,
+  label,
+  box,
+  onPress,
+}: {
+  colors: Colors;
+  buttonRef: RefObject<View | null>;
+  label: string;
+  box?: boolean;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   return (
     <Pressable
@@ -628,8 +1011,22 @@ function KebabButton({ colors, buttonRef, label, box, onPress }: { colors: Color
       {...hoverProps}
       style={
         box
-          ? { width: 24, height: 24, borderRadius: 6, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: hovered ? colors.surface2 : "transparent" }
-          : { padding: 2, borderRadius: 4, marginLeft: 2, marginRight: -7, backgroundColor: hovered ? colors.surface2 : "transparent" }
+          ? {
+              width: 24,
+              height: 24,
+              borderRadius: 6,
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+              backgroundColor: hovered ? colors.surface2 : "transparent",
+            }
+          : {
+              padding: 2,
+              borderRadius: 4,
+              marginLeft: 2,
+              marginRight: -7,
+              backgroundColor: hovered ? colors.surface2 : "transparent",
+            }
       }
     >
       <Icon name="MoreVertical" size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
@@ -640,7 +1037,15 @@ function KebabButton({ colors, buttonRef, label, box, onPress }: { colors: Color
 // ------------------------------------------------------------------ status glyphs
 
 /** Paseo's WorkspaceStatusIndicator: one 16×20 slot every status shares. */
-function ChatStatusSlot({ colors, tokens, bucket }: { colors: Colors; tokens: NativeTokens; bucket: ChatBucket }) {
+function ChatStatusSlot({
+  colors,
+  tokens,
+  bucket,
+}: {
+  colors: Colors;
+  tokens: NativeTokens;
+  bucket: ChatBucket;
+}) {
   let glyph: ReactNode;
   if (bucket === "running") glyph = <StatusRing color={tokens.statusDotRunning} />;
   else if (bucket === "needs_input") glyph = <NeedsInputGlyph colors={colors} tokens={tokens} />;
@@ -650,12 +1055,34 @@ function ChatStatusSlot({ colors, tokens, bucket }: { colors: Colors; tokens: Na
     glyph = (
       <>
         <Icon name="MessageSquare" size={14} color={colors.foregroundMuted} />
-        <View style={{ position: "absolute", right: 0, bottom: 0, width: 8, height: 8, borderRadius: 4, borderWidth: 1, borderColor: colors.surface0, backgroundColor: tokens.statusDotDanger }} />
+        <View
+          style={{
+            position: "absolute",
+            right: 0,
+            bottom: 0,
+            width: 8,
+            height: 8,
+            borderRadius: 4,
+            borderWidth: 1,
+            borderColor: colors.surface0,
+            backgroundColor: tokens.statusDotDanger,
+          }}
+        />
       </>
     );
   }
   return (
-    <View accessibilityLabel={BUCKET_LABELS[bucket]} style={{ position: "relative", width: 16, height: 20, flexShrink: 0, alignItems: "center", justifyContent: "center" }}>
+    <View
+      accessibilityLabel={BUCKET_LABELS[bucket]}
+      style={{
+        position: "relative",
+        width: 16,
+        height: 20,
+        flexShrink: 0,
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
       {glyph}
     </View>
   );
@@ -672,10 +1099,30 @@ function Dot({ color, opacity = 1 }: { color: string; opacity?: number }) {
 function NeedsInputGlyph({ colors, tokens }: { colors: Colors; tokens: NativeTokens }) {
   return (
     <View style={{ width: 12, height: 12, alignItems: "center", justifyContent: "center" }}>
-      <View style={{ width: 11, height: 11, borderRadius: 5.5, backgroundColor: colors.surface0, alignItems: "center", justifyContent: "center" }}>
-        <View style={{ width: 9, height: 9, borderRadius: 4.5, backgroundColor: tokens.statusDotWarning, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          width: 11,
+          height: 11,
+          borderRadius: 5.5,
+          backgroundColor: colors.surface0,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <View
+          style={{
+            width: 9,
+            height: 9,
+            borderRadius: 4.5,
+            backgroundColor: tokens.statusDotWarning,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
           <View style={{ width: 1, height: 3, borderRadius: 0.5, backgroundColor: colors.surface0 }} />
-          <View style={{ width: 1, height: 1, marginTop: 1, borderRadius: 0.5, backgroundColor: colors.surface0 }} />
+          <View
+            style={{ width: 1, height: 1, marginTop: 1, borderRadius: 0.5, backgroundColor: colors.surface0 }}
+          />
         </View>
       </View>
     </View>
@@ -688,12 +1135,25 @@ const BADGE_SIZE = 12;
 const BADGE_OFFSET = -4;
 const RING_FRAME = 14;
 
-function StatusBadge({ colors, tokens, bucket, backdrop }: { colors: Colors; tokens: NativeTokens; bucket: ChatBucket; backdrop: string }) {
+function StatusBadge({
+  colors,
+  tokens,
+  bucket,
+  backdrop,
+}: {
+  colors: Colors;
+  tokens: NativeTokens;
+  bucket: ChatBucket;
+  backdrop: string;
+}) {
   if (bucket === "done") return null;
   if (bucket === "running") {
     const offset = BADGE_OFFSET - (RING_FRAME - BADGE_SIZE) / 2;
     return (
-      <View accessibilityLabel={BUCKET_LABELS[bucket]} style={{ position: "absolute", right: offset, bottom: offset }}>
+      <View
+        accessibilityLabel={BUCKET_LABELS[bucket]}
+        style={{ position: "absolute", right: offset, bottom: offset }}
+      >
         <StatusRing color={tokens.statusDotRunning} backdrop={backdrop} />
       </View>
     );
@@ -737,7 +1197,12 @@ function useRingClock() {
     if (!ringLoop) {
       ringProgress.setValue(0);
       ringLoop = Animated.loop(
-        Animated.timing(ringProgress, { toValue: 1, duration: RING_PERIOD_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== "web" }),
+        Animated.timing(ringProgress, {
+          toValue: 1,
+          duration: RING_PERIOD_MS,
+          easing: Easing.linear,
+          useNativeDriver: Platform.OS !== "web",
+        }),
       );
       ringLoop.start();
     }
@@ -760,7 +1225,16 @@ function StatusRing({ color, backdrop }: { color: string; backdrop?: string }) {
   const rotate = useRingClock();
   const circle = { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5 } as const;
   return (
-    <View style={{ width: RING_FRAME, height: RING_FRAME, borderRadius: RING_FRAME / 2, alignItems: "center", justifyContent: "center", backgroundColor: backdrop }}>
+    <View
+      style={{
+        width: RING_FRAME,
+        height: RING_FRAME,
+        borderRadius: RING_FRAME / 2,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: backdrop,
+      }}
+    >
       <View style={{ ...circle, position: "absolute", borderColor: color, opacity: 0.3 }} />
       <Animated.View style={{ position: "absolute", width: 12, height: 12, transform: [{ rotate }] }}>
         <View style={{ ...circle, borderColor: "transparent", borderTopColor: color, opacity: 0.9 }} />
@@ -790,9 +1264,24 @@ function SkeletonRows({ colors }: { colors: Colors }) {
   return (
     <View accessibilityLabel="Loading chats" style={{ gap: 4 }}>
       {[1, 0.7].map((rowOpacity) => (
-        <View key={rowOpacity} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 12, marginLeft: 4, opacity: rowOpacity }}>
-          <Animated.View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.surface2, opacity }} />
-          <Animated.View style={{ flex: 1, height: 12, borderRadius: 2, backgroundColor: colors.surface2, opacity }} />
+        <View
+          key={rowOpacity}
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 8,
+            paddingVertical: 8,
+            paddingHorizontal: 12,
+            marginLeft: 4,
+            opacity: rowOpacity,
+          }}
+        >
+          <Animated.View
+            style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.surface2, opacity }}
+          />
+          <Animated.View
+            style={{ flex: 1, height: 12, borderRadius: 2, backgroundColor: colors.surface2, opacity }}
+          />
         </View>
       ))}
     </View>

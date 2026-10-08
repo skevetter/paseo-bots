@@ -14,7 +14,8 @@ export interface ChatBucketInput {
 
 /** deriveAgentStateBucket: permission beats error beats running; initializing is not running. */
 export function chatBucket(agent: ChatBucketInput): ChatBucket {
-  if ((agent.pendingPermissions?.length ?? 0) > 0 || agent.attentionReason === "permission") return "needs_input";
+  if ((agent.pendingPermissions?.length ?? 0) > 0 || agent.attentionReason === "permission")
+    return "needs_input";
   if (agent.status === "error" || agent.attentionReason === "error") return "failed";
   if (agent.status === "running") return "running";
   if (agent.requiresAttention) return "attention";
@@ -53,7 +54,11 @@ export const SIDEBAR_GROUP_LIMIT = 20;
  * items therefore appear where the base order puts them and never reshuffle
  * the ones the user arranged.
  */
-export function applyStoredOrdering<T>(items: readonly T[], storedOrder: readonly string[], getKey: (item: T) => string): T[] {
+export function applyStoredOrdering<T>(
+  items: readonly T[],
+  storedOrder: readonly string[],
+  getKey: (item: T) => string,
+): T[] {
   if (items.length <= 1 || storedOrder.length === 0) return [...items];
   const byKey = new Map<string, T>();
   for (const item of items) byKey.set(getKey(item), item);
@@ -93,8 +98,13 @@ export interface OrderableChat {
  * applies the stored order, so rows don't jump when a chat gets a reply;
  * "activity" is most recently updated first.
  */
-export function orderChats<T extends OrderableChat>(chats: readonly T[], sort: ChatSort, storedOrder: readonly string[] = []): T[] {
-  if (sort === "activity") return [...chats].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
+export function orderChats<T extends OrderableChat>(
+  chats: readonly T[],
+  sort: ChatSort,
+  storedOrder: readonly string[] = [],
+): T[] {
+  if (sort === "activity")
+    return [...chats].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const base = [...chats].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
   return applyStoredOrdering(base, storedOrder, (chat) => chat.id);
 }

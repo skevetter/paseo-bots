@@ -58,7 +58,11 @@ function isPaseoTool(name: string): boolean {
   if (/(^|[^a-z0-9])speak$/.test(normalized) || normalized === "speak") return false;
   if (normalized.includes("__")) {
     const segments = normalized.split("__").filter((segment) => segment.length > 0);
-    return segments.length >= 3 && segments[0] === "mcp" && (segments[1] === "paseo" || segments[1]!.startsWith("paseo_"));
+    return (
+      segments.length >= 3 &&
+      segments[0] === "mcp" &&
+      (segments[1] === "paseo" || segments[1]!.startsWith("paseo_"))
+    );
   }
   if (normalized.includes(".")) {
     const first = normalized.split(".")[0]!;
@@ -129,7 +133,10 @@ function canonicalDisplay(input: ToolCallDisplayInput): { displayName?: string; 
     case "worktree_setup":
       return { displayName: "Worktree setup", summary: detail.branchName };
     case "sub_agent":
-      return { displayName: readString(detail.subAgentType) ?? "Task", summary: readString(detail.description) };
+      return {
+        displayName: readString(detail.subAgentType) ?? "Task",
+        summary: readString(detail.description),
+      };
     case "plain_text":
       return { summary: detail.label };
     case "plan":
@@ -142,11 +149,17 @@ function canonicalDisplay(input: ToolCallDisplayInput): { displayName?: string; 
 function unknownDetailOverride(input: ToolCallDisplayInput): { displayName?: string; summary?: string } {
   const lower = input.name.trim().toLowerCase();
   if (input.detail.type === "unknown" && lower === "task") {
-    return { displayName: "Task", summary: isRecord(input.metadata) ? readString(input.metadata.subAgentActivity) : undefined };
+    return {
+      displayName: "Task",
+      summary: isRecord(input.metadata) ? readString(input.metadata.subAgentActivity) : undefined,
+    };
   }
   if (input.detail.type === "unknown" && lower === "thinking") return { displayName: "Thinking" };
   if (lower === "terminal") {
-    return { displayName: "Terminal", summary: input.detail.type === "plain_text" ? readString(input.detail.label) : undefined };
+    return {
+      displayName: "Terminal",
+      summary: input.detail.type === "plain_text" ? readString(input.detail.label) : undefined,
+    };
   }
   return {};
 }
@@ -223,7 +236,13 @@ export function hasMeaningfulToolCallDetail(detail: ToolCallDetail | undefined):
     case "edit":
       return Boolean(detail.filePath || detail.unifiedDiff || detail.oldString || detail.newString);
     case "search":
-      return Boolean(detail.query.trim() || detail.content || detail.filePaths?.length || detail.webResults?.length || detail.annotations?.length);
+      return Boolean(
+        detail.query.trim() ||
+          detail.content ||
+          detail.filePaths?.length ||
+          detail.webResults?.length ||
+          detail.annotations?.length,
+      );
     case "fetch":
       return Boolean(detail.url || detail.result || detail.codeText);
     case "worktree_setup":
@@ -288,7 +307,10 @@ export interface TaskEntry {
 }
 
 function normalizeTaskToolName(name: string): string {
-  return name.trim().replace(/[.\s-]+/g, "_").toLowerCase();
+  return name
+    .trim()
+    .replace(/[.\s-]+/g, "_")
+    .toLowerCase();
 }
 
 const TASK_STATUSES = new Set(["pending", "in_progress", "completed"]);
@@ -300,7 +322,13 @@ export function extractTaskEntriesFromToolCall(name: string, input: unknown): Ta
     if (!isRecord(input) || !Array.isArray(input.todos)) return null;
     const tasks: TaskEntry[] = [];
     for (const todo of input.todos) {
-      if (!isRecord(todo) || typeof todo.content !== "string" || typeof todo.status !== "string" || !TASK_STATUSES.has(todo.status)) return null;
+      if (
+        !isRecord(todo) ||
+        typeof todo.content !== "string" ||
+        typeof todo.status !== "string" ||
+        !TASK_STATUSES.has(todo.status)
+      )
+        return null;
       const text = (typeof todo.activeForm === "string" ? todo.activeForm.trim() : "") || todo.content.trim();
       tasks.push({ text: text.length ? text : todo.content, completed: todo.status === "completed" });
     }
@@ -311,7 +339,8 @@ export function extractTaskEntriesFromToolCall(name: string, input: unknown): Ta
     const tasks: TaskEntry[] = [];
     for (const entry of input.plan) {
       if (!isRecord(entry) || typeof entry.step !== "string") return null;
-      const status = typeof entry.status === "string" && TASK_STATUSES.has(entry.status) ? entry.status : "pending";
+      const status =
+        typeof entry.status === "string" && TASK_STATUSES.has(entry.status) ? entry.status : "pending";
       const text = entry.step.trim();
       if (text) tasks.push({ text, completed: status === "completed" });
     }
@@ -327,7 +356,9 @@ export function isHiddenTaskTool(name: string, provider: string): boolean {
   return normalized === "taskcreate" || normalized === "taskupdate" || normalized === "tasklist";
 }
 
-export type TaskActivity = { type: "created"; count: number } | { type: "added" | "started" | "completed"; task: string };
+export type TaskActivity =
+  | { type: "created"; count: number }
+  | { type: "added" | "started" | "completed"; task: string };
 
 export function taskStatus(task: TaskEntry): "pending" | "in_progress" | "completed" {
   if (task.completed || task.status === "completed") return "completed";
@@ -335,7 +366,10 @@ export function taskStatus(task: TaskEntry): "pending" | "in_progress" | "comple
 }
 
 /** What changed between two task list snapshots (types/stream.ts deriveTaskActivities). */
-export function deriveTaskActivities(previous: readonly TaskEntry[], current: readonly TaskEntry[]): TaskActivity[] {
+export function deriveTaskActivities(
+  previous: readonly TaskEntry[],
+  current: readonly TaskEntry[],
+): TaskActivity[] {
   if (previous.length === 0) return current.length > 0 ? [{ type: "created", count: current.length }] : [];
   const key = (task: TaskEntry, index: number) => task.id ?? `${index}:${task.text}`;
   const before = new Map(previous.map((task, index) => [key(task, index), task]));
@@ -381,13 +415,17 @@ export function lcsTable<T>(a: readonly T[], b: readonly T[]): number[][] {
   const table: number[][] = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) {
     for (let j = b.length - 1; j >= 0; j--) {
-      table[i]![j] = a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
+      table[i]![j] =
+        a[i] === b[j] ? table[i + 1]![j + 1]! + 1 : Math.max(table[i + 1]![j]!, table[i]![j + 1]!);
     }
   }
   return table;
 }
 
-function wordDiff(oldLine: string, newLine: string): { oldSegments: DiffSegment[]; newSegments: DiffSegment[] } {
+function wordDiff(
+  oldLine: string,
+  newLine: string,
+): { oldSegments: DiffSegment[]; newSegments: DiffSegment[] } {
   const a = splitWords(oldLine);
   const b = splitWords(newLine);
   const table = lcsTable(a, b);
@@ -422,7 +460,10 @@ export function buildLineDiff(original: string, updated: string): DiffLine[] {
   if (a.length === 0 && b.length === 0) return [];
   // Large edits skip the quadratic diff and show removal then addition.
   if (a.length * b.length > 250_000) {
-    return [...a.map((line) => ({ type: "remove" as const, content: `-${line}` })), ...b.map((line) => ({ type: "add" as const, content: `+${line}` }))];
+    return [
+      ...a.map((line) => ({ type: "remove" as const, content: `-${line}` })),
+      ...b.map((line) => ({ type: "add" as const, content: `+${line}` })),
+    ];
   }
   const table = lcsTable(a, b);
   const diff: DiffLine[] = [];

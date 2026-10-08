@@ -21,7 +21,12 @@ export interface BotHost {
 
 type HostSummaries = ReturnType<typeof useHosts>;
 
-function resolveHost(hostId: string | null, local: LocalHost, localApi: PaseoApi, hosts: HostSummaries): BotHost {
+function resolveHost(
+  hostId: string | null,
+  local: LocalHost,
+  localApi: PaseoApi,
+  hosts: HostSummaries,
+): BotHost {
   if (!hostId || hostId === local.id) {
     return { api: localApi, key: local.id, label: local.label, isLocal: true, online: true };
   }
@@ -153,7 +158,11 @@ export function usePaseoTools(host: BotHost, provider: string) {
   const state = config.data ? paseoToolsState(config.data, provider) : null;
   const turnOn = async () => {
     if (!host.api || !state || state.on) return;
-    await host.api.config.patch(state.reason === "provider" ? { providers: { [provider]: { paseoTools: { enabled: true } } } } : { mcp: { injectIntoAgents: true } });
+    await host.api.config.patch(
+      state.reason === "provider"
+        ? { providers: { [provider]: { paseoTools: { enabled: true } } } }
+        : { mcp: { injectIntoAgents: true } },
+    );
     await queryClient.invalidateQueries({ queryKey: key });
   };
   return { state, loading: config.isLoading, turnOn };

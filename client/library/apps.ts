@@ -15,7 +15,12 @@ export function useAppsStatus() {
 
 export function useAppsCatalog(enabled: boolean) {
   const catalog = useRpc(appsCatalogRpc);
-  return useQuery({ queryKey: [...APPS_KEY, "catalog"], queryFn: () => catalog({}), enabled, staleTime: 10 * 60_000 });
+  return useQuery({
+    queryKey: [...APPS_KEY, "catalog"],
+    queryFn: () => catalog({}),
+    enabled,
+    staleTime: 10 * 60_000,
+  });
 }
 
 /** Accounts on this host; polls every 4 s while a sign-in is pending, like OpenMausBot's connect cards. */
@@ -36,7 +41,10 @@ export function useAppsInvalidate() {
 }
 
 /** One entry per app with an account, the best status first (connected, then pending). */
-export function connectedApps(accounts: readonly AppAccount[], catalog: readonly AppCard[]): (AppCard & { status: AppAccount["status"] })[] {
+export function connectedApps(
+  accounts: readonly AppAccount[],
+  catalog: readonly AppCard[],
+): (AppCard & { status: AppAccount["status"] })[] {
   const rank = { connected: 0, pending: 1, failed: 2 } as const;
   const bySlug = new Map<string, AppAccount["status"]>();
   for (const account of accounts) {
@@ -44,7 +52,19 @@ export function connectedApps(accounts: readonly AppAccount[], catalog: readonly
     if (!current || rank[account.status] < rank[current]) bySlug.set(account.slug, account.status);
   }
   const cards = new Map(catalog.map((app) => [app.slug, app]));
-  return [...bySlug].map(([slug, status]) => ({ ...(cards.get(slug) ?? { slug, name: slugName(slug), description: "", logo: null, domain: null, noAuth: false }), status })).sort((a, b) => a.name.localeCompare(b.name));
+  return [...bySlug]
+    .map(([slug, status]) => ({
+      ...(cards.get(slug) ?? {
+        slug,
+        name: slugName(slug),
+        description: "",
+        logo: null,
+        domain: null,
+        noAuth: false,
+      }),
+      status,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** "google_calendar" as "Google Calendar", until the catalog has the app's own name. */

@@ -32,10 +32,19 @@ export function multilineStyle(colors: Colors, minHeight: number, monospace = fa
 }
 
 /** FormTextInput's interaction layers (control-geometry.ts controlHover / controlActive). */
-export function fieldStateStyle(colors: Colors, state: { hovered: boolean; focused: boolean; disabled?: boolean }): TextStyle {
+export function fieldStateStyle(
+  colors: Colors,
+  state: { hovered: boolean; focused: boolean; disabled?: boolean },
+): TextStyle {
   if (state.disabled) return { opacity: 0.5 };
   if (state.focused) {
-    return { borderColor: nativeTokens(colors).borderAccent, outlineColor: colors.accent, outlineOffset: 1, outlineStyle: "solid", outlineWidth: 2 };
+    return {
+      borderColor: nativeTokens(colors).borderAccent,
+      outlineColor: colors.accent,
+      outlineOffset: 1,
+      outlineStyle: "solid",
+      outlineWidth: 2,
+    };
   }
   return state.hovered ? { borderColor: nativeTokens(colors).borderAccent } : {};
 }

@@ -1,7 +1,15 @@
 import { useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import type { ComposerAttachment } from "../../../shared/attachments";
-import { enqueue, isDraftEmpty, parseDrafts, serializeDrafts, takeQueued, type ComposerDraft, type QueuedMessage } from "./logic";
+import {
+  enqueue,
+  isDraftEmpty,
+  parseDrafts,
+  serializeDrafts,
+  takeQueued,
+  type ComposerDraft,
+  type QueuedMessage,
+} from "./logic";
 import { readItem, readItemSync, writeItem } from "./storage";
 
 // ---------------------------------------------------------------- drafts
@@ -10,7 +18,8 @@ import { readItem, readItemSync, writeItem } from "./storage";
 const DRAFTS_KEY = "@paseo-bots:composer-drafts";
 const PERSIST_INTERVAL_MS = 200;
 
-let drafts: Record<string, ComposerDraft> = Platform.OS === "web" ? parseDrafts(readItemSync(DRAFTS_KEY)) : {};
+let drafts: Record<string, ComposerDraft> =
+  Platform.OS === "web" ? parseDrafts(readItemSync(DRAFTS_KEY)) : {};
 let loaded = Platform.OS === "web";
 let loading: Promise<void> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -30,7 +39,10 @@ export function getDraft(key: string): ComposerDraft | null {
   return drafts[key] ?? null;
 }
 
-export function setDraft(key: string, draft: { text: string; attachments: ComposerAttachment[] } | null): void {
+export function setDraft(
+  key: string,
+  draft: { text: string; attachments: ComposerAttachment[] } | null,
+): void {
   const current = drafts[key];
   if (isDraftEmpty(draft)) {
     if (!current) return;
@@ -38,7 +50,10 @@ export function setDraft(key: string, draft: { text: string; attachments: Compos
     drafts = rest;
   } else {
     if (current && current.text === draft!.text && current.attachments === draft!.attachments) return;
-    drafts = { ...drafts, [key]: { text: draft!.text, attachments: draft!.attachments, updatedAt: Date.now() } };
+    drafts = {
+      ...drafts,
+      [key]: { text: draft!.text, attachments: draft!.attachments, updatedAt: Date.now() },
+    };
   }
   schedulePersist();
 }

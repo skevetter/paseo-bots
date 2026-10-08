@@ -38,22 +38,47 @@ export function NewBotDialog({
       <Modal.Content>
         <SettingsSection title="Start from">
           <SettingsCard>
-            <StartRow colors={colors} label="Blank bot" hint="Set everything up yourself in the settings panel." onPress={() => onCreate()} />
+            <StartRow
+              colors={colors}
+              label="Blank bot"
+              hint="Set everything up yourself in the settings panel."
+              onPress={() => onCreate()}
+            />
             {BOT_TEMPLATES.map((template) => (
-              <StartRow key={template.id} colors={colors} label={template.title} hint={template.description} avatar={{ seed: template.avatarSeed }} onPress={() => onCreate({ template })} />
+              <StartRow
+                key={template.id}
+                colors={colors}
+                label={template.title}
+                hint={template.description}
+                avatar={{ seed: template.avatarSeed }}
+                onPress={() => onCreate({ template })}
+              />
             ))}
           </SettingsCard>
         </SettingsSection>
         {presets.length ? (
-          <SettingsSection title="Your presets" info="Bots you saved as presets from their menu. Manage them in Settings, Plugins, paseo-bots.">
+          <SettingsSection
+            title="Your presets"
+            info="Bots you saved as presets from their menu. Manage them in Settings, Plugins, paseo-bots."
+          >
             <SettingsCard>
               {presets.map((preset) => (
-                <StartRow key={preset.id} colors={colors} label={preset.name} hint={preset.title || preset.description} avatar={preset.avatar} onPress={() => onCreate({ preset })} />
+                <StartRow
+                  key={preset.id}
+                  colors={colors}
+                  label={preset.name}
+                  hint={preset.title || preset.description}
+                  avatar={preset.avatar}
+                  onPress={() => onCreate({ preset })}
+                />
               ))}
             </SettingsCard>
           </SettingsSection>
         ) : null}
-        <SettingsSection title="Import" info="Paste a bot or team file from paseo-bots. Routines arrive paused, skills need a review and secrets must be filled in again.">
+        <SettingsSection
+          title="Import"
+          info="Paste a bot or team file from paseo-bots. Routines arrive paused, skills need a review and secrets must be filled in again."
+        >
           <FormTextArea
             colors={colors}
             monospace
@@ -87,7 +112,19 @@ export function NewBotDialog({
 }
 
 /** A whole-row pressable settings row (settings card geometry: 16 padding, 14/12 text). */
-function StartRow({ colors, label, hint, avatar, onPress }: { colors: Colors; label: string; hint: string; avatar?: Partial<BotAvatar> & { seed: string }; onPress(): void }) {
+function StartRow({
+  colors,
+  label,
+  hint,
+  avatar,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  hint: string;
+  avatar?: Partial<BotAvatar> & { seed: string };
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   return (
     <Pressable
@@ -108,7 +145,16 @@ function StartRow({ colors, label, hint, avatar, onPress }: { colors: Colors; la
       {avatar ? (
         <Avatar avatar={avatar} size={28} dark={nativeTokens(colors).dark} />
       ) : (
-        <View style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.surface2 }}>
+        <View
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 14,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: colors.surface2,
+          }}
+        >
           <Icon name="Plus" size={14} color={colors.foregroundMuted} />
         </View>
       )}
@@ -143,7 +189,15 @@ interface RenameDialogProps {
  * Paseo's AdaptiveRenameModal (components/rename-modal.tsx): the current name selected
  * in one input, the error inline, Cancel and Rename side by side. It stays open on errors.
  */
-export function RenameDialog({ colors, title, initialValue, placeholder, submitLabel = "Rename", onClose, onSubmit }: RenameDialogProps) {
+export function RenameDialog({
+  colors,
+  title,
+  initialValue,
+  placeholder,
+  submitLabel = "Rename",
+  onClose,
+  onSubmit,
+}: RenameDialogProps) {
   const [draft, setDraft] = useState(initialValue);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -201,10 +255,20 @@ export function RenameDialog({ colors, title, initialValue, placeholder, submitL
               fontSize: ui(14),
             }}
           />
-          {error ? <Text accessibilityRole="alert" style={{ color: colors.statusDanger, fontSize: ui(14) }}>{error}</Text> : null}
+          {error ? (
+            <Text accessibilityRole="alert" style={{ color: colors.statusDanger, fontSize: ui(14) }}>
+              {error}
+            </Text>
+          ) : null}
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <DialogButton colors={colors} label="Cancel" disabled={pending} onPress={cancel} />
-            <DialogButton colors={colors} label={pending ? "Saving..." : submitLabel} primary disabled={submitDisabled} onPress={() => void submit()} />
+            <DialogButton
+              colors={colors}
+              label={pending ? "Saving..." : submitLabel}
+              primary
+              disabled={submitDisabled}
+              onPress={() => void submit()}
+            />
           </View>
         </View>
       </Modal.Content>
@@ -213,7 +277,19 @@ export function RenameDialog({ colors, title, initialValue, placeholder, submitL
 }
 
 /** Paseo's Button size="sm": secondary (surface3) or default (accent). */
-function DialogButton({ colors, label, primary, disabled, onPress }: { colors: Colors; label: string; primary?: boolean; disabled?: boolean; onPress(): void }) {
+function DialogButton({
+  colors,
+  label,
+  primary,
+  disabled,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  primary?: boolean;
+  disabled?: boolean;
+  onPress(): void;
+}) {
   const fill = primary ? colors.accent : nativeTokens(colors).surface3;
   return (
     <Pressable
@@ -236,7 +312,9 @@ function DialogButton({ colors, label, primary, disabled, onPress }: { colors: C
         opacity: disabled ? 0.5 : pressed ? 0.85 : 1,
       })}
     >
-      <Text style={{ fontSize: ui(14), color: primary ? colors.accentForeground : colors.foreground }}>{label}</Text>
+      <Text style={{ fontSize: ui(14), color: primary ? colors.accentForeground : colors.foreground }}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -263,12 +341,29 @@ export interface BotMenuActions {
 /** The bot menu, after Paseo's project menu (sidebar-workspace-list.tsx ProjectMenuItems). */
 export function botMenuEntries(actions: BotMenuActions): MenuEntry[] {
   const { bot } = actions;
-  const entries: MenuEntry[] = [{ label: "Open bot settings", icon: "Settings", onSelect: actions.onOpenSettings }];
-  if (actions.onOpenInPaseo) entries.push({ label: "Open in Paseo", icon: "ExternalLink", onSelect: actions.onOpenInPaseo });
-  entries.push({ label: bot.pinned ? "Unpin" : "Pin to top", icon: bot.pinned ? "PinOff" : "Pin", onSelect: actions.onTogglePin });
+  const entries: MenuEntry[] = [
+    { label: "Open bot settings", icon: "Settings", onSelect: actions.onOpenSettings },
+  ];
+  if (actions.onOpenInPaseo)
+    entries.push({ label: "Open in Paseo", icon: "ExternalLink", onSelect: actions.onOpenInPaseo });
+  entries.push({
+    label: bot.pinned ? "Unpin" : "Pin to top",
+    icon: bot.pinned ? "PinOff" : "Pin",
+    onSelect: actions.onTogglePin,
+  });
   if (actions.onMoveUp || actions.onMoveDown) {
-    entries.push({ label: "Move up", icon: "ArrowUp", disabled: !actions.onMoveUp, onSelect: () => actions.onMoveUp?.() });
-    entries.push({ label: "Move down", icon: "ArrowDown", disabled: !actions.onMoveDown, onSelect: () => actions.onMoveDown?.() });
+    entries.push({
+      label: "Move up",
+      icon: "ArrowUp",
+      disabled: !actions.onMoveUp,
+      onSelect: () => actions.onMoveUp?.(),
+    });
+    entries.push({
+      label: "Move down",
+      icon: "ArrowDown",
+      disabled: !actions.onMoveDown,
+      onSelect: () => actions.onMoveDown?.(),
+    });
   }
   entries.push(
     { label: "Rename bot", icon: "Pencil", onSelect: actions.onRename },
@@ -277,8 +372,18 @@ export function botMenuEntries(actions: BotMenuActions): MenuEntry[] {
     { label: "Export", icon: "Share", onSelect: actions.onExport },
     { label: "Copy bot ID", icon: "Copy", onSelect: actions.onCopyId },
     { kind: "separator" },
-    { label: bot.archived ? "Unarchive bot" : "Archive bot", icon: bot.archived ? "ArchiveRestore" : "Archive", onSelect: actions.onToggleArchive },
-    { label: "Delete bot", icon: "Trash2", destructive: true, pendingLabel: "Deleting...", onSelect: actions.onDelete },
+    {
+      label: bot.archived ? "Unarchive bot" : "Archive bot",
+      icon: bot.archived ? "ArchiveRestore" : "Archive",
+      onSelect: actions.onToggleArchive,
+    },
+    {
+      label: "Delete bot",
+      icon: "Trash2",
+      destructive: true,
+      pendingLabel: "Deleting...",
+      onSelect: actions.onDelete,
+    },
   );
   return entries;
 }
@@ -300,15 +405,40 @@ export function chatMenuEntries(actions: ChatMenuActions): MenuEntry[] {
   const entries: MenuEntry[] = [
     { label: "Copy path", icon: "Copy", onSelect: actions.onCopyPath },
     { label: "Copy chat ID", icon: "Copy", onSelect: actions.onCopyId },
-    { label: "Copy transcript", icon: "FileText", pendingLabel: "Copying...", onSelect: actions.onCopyTranscript },
-    { label: actions.pinned ? "Unpin" : "Pin to top", icon: actions.pinned ? "PinOff" : "Pin", onSelect: actions.onTogglePin },
+    {
+      label: "Copy transcript",
+      icon: "FileText",
+      pendingLabel: "Copying...",
+      onSelect: actions.onCopyTranscript,
+    },
+    {
+      label: actions.pinned ? "Unpin" : "Pin to top",
+      icon: actions.pinned ? "PinOff" : "Pin",
+      onSelect: actions.onTogglePin,
+    },
   ];
   if (actions.move) {
-    entries.push({ label: "Move up", icon: "ArrowUp", disabled: !actions.move.up, onSelect: () => actions.move?.up?.() });
-    entries.push({ label: "Move down", icon: "ArrowDown", disabled: !actions.move.down, onSelect: () => actions.move?.down?.() });
+    entries.push({
+      label: "Move up",
+      icon: "ArrowUp",
+      disabled: !actions.move.up,
+      onSelect: () => actions.move?.up?.(),
+    });
+    entries.push({
+      label: "Move down",
+      icon: "ArrowDown",
+      disabled: !actions.move.down,
+      onSelect: () => actions.move?.down?.(),
+    });
   }
-  if (actions.onOpenInPaseo) entries.push({ label: "Open in Paseo", icon: "ExternalLink", onSelect: actions.onOpenInPaseo });
-  entries.push({ label: "Archive", icon: "Archive", pendingLabel: "Archiving...", onSelect: actions.onArchive });
+  if (actions.onOpenInPaseo)
+    entries.push({ label: "Open in Paseo", icon: "ExternalLink", onSelect: actions.onOpenInPaseo });
+  entries.push({
+    label: "Archive",
+    icon: "Archive",
+    pendingLabel: "Archiving...",
+    onSelect: actions.onArchive,
+  });
   return entries;
 }
 
@@ -342,13 +472,29 @@ export function ExportDialog({ colors, bot, onClose }: { colors: Colors; bot: Bo
           />
           <SettingsAction
             label="Copy the bot file"
-            hint={json ? `${(json.length / 1000).toFixed(1)} KB · host, folder, tool grants, secrets and chats aren't included.` : "Building..."}
+            hint={
+              json
+                ? `${(json.length / 1000).toFixed(1)} KB · host, folder, tool grants, secrets and chats aren't included.`
+                : "Building..."
+            }
             actionLabel="Copy"
             disabled={!json}
-            onPress={() => void copyText(json!).then(() => toast.show("Bot file copied", { variant: "success" }))}
+            onPress={() =>
+              void copyText(json!).then(() => toast.show("Bot file copied", { variant: "success" }))
+            }
           />
         </SettingsCard>
-        <Text {...MONO_PROPS} selectable numberOfLines={16} style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foregroundMuted }}>
+        <Text
+          {...MONO_PROPS}
+          selectable
+          numberOfLines={16}
+          style={{
+            fontFamily: MONO_FONT,
+            fontSize: code(),
+            lineHeight: codeLine(),
+            color: colors.foregroundMuted,
+          }}
+        >
           {json ?? ""}
         </Text>
       </Modal.Content>

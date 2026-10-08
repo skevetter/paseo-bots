@@ -46,9 +46,28 @@ export interface OutgoingMessage {
   attachments: ReturnType<typeof toWire>["attachments"];
 }
 
-export function ChatPane({ colors, bot, host, chat, chatId, panelOpen, layout, keyboardOpen, typeVersion, onBack, onBotMenu, onTogglePanel, onStart, onOpenChat }: ChatPaneProps) {
+export function ChatPane({
+  colors,
+  bot,
+  host,
+  chat,
+  chatId,
+  panelOpen,
+  layout,
+  keyboardOpen,
+  typeVersion,
+  onBack,
+  onBotMenu,
+  onTogglePanel,
+  onStart,
+  onOpenChat,
+}: ChatPaneProps) {
   const running = chat.agent?.status === "running" || chat.agent?.status === "initializing";
-  const empty = chat.entries.length === 0 && !chat.loading && !chat.error && (chat.agent?.pendingPermissions.length ?? 0) === 0;
+  const empty =
+    chat.entries.length === 0 &&
+    !chat.loading &&
+    !chat.error &&
+    (chat.agent?.pendingPermissions.length ?? 0) === 0;
   const title = chatId ? displayTitle(chat.agent?.title) : "New chat";
   const canFind = chatId !== null && !empty;
   const [findOpen, setFindOpen] = useState(false);
@@ -75,13 +94,41 @@ export function ChatPane({ colors, bot, host, chat, chatId, panelOpen, layout, k
           <Avatar avatar={bot.avatar} size={56} />
           <Text style={{ color: colors.foreground, fontSize: ui(18), fontWeight: "500" }}>{bot.name}</Text>
           {bot.description ? (
-            <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), textAlign: "center", maxWidth: 420 }}>{bot.description}</Text>
+            <Text
+              style={{ color: colors.foregroundMuted, fontSize: ui(14), textAlign: "center", maxWidth: 420 }}
+            >
+              {bot.description}
+            </Text>
           ) : null}
         </View>
       ) : (
-        <ChatStream key={chatId} colors={colors} chat={chat} api={host.api} agentId={chatId} compact={layout.compact} platform={layout.platform} typeVersion={typeVersion} onOpenChat={onOpenChat} voice={bot.voice} findOpen={findOpen} onCloseFind={() => setFindOpen(false)} {...(host.isLocal ? { botId: bot.id } : {})} />
+        <ChatStream
+          key={chatId}
+          colors={colors}
+          chat={chat}
+          api={host.api}
+          agentId={chatId}
+          compact={layout.compact}
+          platform={layout.platform}
+          typeVersion={typeVersion}
+          onOpenChat={onOpenChat}
+          voice={bot.voice}
+          findOpen={findOpen}
+          onCloseFind={() => setFindOpen(false)}
+          {...(host.isLocal ? { botId: bot.id } : {})}
+        />
       )}
-      <Composer colors={colors} bot={bot} host={host} agentId={chatId} agent={chat.agent} running={running} layout={layout} keyboardOpen={keyboardOpen} onStart={onStart} />
+      <Composer
+        colors={colors}
+        bot={bot}
+        host={host}
+        agentId={chatId}
+        agent={chat.agent}
+        running={running}
+        layout={layout}
+        keyboardOpen={keyboardOpen}
+        onStart={onStart}
+      />
     </View>
   );
 }
@@ -107,19 +154,45 @@ interface HeaderProps {
 // 36 high on desktop with the title (weight 300) and project name inline; 56 on phones
 // with the title (weight 400) over a 12pt subtitle row. Icon buttons are 26 (desktop) or
 // 32 (phones) with 16pt glyphs; the back arrow is Paseo's BackHeader (ArrowLeft 20, 44pt box).
-function Header({ colors, title, subtitle, hostBadge, compact, panelOpen, onBack, onMenu, onTogglePanel, onFind }: HeaderProps) {
+function Header({
+  colors,
+  title,
+  subtitle,
+  hostBadge,
+  compact,
+  panelOpen,
+  onBack,
+  onMenu,
+  onTogglePanel,
+  onFind,
+}: HeaderProps) {
   const tokens = nativeTokens(colors);
   const menuButton = useRef<View>(null);
   const openMenu = () => void measureAnchor(menuButton).then(onMenu);
   const separator = <Text style={{ fontSize: ui(12), color: tokens.foregroundExtraMuted }}> · </Text>;
   return (
-    <View style={{ height: compact ? 56 : 36, flexDirection: "row", alignItems: "center", gap: compact ? 4 : 8, paddingHorizontal: compact ? 4 : 12, borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface0 }}>
+    <View
+      style={{
+        height: compact ? 56 : 36,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: compact ? 4 : 8,
+        paddingHorizontal: compact ? 4 : 12,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.surface0,
+      }}
+    >
       {onBack ? (
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Back to bots"
           onPress={onBack}
-          style={({ pressed }) => ({ padding: compact ? 12 : 8, borderRadius: 8, backgroundColor: pressed ? tokens.interactionHighlight : "transparent" })}
+          style={({ pressed }) => ({
+            padding: compact ? 12 : 8,
+            borderRadius: 8,
+            backgroundColor: pressed ? tokens.interactionHighlight : "transparent",
+          })}
         >
           <Icon name="ArrowLeft" size={20} color={colors.foregroundMuted} />
         </Pressable>
@@ -137,11 +210,17 @@ function Header({ colors, title, subtitle, hostBadge, compact, panelOpen, onBack
         </View>
       ) : (
         <>
-          <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), fontWeight: "300", color: colors.foreground }}>
+          <Text
+            numberOfLines={1}
+            style={{ flexShrink: 1, fontSize: ui(14), fontWeight: "300", color: colors.foreground }}
+          >
             {title}
           </Text>
           {subtitle !== title ? (
-            <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted }}>
+            <Text
+              numberOfLines={1}
+              style={{ flexShrink: 1, fontSize: ui(14), color: colors.foregroundMuted }}
+            >
               {subtitle}
               {hostBadge ? ` · ${hostBadge}` : ""}
             </Text>
@@ -150,7 +229,13 @@ function Header({ colors, title, subtitle, hostBadge, compact, panelOpen, onBack
       )}
       {compact ? null : (
         <View ref={menuButton} collapsable={false}>
-          <HeaderButton colors={colors} compact={false} icon="Ellipsis" label="Bot actions" onPress={openMenu} />
+          <HeaderButton
+            colors={colors}
+            compact={false}
+            icon="Ellipsis"
+            label="Bot actions"
+            onPress={openMenu}
+          />
         </View>
       )}
       <View style={{ flex: 1 }} />
@@ -159,16 +244,39 @@ function Header({ colors, title, subtitle, hostBadge, compact, panelOpen, onBack
           <HeaderButton colors={colors} compact icon="Ellipsis" label="Bot actions" onPress={openMenu} />
         </View>
       ) : null}
-      {onFind ? <HeaderButton colors={colors} compact={compact} icon="Search" label="Find in chat" onPress={onFind} /> : null}
+      {onFind ? (
+        <HeaderButton colors={colors} compact={compact} icon="Search" label="Find in chat" onPress={onFind} />
+      ) : null}
       {/* On desktop the open panel owns its close button, so the toggle hides (workspace-explorer-toggle.tsx). */}
       {compact || !panelOpen ? (
-        <HeaderButton colors={colors} compact={compact} icon="PanelRight" label="Show bot settings" expanded={panelOpen} onPress={onTogglePanel} />
+        <HeaderButton
+          colors={colors}
+          compact={compact}
+          icon="PanelRight"
+          label="Show bot settings"
+          expanded={panelOpen}
+          onPress={onTogglePanel}
+        />
       ) : null}
     </View>
   );
 }
 
-function HeaderButton({ colors, compact, icon, label, expanded, onPress }: { colors: Colors; compact: boolean; icon: string; label: string; expanded?: boolean; onPress(): void }) {
+function HeaderButton({
+  colors,
+  compact,
+  icon,
+  label,
+  expanded,
+  onPress,
+}: {
+  colors: Colors;
+  compact: boolean;
+  icon: string;
+  label: string;
+  expanded?: boolean;
+  onPress(): void;
+}) {
   const tokens = nativeTokens(colors);
   const { hovered, hoverProps } = useHover();
   const size = compact ? 32 : 26;

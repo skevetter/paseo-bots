@@ -74,10 +74,14 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
 
   const setOther = (text: string) => {
     setOtherTexts((previous) => ({ ...previous, [index]: text }));
-    if (!question.multiSelect && text.length > 0 && selected.size > 0) setSelections((previous) => ({ ...previous, [index]: new Set<number>() }));
+    if (!question.multiSelect && text.length > 0 && selected.size > 0)
+      setSelections((previous) => ({ ...previous, [index]: new Set<number>() }));
   };
 
-  const answers = () => ({ ...(input ?? {}), answers: buildQuestionFormAnswers(questions, selections, otherTexts) });
+  const answers = () => ({
+    ...(input ?? {}),
+    answers: buildQuestionFormAnswers(questions, selections, otherTexts),
+  });
 
   const submit = () => {
     if (!allAnswered || isResponding) return;
@@ -103,12 +107,31 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
     submit();
   };
 
-  const placeholder = question.placeholder ?? (question.options.length === 0 ? "Type your answer..." : "Other...");
+  const placeholder =
+    question.placeholder ?? (question.options.length === 0 ? "Type your answer..." : "Other...");
 
   return (
-    <View style={{ padding: 12, borderRadius: 8, borderWidth: 1, gap: 12, backgroundColor: colors.surface1, borderColor: colors.border }}>
+    <View
+      style={{
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        gap: 12,
+        backgroundColor: colors.surface1,
+        borderColor: colors.border,
+      }}
+    >
       {questions.length > 1 ? (
-        <View accessibilityRole="tablist" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 4, paddingHorizontal: 12 }}>
+        <View
+          accessibilityRole="tablist"
+          style={{
+            flexDirection: "row",
+            flexWrap: "wrap",
+            alignItems: "center",
+            gap: 4,
+            paddingHorizontal: 12,
+          }}
+        >
           {questions.map((entry, entryIndex) => (
             <NavButton
               key={`${entry.header}-${entryIndex}`}
@@ -124,12 +147,27 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
           ))}
         </View>
       ) : null}
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingBottom: 4 }}>
-        <Text style={{ flex: 1, fontSize: ui(14), lineHeight: 22, color: colors.foreground }}>{question.question}</Text>
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          paddingHorizontal: 12,
+          paddingBottom: 4,
+        }}
+      >
+        <Text style={{ flex: 1, fontSize: ui(14), lineHeight: 22, color: colors.foreground }}>
+          {question.question}
+        </Text>
       </View>
       <View key={question.question} style={{ gap: 8 }}>
         {question.options.length > 0 ? (
-          <View style={{ gap: 4 }} {...(!question.multiSelect ? { accessibilityRole: "radiogroup" as const, accessibilityLabel: question.question } : {})}>
+          <View
+            style={{ gap: 4 }}
+            {...(!question.multiSelect
+              ? { accessibilityRole: "radiogroup" as const, accessibilityLabel: question.question }
+              : {})}
+          >
             {question.options.map((option, optionIndex) => (
               <OptionRow
                 key={`${option.label}-${optionIndex}`}
@@ -168,7 +206,13 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
           />
         ) : null}
       </View>
-      <View style={compact ? { gap: 8 } : { gap: 8, flexDirection: "row", justifyContent: "flex-start", alignItems: "center" }}>
+      <View
+        style={
+          compact
+            ? { gap: 8 }
+            : { gap: 8, flexDirection: "row", justifyContent: "flex-start", alignItems: "center" }
+        }
+      >
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={dismissLabel}
@@ -227,7 +271,25 @@ export function QuestionFormCard({ colors, input, compact, isResponding, onRespo
   );
 }
 
-function NavButton({ colors, label, index, total, active, answered, disabled, onPress }: { colors: Colors; label: string; index: number; total: number; active: boolean; answered: boolean; disabled: boolean; onPress(): void }) {
+function NavButton({
+  colors,
+  label,
+  index,
+  total,
+  active,
+  answered,
+  disabled,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  index: number;
+  total: number;
+  active: boolean;
+  answered: boolean;
+  disabled: boolean;
+  onPress(): void;
+}) {
   const [hovered, setHovered] = useState(false);
   return (
     <Pressable
@@ -252,15 +314,36 @@ function NavButton({ colors, label, index, total, active, answered, disabled, on
         opacity: pressed ? 0.9 : 1,
       })}
     >
-      {answered ? <Icon name="Check" size={12} color={active ? colors.foreground : colors.foregroundMuted} /> : null}
-      <Text numberOfLines={1} style={{ fontSize: ui(14), color: active ? colors.foreground : colors.foregroundMuted }}>
+      {answered ? (
+        <Icon name="Check" size={12} color={active ? colors.foreground : colors.foregroundMuted} />
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={{ fontSize: ui(14), color: active ? colors.foreground : colors.foregroundMuted }}
+      >
         {label}
       </Text>
     </Pressable>
   );
 }
 
-function OptionRow({ colors, question, label, description, selected, disabled, onPress }: { colors: Colors; question: QuestionFormQuestion; label: string; description?: string; selected: boolean; disabled: boolean; onPress(): void }) {
+function OptionRow({
+  colors,
+  question,
+  label,
+  description,
+  selected,
+  disabled,
+  onPress,
+}: {
+  colors: Colors;
+  question: QuestionFormQuestion;
+  label: string;
+  description?: string;
+  selected: boolean;
+  disabled: boolean;
+  onPress(): void;
+}) {
   const [hovered, setHovered] = useState(false);
   const tokens = nativeTokens(colors);
   const multi = question.multiSelect;
@@ -298,11 +381,25 @@ function OptionRow({ colors, question, label, description, selected, disabled, o
           }}
         >
           {selected && multi ? <Icon name="Check" size={12} color={colors.accentForeground} /> : null}
-          {selected && !multi ? <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: colors.accent }} /> : null}
+          {selected && !multi ? (
+            <View style={{ width: 8, height: 8, borderRadius: 999, backgroundColor: colors.accent }} />
+          ) : null}
         </View>
         <View style={{ flex: 1, gap: 4 }}>
-          <Text style={{ fontSize: ui(14), lineHeight: 22, color: selected ? colors.foreground : colors.foregroundMuted }}>{label}</Text>
-          {description ? <Text style={{ fontSize: ui(14), lineHeight: 20, color: colors.foregroundMuted }}>{description}</Text> : null}
+          <Text
+            style={{
+              fontSize: ui(14),
+              lineHeight: 22,
+              color: selected ? colors.foreground : colors.foregroundMuted,
+            }}
+          >
+            {label}
+          </Text>
+          {description ? (
+            <Text style={{ fontSize: ui(14), lineHeight: 20, color: colors.foregroundMuted }}>
+              {description}
+            </Text>
+          ) : null}
         </View>
       </View>
     </Pressable>

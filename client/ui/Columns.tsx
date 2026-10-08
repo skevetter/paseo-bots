@@ -5,7 +5,10 @@ import { Animated, Dimensions, Easing, PanResponder, Platform, View } from "reac
 type PointerListener = (event: { clientX: number }) => void;
 const win = globalThis as unknown as {
   addEventListener?: (type: "pointermove" | "pointerup" | "pointercancel", listener: PointerListener) => void;
-  removeEventListener?: (type: "pointermove" | "pointerup" | "pointercancel", listener: PointerListener) => void;
+  removeEventListener?: (
+    type: "pointermove" | "pointerup" | "pointercancel",
+    listener: PointerListener,
+  ) => void;
 };
 
 /**
@@ -14,7 +17,17 @@ const win = globalThis as unknown as {
  * A drag starts only with a pointer-down on the handle itself and follows window
  * pointer events until release, so no other gesture can resize a column.
  */
-export function ResizeHandle({ side, width, onResize, onCommit }: { side: "left" | "right"; width: number; onResize(width: number): void; onCommit(width: number): void }) {
+export function ResizeHandle({
+  side,
+  width,
+  onResize,
+  onCommit,
+}: {
+  side: "left" | "right";
+  width: number;
+  onResize(width: number): void;
+  onCommit(width: number): void;
+}) {
   const latest = useRef(width);
   latest.current = width;
   const onResizeRef = useRef(onResize);
@@ -48,7 +61,10 @@ export function ResizeHandle({ side, width, onResize, onCommit }: { side: "left"
       accessibilityRole="adjustable"
       accessibilityLabel="Resize"
       onPointerDown={begin}
-      style={[{ position: "absolute", top: 0, bottom: 0, width: 10, zIndex: 10, [side]: -5 }, { cursor: "col-resize" } as object]}
+      style={[
+        { position: "absolute", top: 0, bottom: 0, width: 10, zIndex: 10, [side]: -5 },
+        { cursor: "col-resize" } as object,
+      ]}
     />
   );
 }
@@ -67,7 +83,15 @@ const layers: object[] = [];
  * steps back inside the level when `onBack` handles it (a settings page back to the
  * list), otherwise the level slides away and closes.
  */
-export function SlideOver({ onClose, onBack, children }: { onClose(): void; onBack?: () => boolean; children: ReactNode }) {
+export function SlideOver({
+  onClose,
+  onBack,
+  children,
+}: {
+  onClose(): void;
+  onBack?: () => boolean;
+  children: ReactNode;
+}) {
   const width = Dimensions.get("window").width;
   const offset = useRef(new Animated.Value(width)).current;
   const [closing, setClosing] = useState(false);
@@ -77,15 +101,26 @@ export function SlideOver({ onClose, onBack, children }: { onClose(): void; onBa
 
   useEffect(() => {
     layers.push(layer);
-    Animated.timing(offset, { toValue: 0, duration: 250, easing: Easing.out(Easing.cubic), useNativeDriver: native }).start();
+    Animated.timing(offset, {
+      toValue: 0,
+      duration: 250,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: native,
+    }).start();
     return () => void layers.splice(layers.indexOf(layer), 1);
   }, [offset, layer]);
 
-  const settle = () => Animated.spring(offset, { toValue: 0, useNativeDriver: native, bounciness: 0 }).start();
+  const settle = () =>
+    Animated.spring(offset, { toValue: 0, useNativeDriver: native, bounciness: 0 }).start();
   const dismiss = () => {
     if (closing) return;
     setClosing(true);
-    Animated.timing(offset, { toValue: width, duration: 200, easing: Easing.in(Easing.cubic), useNativeDriver: native }).start(() => handlers.current.onClose());
+    Animated.timing(offset, {
+      toValue: width,
+      duration: 200,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: native,
+    }).start(() => handlers.current.onClose());
   };
   const finish = useRef(dismiss);
   finish.current = () => {
@@ -95,15 +130,29 @@ export function SlideOver({ onClose, onBack, children }: { onClose(): void; onBa
 
   const responder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_event, gesture) => layers[layers.length - 1] === layer && gesture.dx >= 15 && Math.abs(gesture.dx) > Math.abs(gesture.dy),
+      onMoveShouldSetPanResponderCapture: (_event, gesture) =>
+        layers[layers.length - 1] === layer &&
+        gesture.dx >= 15 &&
+        Math.abs(gesture.dx) > Math.abs(gesture.dy),
       onPanResponderMove: (_event, gesture) => offset.setValue(Math.max(0, gesture.dx)),
-      onPanResponderRelease: (_event, gesture) => (gesture.dx > width / 3 || gesture.vx > 0.5 ? finish.current() : settle()),
+      onPanResponderRelease: (_event, gesture) =>
+        gesture.dx > width / 3 || gesture.vx > 0.5 ? finish.current() : settle(),
       onPanResponderTerminate: settle,
     }),
   ).current;
 
   return (
-    <Animated.View {...responder.panHandlers} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, transform: [{ translateX: offset }] }}>
+    <Animated.View
+      {...responder.panHandlers}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        transform: [{ translateX: offset }],
+      }}
+    >
       {children}
     </Animated.View>
   );

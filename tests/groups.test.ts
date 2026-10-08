@@ -1,12 +1,37 @@
 import { describe, expect, it } from "vitest";
 import { promptSections, type BotGroup } from "../shared/bot";
-import { groupBots, OTHER_BOTS_TAB, saveTeam, tabOf, teamLogoOf, teamOf, teamPrompt, teamTabs, withoutBot } from "../shared/groups";
+import {
+  groupBots,
+  OTHER_BOTS_TAB,
+  saveTeam,
+  tabOf,
+  teamLogoOf,
+  teamOf,
+  teamPrompt,
+  teamTabs,
+  withoutBot,
+} from "../shared/groups";
 import { LOGO_SIZE, MOTIF_NAMES, teamLogo, type TeamLogoImage } from "../shared/team-logo";
 import { makeBot } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";
-const team = (patch: Partial<BotGroup> = {}): BotGroup => ({ id: "t1", name: "Ops", logo: null, leadId: "chief", memberIds: ["chief", "scout", "inbox"], instructions: "", createdAt: NOW, updatedAt: NOW, ...patch });
-const bots = [makeBot({ id: "chief", name: "Chief", title: "Runs the house" }), makeBot({ id: "scout", name: "Scout", title: "Researcher" }), makeBot({ id: "inbox", name: "Inbox", archived: true }), makeBot({ id: "solo", name: "Solo" })];
+const team = (patch: Partial<BotGroup> = {}): BotGroup => ({
+  id: "t1",
+  name: "Ops",
+  logo: null,
+  leadId: "chief",
+  memberIds: ["chief", "scout", "inbox"],
+  instructions: "",
+  createdAt: NOW,
+  updatedAt: NOW,
+  ...patch,
+});
+const bots = [
+  makeBot({ id: "chief", name: "Chief", title: "Runs the house" }),
+  makeBot({ id: "scout", name: "Scout", title: "Researcher" }),
+  makeBot({ id: "inbox", name: "Inbox", archived: true }),
+  makeBot({ id: "solo", name: "Solo" }),
+];
 
 describe("teams", () => {
   it("finds a bot's team and its live members", () => {
@@ -20,25 +45,58 @@ describe("teams", () => {
   it("tells the lead to coordinate and members who leads", () => {
     const withInstructions = team({ instructions: "Keep account numbers out of replies." });
     const chief = teamPrompt(withInstructions, bots[0]!, bots);
-    expect(chief).toMatch(/^You are the Chief of Staff of the "Ops" team and the user's main contact for it\./);
+    expect(chief).toMatch(
+      /^You are the Chief of Staff of the "Ops" team and the user's main contact for it\./,
+    );
     expect(chief).toContain("Teammates:\n- Scout: Researcher");
-    expect(chief).toContain("Shared instructions for the team. The user manages them for every bot on the team; you can't edit them.\nKeep account numbers out of replies.");
+    expect(chief).toContain(
+      "Shared instructions for the team. The user manages them for every bot on the team; you can't edit them.\nKeep account numbers out of replies.",
+    );
     const scout = teamPrompt(withInstructions, bots[1]!, bots);
     expect(scout).toMatch(/^You're on the "Ops" team\. Chief leads it\./);
     expect(scout).toContain("- Chief (Chief of Staff): Runs the house");
-    expect(promptSections(bots[1]!, { memory: "", memoryPath: null, recentWork: [], playbooks: [], team: scout, skills: [], paseoTools: false, botTools: false, apps: [] }).map((section) => section.title)).toEqual(["Persona", "Team"]);
+    expect(
+      promptSections(bots[1]!, {
+        memory: "",
+        memoryPath: null,
+        recentWork: [],
+        playbooks: [],
+        team: scout,
+        skills: [],
+        paseoTools: false,
+        botTools: false,
+        apps: [],
+      }).map((section) => section.title),
+    ).toEqual(["Persona", "Team"]);
   });
 
   it("keeps a bot on one team and drops leads that aren't members", () => {
     const other = team({ id: "t2", name: "Home", leadId: "solo", memberIds: ["solo"] });
-    const moved = saveTeam([team(), other], null, { name: "New", logo: null, leadId: "scout", memberIds: ["scout", "solo"], instructions: "" }, "t3", NOW);
+    const moved = saveTeam(
+      [team(), other],
+      null,
+      { name: "New", logo: null, leadId: "scout", memberIds: ["scout", "solo"], instructions: "" },
+      "t3",
+      NOW,
+    );
     expect(moved.map((group) => [group.id, group.leadId, group.memberIds])).toEqual([
       ["t1", "chief", ["chief", "inbox"]],
       ["t2", null, []],
       ["t3", "scout", ["scout", "solo"]],
     ]);
-    expect(saveTeam([team()], "t1", { name: "Ops", logo: null, leadId: "ghost", memberIds: ["chief"], instructions: "" }, "x", NOW)[0]!.leadId).toBeNull();
-    expect(withoutBot([team()], "chief", NOW)[0]).toMatchObject({ leadId: null, memberIds: ["scout", "inbox"] });
+    expect(
+      saveTeam(
+        [team()],
+        "t1",
+        { name: "Ops", logo: null, leadId: "ghost", memberIds: ["chief"], instructions: "" },
+        "x",
+        NOW,
+      )[0]!.leadId,
+    ).toBeNull();
+    expect(withoutBot([team()], "chief", NOW)[0]).toMatchObject({
+      leadId: null,
+      memberIds: ["scout", "inbox"],
+    });
   });
 });
 
@@ -59,7 +117,9 @@ describe("team tabs", () => {
   });
 
   it("leaves out Other bots when every bot is on a team", () => {
-    expect(teamTabs([team({ memberIds: ["chief", "scout", "inbox", "solo"] })], bots).map((tab) => tab.id)).toEqual(["t1"]);
+    expect(
+      teamTabs([team({ memberIds: ["chief", "scout", "inbox", "solo"] })], bots).map((tab) => tab.id),
+    ).toEqual(["t1"]);
   });
 });
 
@@ -87,8 +147,16 @@ describe("team logos", () => {
     for (const [motif, { rows }] of logos) {
       expect(rows).toHaveLength(LOGO_SIZE);
       for (const runs of rows) expect(runs.reduce((width, run) => width + run.width, 0)).toBe(LOGO_SIZE);
-      for (const y of [0, LOGO_SIZE - 1]) expect(rows[y]!.every((run) => run.color === null), `${motif} row ${y}`).toBe(true);
-      for (const runs of rows) expect(runs[0]!.x === 0 && runs[0]!.color === null && runs[runs.length - 1]!.color === null, motif).toBe(true);
+      for (const y of [0, LOGO_SIZE - 1])
+        expect(
+          rows[y]!.every((run) => run.color === null),
+          `${motif} row ${y}`,
+        ).toBe(true);
+      for (const runs of rows)
+        expect(
+          runs[0]!.x === 0 && runs[0]!.color === null && runs[runs.length - 1]!.color === null,
+          motif,
+        ).toBe(true);
     }
   });
 });

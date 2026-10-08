@@ -38,7 +38,11 @@ function parseColor(color: string): Rgba | null {
   const hex = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(value);
   if (hex) {
     let digits = hex[1]!;
-    if (digits.length === 3) digits = digits.split("").map((d) => d + d).join("");
+    if (digits.length === 3)
+      digits = digits
+        .split("")
+        .map((d) => d + d)
+        .join("");
     const n = parseInt(digits.slice(0, 6), 16);
     const alpha = digits.length === 8 ? parseInt(digits.slice(6), 16) / 255 : 1;
     return [(n >> 16) & 255, (n >> 8) & 255, n & 255, alpha];
@@ -66,7 +70,10 @@ function mix(a: string, b: string, weight: number): string {
   const x = parseColor(a);
   const y = parseColor(b);
   if (!x || !y) return a;
-  const channel = (i: number) => Math.round(x[i]! * weight + y[i]! * (1 - weight)).toString(16).padStart(2, "0");
+  const channel = (i: number) =>
+    Math.round(x[i]! * weight + y[i]! * (1 - weight))
+      .toString(16)
+      .padStart(2, "0");
   return `#${channel(0)}${channel(1)}${channel(2)}`;
 }
 
@@ -116,7 +123,9 @@ export function nativeTokens(colors: Colors): NativeTokens {
     surfaceSidebarSelected: dark ? colors.surface2 : surface3,
     surface3,
     surface4: mix(colors.surface2, colors.foreground, dark ? 0.76 : 0.85),
-    borderAccent: dark ? mix(colors.border, colors.foreground, 0.95) : mix(colors.border, colors.surface0, 0.7),
+    borderAccent: dark
+      ? mix(colors.border, colors.foreground, 0.95)
+      : mix(colors.border, colors.surface0, 0.7),
     foregroundExtraMuted: mix(colors.foregroundMuted, colors.surface0, 0.65),
     accentBright: mix(colors.accent, "#ffffff", dark ? 0.37 : 0.75),
     interactionHighlight: dark ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)",
@@ -146,7 +155,14 @@ export interface ConfirmInput {
 
 // This plugin typechecks without the DOM library. Declare only what this module uses.
 const host = globalThis as unknown as {
-  paseoDesktop?: { dialog?: { ask?: (message: string, options: { title: string; okLabel: string; cancelLabel: string; kind: "warning" | "info" }) => Promise<boolean> } };
+  paseoDesktop?: {
+    dialog?: {
+      ask?: (
+        message: string,
+        options: { title: string; okLabel: string; cancelLabel: string; kind: "warning" | "info" },
+      ) => Promise<boolean>;
+    };
+  };
   confirm?: (message?: string) => boolean;
   document?: { activeElement?: { blur?: () => void } | null };
 };
@@ -162,7 +178,11 @@ export async function confirmDialog(input: ConfirmInput): Promise<boolean> {
         input.message,
         [
           { text: cancelLabel, style: "cancel", onPress: () => resolve(false) },
-          { text: confirmLabel, style: input.destructive ? "destructive" : "default", onPress: () => resolve(true) },
+          {
+            text: confirmLabel,
+            style: input.destructive ? "destructive" : "default",
+            onPress: () => resolve(true),
+          },
         ],
         { cancelable: true, onDismiss: () => resolve(false) },
       );
@@ -171,7 +191,12 @@ export async function confirmDialog(input: ConfirmInput): Promise<boolean> {
   host.document?.activeElement?.blur?.();
   const ask = host.paseoDesktop?.dialog?.ask;
   if (typeof ask === "function") {
-    return ask(input.message, { title: input.title, okLabel: confirmLabel, cancelLabel, kind: input.destructive ? "warning" : "info" });
+    return ask(input.message, {
+      title: input.title,
+      okLabel: confirmLabel,
+      cancelLabel,
+      kind: input.destructive ? "warning" : "info",
+    });
   }
   return host.confirm ? host.confirm(`${input.title}\n\n${input.message}`) : false;
 }

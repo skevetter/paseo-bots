@@ -17,7 +17,8 @@ function titleToolName(title: string): string | null {
 /** The tool a timeline tool call ran: its name, or for ACP providers the tool its title starts with. */
 export function toolCallName(call: { name: string; metadata?: unknown }): string {
   const metadata = AcpToolMetadata.safeParse(call.metadata);
-  if (!metadata.success || (call.name !== metadata.data.kind && call.name !== metadata.data.title)) return call.name;
+  if (!metadata.success || (call.name !== metadata.data.kind && call.name !== metadata.data.title))
+    return call.name;
   return titleToolName(metadata.data.title) ?? call.name;
 }
 
@@ -28,7 +29,10 @@ export function permissionToolName(request: { name: string; title?: string; meta
 }
 
 /** A permission request's tool arguments; ACP providers only keep them in the raw request. */
-export function permissionInput(request: { input?: Record<string, unknown>; metadata?: unknown }): Record<string, unknown> | null {
+export function permissionInput(request: {
+  input?: Record<string, unknown>;
+  metadata?: unknown;
+}): Record<string, unknown> | null {
   if (request.input) return request.input;
   const metadata = AcpPermissionMetadata.safeParse(request.metadata);
   return metadata.success ? (metadata.data.rawRequest.toolCall.rawInput ?? null) : null;

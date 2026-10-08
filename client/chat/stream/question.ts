@@ -26,18 +26,27 @@ function readOptionalString(record: Record<string, unknown>, key: string): strin
 }
 
 export function parseQuestionFormQuestions(input: unknown): QuestionFormQuestion[] | null {
-  if (typeof input !== "object" || input === null || !Array.isArray((input as Record<string, unknown>).questions)) return null;
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    !Array.isArray((input as Record<string, unknown>).questions)
+  )
+    return null;
   const questions: QuestionFormQuestion[] = [];
   for (const item of (input as Record<string, unknown>).questions as unknown[]) {
     if (typeof item !== "object" || item === null) return null;
     const q = item as Record<string, unknown>;
-    if (typeof q.question !== "string" || typeof q.header !== "string" || !Array.isArray(q.options)) return null;
+    if (typeof q.question !== "string" || typeof q.header !== "string" || !Array.isArray(q.options))
+      return null;
     const options: QuestionOption[] = [];
     for (const opt of q.options as unknown[]) {
       if (typeof opt !== "object" || opt === null) return null;
       const o = opt as Record<string, unknown>;
       if (typeof o.label !== "string") return null;
-      options.push({ label: o.label, ...(typeof o.description === "string" ? { description: o.description } : {}) });
+      options.push({
+        label: o.label,
+        ...(typeof o.description === "string" ? { description: o.description } : {}),
+      });
     }
     questions.push({
       question: q.question,
@@ -57,7 +66,12 @@ export function questionShowsTextInput(question: QuestionFormQuestion): boolean 
   return question.options.length === 0 || question.allowOther;
 }
 
-export function isQuestionAnswered(question: QuestionFormQuestion, index: number, selections: QuestionSelections, otherTexts: QuestionOtherTexts): boolean {
+export function isQuestionAnswered(
+  question: QuestionFormQuestion,
+  index: number,
+  selections: QuestionSelections,
+  otherTexts: QuestionOtherTexts,
+): boolean {
   const selected = selections[index];
   if (selected && selected.size > 0) return true;
   if (!questionShowsTextInput(question)) return false;
@@ -65,12 +79,23 @@ export function isQuestionAnswered(question: QuestionFormQuestion, index: number
   return question.allowEmpty;
 }
 
-export function areQuestionsAnswered(questions: QuestionFormQuestion[] | null, selections: QuestionSelections, otherTexts: QuestionOtherTexts): boolean {
-  return questions?.every((question, index) => isQuestionAnswered(question, index, selections, otherTexts)) ?? false;
+export function areQuestionsAnswered(
+  questions: QuestionFormQuestion[] | null,
+  selections: QuestionSelections,
+  otherTexts: QuestionOtherTexts,
+): boolean {
+  return (
+    questions?.every((question, index) => isQuestionAnswered(question, index, selections, otherTexts)) ??
+    false
+  );
 }
 
 /** Answers keyed by question header: option labels joined by ", ", or the typed answer. */
-export function buildQuestionFormAnswers(questions: QuestionFormQuestion[], selections: QuestionSelections, otherTexts: QuestionOtherTexts): Record<string, string> {
+export function buildQuestionFormAnswers(
+  questions: QuestionFormQuestion[],
+  selections: QuestionSelections,
+  otherTexts: QuestionOtherTexts,
+): Record<string, string> {
   const answers: Record<string, string> = {};
   questions.forEach((question, index) => {
     const selected = selections[index];
@@ -93,7 +118,10 @@ export function buildQuestionFormAnswers(questions: QuestionFormQuestion[], sele
 }
 
 export function shouldSubmitEmptyOnDismiss(questions: QuestionFormQuestion[]): boolean {
-  return questions.length > 0 && questions.every((question) => question.allowEmpty && question.options.length === 0);
+  return (
+    questions.length > 0 &&
+    questions.every((question) => question.allowEmpty && question.options.length === 0)
+  );
 }
 
 export function resolveDismissLabel(questions: QuestionFormQuestion[], fallback = "Dismiss"): string {

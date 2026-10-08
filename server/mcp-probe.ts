@@ -23,7 +23,11 @@ interface JsonRpcResponse {
 type Request = (method: string, params?: unknown) => Promise<unknown>;
 type Notify = (method: string) => Promise<void>;
 
-const initializeParams = { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: "paseo-bots", version: PLUGIN_VERSION } };
+const initializeParams = {
+  protocolVersion: PROTOCOL_VERSION,
+  capabilities: {},
+  clientInfo: { name: "paseo-bots", version: PLUGIN_VERSION },
+};
 
 async function listTools(request: Request, notify: Notify): Promise<McpTool[]> {
   await request("initialize", initializeParams);
@@ -31,9 +35,17 @@ async function listTools(request: Request, notify: Notify): Promise<McpTool[]> {
   const tools: McpTool[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES && tools.length < MAX_TOOLS; page++) {
-    const result = (await request("tools/list", cursor ? { cursor } : {})) as { tools?: { name?: unknown; description?: unknown }[]; nextCursor?: string };
+    const result = (await request("tools/list", cursor ? { cursor } : {})) as {
+      tools?: { name?: unknown; description?: unknown }[];
+      nextCursor?: string;
+    };
     for (const tool of result.tools ?? []) {
-      if (typeof tool.name === "string") tools.push({ name: tool.name, description: typeof tool.description === "string" ? tool.description.split("\n")[0]!.slice(0, 300) : "" });
+      if (typeof tool.name === "string")
+        tools.push({
+          name: tool.name,
+          description:
+            typeof tool.description === "string" ? tool.description.split("\n")[0]!.slice(0, 300) : "",
+        });
     }
     cursor = result.nextCursor;
     if (!cursor) break;
@@ -47,9 +59,15 @@ function rpcError(response: JsonRpcResponse): Error {
 
 // ---------------------------------------------------------------- stdio
 
-function probeStdio(config: Extract<McpServerConfig, { type: "stdio" }>, signal: AbortSignal): Promise<McpTool[]> {
+function probeStdio(
+  config: Extract<McpServerConfig, { type: "stdio" }>,
+  signal: AbortSignal,
+): Promise<McpTool[]> {
   return new Promise((resolve, reject) => {
-    const child = spawnProcess(config.command, config.args, { env: { ...process.env, ...config.env }, stdio: "pipe" });
+    const child = spawnProcess(config.command, config.args, {
+      env: { ...process.env, ...config.env },
+      stdio: "pipe",
+    });
     let nextId = 1;
     const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
     let stdout = "";
@@ -60,15 +78,24 @@ function probeStdio(config: Extract<McpServerConfig, { type: "stdio" }>, signal:
       if (settled) return;
       settled = true;
       signal.removeEventListener("abort", onAbort);
-      terminateProcess(child, "SIGTERM").catch((error: unknown) => console.error("paseo-bots: couldn't stop an MCP server probe", error));
+      terminateProcess(child, "SIGTERM").catch((error: unknown) =>
+        console.error("paseo-bots: couldn't stop an MCP server probe", error),
+      );
       if (error) reject(error);
       else resolve(tools ?? []);
     };
-    const onAbort = () => finish(new Error(`No answer within ${TIMEOUT_MS / 1000} seconds.${lastLine(stderr)}`));
+    const onAbort = () =>
+      finish(new Error(`No answer within ${TIMEOUT_MS / 1000} seconds.${lastLine(stderr)}`));
     signal.addEventListener("abort", onAbort);
 
     child.on("error", (error) => finish(new Error(`Couldn't start "${config.command}": ${error.message}`)));
-    child.on("exit", (code) => finish(new Error(`The server exited${code === null ? "" : ` with code ${code}`} before answering.${lastLine(stderr)}`)));
+    child.on("exit", (code) =>
+      finish(
+        new Error(
+          `The server exited${code === null ? "" : ` with code ${code}`} before answering.${lastLine(stderr)}`,
+        ),
+      ),
+    );
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-4000);
     });
@@ -118,7 +145,9 @@ function lastLine(stderr: string): string {
 // ---------------------------------------------------------------- HTTP
 
 /** Yields `{event, data}` pairs from a text/event-stream body. */
-async function* serverEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
+async function* serverEvents(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<{ event: string; data: string }> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -147,12 +176,18 @@ async function* serverEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<{
 
 async function httpFailure(response: Response): Promise<Error> {
   const text = (await response.text().catch(() => "")).trim().slice(0, 200);
-  const hint = response.status === 401 || response.status === 403 ? " Check the server's headers (for example an Authorization token)." : "";
+  const hint =
+    response.status === 401 || response.status === 403
+      ? " Check the server's headers (for example an Authorization token)."
+      : "";
   return new Error(`The server answered ${response.status}${text ? `: ${text}` : "."}${hint}`);
 }
 
 /** Streamable HTTP: every message is a POST; answers come back as JSON or as a short event stream. */
-async function probeHttp(config: Extract<McpServerConfig, { type: "http" }>, signal: AbortSignal): Promise<McpTool[]> {
+async function probeHttp(
+  config: Extract<McpServerConfig, { type: "http" }>,
+  signal: AbortSignal,
+): Promise<McpTool[]> {
   let sessionId: string | null = null;
   let nextId = 1;
   const post = (payload: object) =>
@@ -197,14 +232,23 @@ async function probeHttp(config: Extract<McpServerConfig, { type: "http" }>, sig
     return await listTools(request, notify);
   } finally {
     if (sessionId) {
-      void fetch(config.url, { method: "DELETE", headers: { ...config.headers, "Mcp-Session-Id": sessionId } }).catch(() => {});
+      void fetch(config.url, {
+        method: "DELETE",
+        headers: { ...config.headers, "Mcp-Session-Id": sessionId },
+      }).catch(() => {});
     }
   }
 }
 
 /** The older HTTP+SSE transport: an event stream names a URL to POST to, and answers arrive on the stream. */
-async function probeSse(config: Extract<McpServerConfig, { type: "sse" }>, signal: AbortSignal): Promise<McpTool[]> {
-  const stream = await fetch(config.url, { signal, headers: { ...config.headers, Accept: "text/event-stream" } });
+async function probeSse(
+  config: Extract<McpServerConfig, { type: "sse" }>,
+  signal: AbortSignal,
+): Promise<McpTool[]> {
+  const stream = await fetch(config.url, {
+    signal,
+    headers: { ...config.headers, Accept: "text/event-stream" },
+  });
   if (!stream.ok || !stream.body) throw await httpFailure(stream);
   const events = serverEvents(stream.body);
   try {
@@ -219,7 +263,12 @@ async function probeSse(config: Extract<McpServerConfig, { type: "sse" }>, signa
     const target = endpoint;
     let nextId = 1;
     const send = async (payload: object) => {
-      const response = await fetch(target, { method: "POST", signal, headers: { ...config.headers, "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const response = await fetch(target, {
+        method: "POST",
+        signal,
+        headers: { ...config.headers, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
       if (!response.ok) throw await httpFailure(response);
       await response.body?.cancel().catch(() => {});
     };
@@ -245,7 +294,9 @@ async function probeSse(config: Extract<McpServerConfig, { type: "sse" }>, signa
 
 /** Hides env and header values (usually keys) from anything shown to the user. */
 function redact(text: string, config: McpServerConfig): string {
-  const secrets = Object.values(config.type === "stdio" ? config.env : config.headers).filter((value) => value.length >= 4);
+  const secrets = Object.values(config.type === "stdio" ? config.env : config.headers).filter(
+    (value) => value.length >= 4,
+  );
   return secrets.reduce((out, secret) => out.split(secret).join("•••"), text);
 }
 
@@ -254,10 +305,19 @@ export async function probeMcpServer({ config }: { config: McpServerConfig }): P
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
     const tools =
-      config.type === "stdio" ? await probeStdio(config, controller.signal) : config.type === "http" ? await probeHttp(config, controller.signal) : await probeSse(config, controller.signal);
+      config.type === "stdio"
+        ? await probeStdio(config, controller.signal)
+        : config.type === "http"
+          ? await probeHttp(config, controller.signal)
+          : await probeSse(config, controller.signal);
     return { ok: true, tools };
   } catch (error) {
-    const message = controller.signal.aborted && !(error instanceof Error && error.message.startsWith("No answer")) ? `No answer within ${TIMEOUT_MS / 1000} seconds.` : error instanceof Error ? error.message : String(error);
+    const message =
+      controller.signal.aborted && !(error instanceof Error && error.message.startsWith("No answer"))
+        ? `No answer within ${TIMEOUT_MS / 1000} seconds.`
+        : error instanceof Error
+          ? error.message
+          : String(error);
     return { ok: false, error: redact(message, config) };
   } finally {
     clearTimeout(timer);

@@ -43,7 +43,19 @@ type References = Map<string, string> & { linkify?: boolean };
 
 const PUNCTUATION = /[!-/:-@[-`{-~ -⁯⸀-⹿　-〿]/;
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
-const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", copy: "©", reg: "®", hellip: "…", mdash: "—", ndash: "–" };
+const ENTITIES: Record<string, string> = {
+  amp: "&",
+  lt: "<",
+  gt: ">",
+  quot: '"',
+  apos: "'",
+  nbsp: " ",
+  copy: "©",
+  reg: "®",
+  hellip: "…",
+  mdash: "—",
+  ndash: "–",
+};
 
 interface Delim {
   kind: "delim";
@@ -150,14 +162,17 @@ function processEmphasis(tokens: Token[], streaming: boolean): Inline[] {
     let found = -1;
     for (let j = i - 1; j >= 0; j--) {
       const opener = tokens[j]!;
-      if (opener.kind !== "delim" || opener.char !== closer.char || !opener.canOpen || opener.count === 0) continue;
+      if (opener.kind !== "delim" || opener.char !== closer.char || !opener.canOpen || opener.count === 0)
+        continue;
       if (closer.char === "~") {
         if (opener.count === 2 && closer.count === 2) found = j;
         if (found >= 0) break;
         continue;
       }
       const oddMatch =
-        (opener.canClose || closer.canOpen) && (opener.original + closer.original) % 3 === 0 && !(opener.original % 3 === 0 && closer.original % 3 === 0);
+        (opener.canClose || closer.canOpen) &&
+        (opener.original + closer.original) % 3 === 0 &&
+        !(opener.original % 3 === 0 && closer.original % 3 === 0);
       if (oddMatch) continue;
       found = j;
       break;
@@ -210,7 +225,8 @@ function finish(tokens: Token[]): Inline[] {
 }
 
 const AUTOLINK = /^<([a-zA-Z][a-zA-Z0-9+.-]{1,31}:[^<>\s]*)>/;
-const EMAIL_AUTOLINK = /^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>/;
+const EMAIL_AUTOLINK =
+  /^<([a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*)>/;
 const BARE_URL = /(?:https?:\/\/|www\.)[^\s<]*[^\s<.,:;"')\]!?*_~]/g;
 
 /** markdown-it's linkify for http(s) and www. links in plain text. */
@@ -225,9 +241,14 @@ function linkify(inlines: Inline[]): Inline[] {
         if (before && /[\w@/]/.test(before)) continue;
         let url = match[0];
         // Keep balanced parentheses, drop a trailing unmatched one.
-        while (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0)) url = url.slice(0, -1);
+        while (url.endsWith(")") && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0))
+          url = url.slice(0, -1);
         if (match.index > last) out.push({ kind: "text", text: inline.text.slice(last, match.index) });
-        out.push({ kind: "link", url: url.startsWith("www.") ? `http://${url}` : url, children: [{ kind: "text", text: url }] });
+        out.push({
+          kind: "link",
+          url: url.startsWith("www.") ? `http://${url}` : url,
+          children: [{ kind: "text", text: url }],
+        });
         last = match.index + url.length;
         BARE_URL.lastIndex = last;
       }
@@ -239,7 +260,11 @@ function linkify(inlines: Inline[]): Inline[] {
   return out;
 }
 
-export function parseInline(source: string, options: ParseOptions = {}, references: References = new Map()): Inline[] {
+export function parseInline(
+  source: string,
+  options: ParseOptions = {},
+  references: References = new Map(),
+): Inline[] {
   const src = source;
   const streaming = options.streaming === true;
   const tokens: Token[] = [];
@@ -302,7 +327,8 @@ export function parseInline(source: string, options: ParseOptions = {}, referenc
       }
       if (close >= 0) {
         let body = src.slice(i + run, close).replace(/\n/g, " ");
-        if (body.length > 1 && body.startsWith(" ") && body.endsWith(" ") && body.trim()) body = body.slice(1, -1);
+        if (body.length > 1 && body.startsWith(" ") && body.endsWith(" ") && body.trim())
+          body = body.slice(1, -1);
         flushText();
         tokens.push({ kind: "code", text: body });
         i = close + run;
@@ -423,7 +449,9 @@ export function parseInline(source: string, options: ParseOptions = {}, referenc
         continue;
       }
       const children = processEmphasis(tokens.slice(openerIndex + 1), false);
-      const node: Inline = opener.image ? { kind: "image", url, alt: plainText(children) } : { kind: "link", url, children };
+      const node: Inline = opener.image
+        ? { kind: "image", url, alt: plainText(children) }
+        : { kind: "link", url, children };
       tokens.splice(openerIndex, tokens.length - openerIndex, node);
       if (!opener.image) {
         for (const token of tokens) if (token.kind === "bracket" && !token.image) token.active = false;
@@ -443,14 +471,20 @@ export function parseInline(source: string, options: ParseOptions = {}, referenc
       const email = EMAIL_AUTOLINK.exec(src.slice(i));
       if (email) {
         flushText();
-        tokens.push({ kind: "link", url: `mailto:${email[1]}`, children: [{ kind: "text", text: email[1]! }] });
+        tokens.push({
+          kind: "link",
+          url: `mailto:${email[1]}`,
+          children: [{ kind: "text", text: email[1]! }],
+        });
         i += email[0].length;
         continue;
       }
     }
 
     if (char === "&") {
-      const entity = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,31}));/.exec(src.slice(i));
+      const entity = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,31}));/.exec(
+        src.slice(i),
+      );
       if (entity) {
         const code = entity[1] ? Number(entity[1]) : entity[2] ? parseInt(entity[2], 16) : NaN;
         const named = entity[3] ? ENTITIES[entity[3]] : undefined;
@@ -541,7 +575,13 @@ function splitRow(line: string): string[] {
 function isTableStart(lines: string[], i: number): boolean {
   const header = lines[i];
   const delimiter = lines[i + 1];
-  if (header === undefined || delimiter === undefined || !header.includes("|") || !TABLE_DELIMITER.test(delimiter)) return false;
+  if (
+    header === undefined ||
+    delimiter === undefined ||
+    !header.includes("|") ||
+    !TABLE_DELIMITER.test(delimiter)
+  )
+    return false;
   if (indentOf(header) >= 4) return false;
   return splitRow(header).length === splitRow(delimiter).length;
 }
@@ -561,7 +601,8 @@ function collectReferences(lines: string[], references: References): void {
   for (const line of lines) {
     const open = FENCE_OPEN.exec(line);
     if (fence) {
-      if (new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`).test(line)) fence = null;
+      if (new RegExp(`^ {0,3}${fence[0] === "`" ? "`" : "~"}{${fence.length},}[ \\t]*$`).test(line))
+        fence = null;
       continue;
     }
     if (open && !(open[2]![0] === "`" && open[3]!.includes("`"))) {
@@ -583,7 +624,10 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
 
   const flush = (streaming = false) => {
     if (paragraph.length === 0) return;
-    const content = paragraph.join("\n").replace(/^[ \t]+/, "").replace(/[ \t]+$/, "");
+    const content = paragraph
+      .join("\n")
+      .replace(/^[ \t]+/, "")
+      .replace(/[ \t]+$/, "");
     paragraph = [];
     if (content) blocks.push({ kind: "paragraph", inlines: parseInline(content, { streaming }, references) });
   };
@@ -600,7 +644,8 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
     // Indented code can't interrupt a paragraph.
     if (paragraph.length === 0 && indentOf(line) >= 4) {
       const body: string[] = [];
-      while (i < lines.length && (indentOf(lines[i]!) >= 4 || !lines[i]!.trim())) body.push(stripIndent(lines[i++]!, 4));
+      while (i < lines.length && (indentOf(lines[i]!) >= 4 || !lines[i]!.trim()))
+        body.push(stripIndent(lines[i++]!, 4));
       while (body.length > 0 && !body[body.length - 1]!.trim()) body.pop();
       blocks.push({ kind: "code", language: "", text: body.join("\n") });
       continue;
@@ -625,7 +670,11 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
       if (setext) {
         const content = paragraph.join("\n").trim();
         paragraph = [];
-        blocks.push({ kind: "heading", level: setext[1]![0] === "=" ? 1 : 2, inlines: parseInline(content, {}, references) });
+        blocks.push({
+          kind: "heading",
+          level: setext[1]![0] === "=" ? 1 : 2,
+          inlines: parseInline(content, {}, references),
+        });
         i++;
         continue;
       }
@@ -634,7 +683,10 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
     const atx = ATX.exec(line);
     if (atx) {
       flush();
-      const content = atx[2]!.replace(/[ \t]+#+[ \t]*$/, "").replace(/^#+[ \t]*$/, "").trim();
+      const content = atx[2]!
+        .replace(/[ \t]+#+[ \t]*$/, "")
+        .replace(/^#+[ \t]*$/, "")
+        .trim();
       blocks.push({ kind: "heading", level: atx[1]!.length, inlines: parseInline(content, {}, references) });
       i++;
       continue;
@@ -691,12 +743,22 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
       });
       i += 2;
       const rows: Inline[][][] = [];
-      while (i < lines.length && lines[i]!.trim() && lines[i]!.includes("|") && !interruptsParagraph(lines[i]!)) {
+      while (
+        i < lines.length &&
+        lines[i]!.trim() &&
+        lines[i]!.includes("|") &&
+        !interruptsParagraph(lines[i]!)
+      ) {
         const cells = splitRow(lines[i]!);
         rows.push(header.map((_, column) => parseInline(cells[column] ?? "", {}, references)));
         i++;
       }
-      blocks.push({ kind: "table", align, header: header.map((cell) => parseInline(cell, {}, references)), rows });
+      blocks.push({
+        kind: "table",
+        align,
+        header: header.map((cell) => parseInline(cell, {}, references)),
+        rows,
+      });
       continue;
     }
 
@@ -712,7 +774,12 @@ function parseBlocks(lines: string[], tail: boolean, references: References): Bl
   return blocks;
 }
 
-function parseList(lines: string[], start: number, tail: boolean, references: References): { block: Block; next: number } {
+function parseList(
+  lines: string[],
+  start: number,
+  tail: boolean,
+  references: References,
+): { block: Block; next: number } {
   const first = LIST_ITEM.exec(lines[start]!)!;
   const ordered = /\d/.test(first[2]!);
   const delimiter = ordered ? first[2]!.slice(-1) : first[2]!;
@@ -725,7 +792,9 @@ function parseList(lines: string[], start: number, tail: boolean, references: Re
   while (i < lines.length) {
     const match = LIST_ITEM.exec(lines[i]!);
     if (!match) break;
-    const sameKind = ordered ? /\d/.test(match[2]!) && match[2]!.slice(-1) === delimiter : match[2] === delimiter;
+    const sameKind = ordered
+      ? /\d/.test(match[2]!) && match[2]!.slice(-1) === delimiter
+      : match[2] === delimiter;
     if (!sameKind || RULE.test(lines[i]!)) break;
     if (sawBlank && items.length > 0) tight = false;
     sawBlank = false;
@@ -733,7 +802,8 @@ function parseList(lines: string[], start: number, tail: boolean, references: Re
     const spacing = match[3] ? indentOf(match[3]) : 1;
     const contentStart = match[4] === undefined || !match[4].trim() ? 1 : spacing > 4 ? 1 : spacing;
     const width = markerWidth + contentStart;
-    const firstLine = match[4] === undefined ? "" : spacing > 4 ? " ".repeat(spacing - 1) + match[4] : match[4];
+    const firstLine =
+      match[4] === undefined ? "" : spacing > 4 ? " ".repeat(spacing - 1) + match[4] : match[4];
     const body: string[] = [firstLine];
     i++;
     let blankInside = false;
@@ -753,7 +823,12 @@ function parseList(lines: string[], start: number, tail: boolean, references: Re
         continue;
       }
       // Lazy paragraph continuation.
-      if (!blankInside && !interruptsParagraph(current) && !LIST_ITEM.test(current) && !isTableStart(lines, i)) {
+      if (
+        !blankInside &&
+        !interruptsParagraph(current) &&
+        !LIST_ITEM.test(current) &&
+        !isTableStart(lines, i)
+      ) {
         body.push(current.trimStart());
         i++;
         continue;
@@ -781,7 +856,9 @@ function parseList(lines: string[], start: number, tail: boolean, references: Re
 
 export function parseMarkdown(source: string, options: ParseOptions = {}): Block[] {
   const lines = source.replace(/\r\n?/g, "\n").split("\n");
-  const references: References = Object.assign(new Map<string, string>(), { linkify: options.linkify !== false });
+  const references: References = Object.assign(new Map<string, string>(), {
+    linkify: options.linkify !== false,
+  });
   collectReferences(lines, references);
   while (lines.length > 0 && !lines[lines.length - 1]!.trim()) lines.pop();
   return parseBlocks(lines, options.streaming === true, references);
@@ -850,8 +927,15 @@ let timeFormatter: Intl.DateTimeFormat | null = null;
  */
 export function formatMessageTimestamp(date: Date, now: Date = new Date()): string {
   if (!timeFormatter) {
-    const resolved = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).resolvedOptions();
-    timeFormatter = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", hourCycle: resolved.hourCycle });
+    const resolved = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).resolvedOptions();
+    timeFormatter = new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+      hourCycle: resolved.hourCycle,
+    });
   }
   const time = timeFormatter.format(date);
   const daysAgo = calendarDaysBetween(date, now);

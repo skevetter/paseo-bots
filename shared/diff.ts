@@ -67,26 +67,41 @@ function hunks(ops: readonly Op[]): string {
     const oldCount = slice.filter((op) => op.kind !== "+").length;
     const newCount = slice.filter((op) => op.kind !== "-").length;
     const first = lineNumbers[start]!;
-    out.push(`@@ -${oldCount ? first.old : first.old - 1},${oldCount} +${newCount ? first.new : first.new - 1},${newCount} @@`);
+    out.push(
+      `@@ -${oldCount ? first.old : first.old - 1},${oldCount} +${newCount ? first.new : first.new - 1},${newCount} @@`,
+    );
     for (const op of slice) out.push(`${op.kind}${op.line}`);
     index = stop;
   }
   return out.join("\n");
 }
 
-export function lineDiff(before: string, after: string, maxChars = 8_000): { diff: string; added: number; removed: number } {
+export function lineDiff(
+  before: string,
+  after: string,
+  maxChars = 8_000,
+): { diff: string; added: number; removed: number } {
   const a = splitLines(before);
   const b = splitLines(after);
   let prefix = 0;
   while (prefix < a.length && prefix < b.length && a[prefix] === b[prefix]) prefix++;
   let suffix = 0;
-  while (suffix < a.length - prefix && suffix < b.length - prefix && a[a.length - 1 - suffix] === b[b.length - 1 - suffix]) suffix++;
+  while (
+    suffix < a.length - prefix &&
+    suffix < b.length - prefix &&
+    a[a.length - 1 - suffix] === b[b.length - 1 - suffix]
+  )
+    suffix++;
   const middleA = a.slice(prefix, a.length - suffix);
   const middleB = b.slice(prefix, b.length - suffix);
   if (middleA.length > MAX_MIDDLE || middleB.length > MAX_MIDDLE) {
     return { diff: "", added: middleB.length, removed: middleA.length };
   }
-  const ops: Op[] = [...a.slice(0, prefix).map((line) => ({ kind: " " as const, line })), ...editScript(middleA, middleB), ...a.slice(a.length - suffix).map((line) => ({ kind: " " as const, line }))];
+  const ops: Op[] = [
+    ...a.slice(0, prefix).map((line) => ({ kind: " " as const, line })),
+    ...editScript(middleA, middleB),
+    ...a.slice(a.length - suffix).map((line) => ({ kind: " " as const, line })),
+  ];
   const diff = hunks(ops);
   return {
     diff: diff.length > maxChars ? `${diff.slice(0, maxChars)}\n…` : diff,

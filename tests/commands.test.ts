@@ -29,14 +29,22 @@ describe("allowed commands", () => {
     expect(await commands.matches("bot-b", "npm test", "/work/app")).toBe(false);
     expect(await commands.remove("bot-a", rule.id)).toBe(true);
     expect(await commands.matches("bot-a", "npm test", "/work/app")).toBe(false);
-    await expect(commands.add("bot-a", "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123'", "/w")).rejects.toThrow("credentials");
+    await expect(
+      commands.add("bot-a", "curl -H 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz0123'", "/w"),
+    ).rejects.toThrow("credentials");
     await expect(commands.add("bot-a", "ls", "relative/dir")).rejects.toThrow("absolute path");
     await expect(commands.add("bot-a", "ls", "/work/../etc")).rejects.toThrow("absolute path");
   });
 
   it("reads the command and folder of a shell approval", () => {
-    expect(shellCommand({ detail: { type: "shell", command: "git status" } }, "/chat")).toEqual({ command: "git status", cwd: "/chat" });
-    expect(shellCommand({ detail: { type: "shell", command: "ls", cwd: "/elsewhere" } }, "/chat")).toEqual({ command: "ls", cwd: "/elsewhere" });
+    expect(shellCommand({ detail: { type: "shell", command: "git status" } }, "/chat")).toEqual({
+      command: "git status",
+      cwd: "/chat",
+    });
+    expect(shellCommand({ detail: { type: "shell", command: "ls", cwd: "/elsewhere" } }, "/chat")).toEqual({
+      command: "ls",
+      cwd: "/elsewhere",
+    });
     expect(shellCommand({ detail: { type: "edit", filePath: "/a" } }, "/chat")).toBeNull();
     expect(shellCommand({}, "/chat")).toBeNull();
   });
@@ -51,8 +59,28 @@ describe("what a bot won't do", () => {
       "Won't act on a schedule.",
       "Keeps skills and routines only after you confirm them.",
     ]);
-    const busy = makeBot({ modeId: "bypassPermissions", contactBots: "allow", apps: ["gmail"], routines: [{ id: "r", name: "r", prompt: "p", enabled: true, schedule: { kind: "webhook" }, resultsChatId: null, createdAt: "" }] });
-    expect(botLimits(busy, { local: true, appsConfigured: true })).toEqual(["Keeps skills and routines only after you confirm them."]);
-    expect(botLimits(busy, { local: false, appsConfigured: true })).toEqual(["Can't contact other bots.", "Has no connected apps."]);
+    const busy = makeBot({
+      modeId: "bypassPermissions",
+      contactBots: "allow",
+      apps: ["gmail"],
+      routines: [
+        {
+          id: "r",
+          name: "r",
+          prompt: "p",
+          enabled: true,
+          schedule: { kind: "webhook" },
+          resultsChatId: null,
+          createdAt: "",
+        },
+      ],
+    });
+    expect(botLimits(busy, { local: true, appsConfigured: true })).toEqual([
+      "Keeps skills and routines only after you confirm them.",
+    ]);
+    expect(botLimits(busy, { local: false, appsConfigured: true })).toEqual([
+      "Can't contact other bots.",
+      "Has no connected apps.",
+    ]);
   });
 });

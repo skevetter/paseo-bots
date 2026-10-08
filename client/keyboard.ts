@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { Dimensions, Keyboard, LayoutAnimation, Platform, TurboModuleRegistry, NativeModules, type KeyboardEvent } from "react-native";
+import {
+  Dimensions,
+  Keyboard,
+  LayoutAnimation,
+  Platform,
+  TurboModuleRegistry,
+  NativeModules,
+  type KeyboardEvent,
+} from "react-native";
 
 /** Paseo's keyboard shift (keyboard/shift/internal/policy.ts): iOS heights below this are the predictive bar alone. */
 const IOS_KEYBOARD_MIN_HEIGHT = 120;
@@ -31,19 +39,35 @@ export function useKeyboardHeight(): number {
       if (next === current) return;
       current = next;
       if (ios) {
-        LayoutAnimation.configureNext(LayoutAnimation.create(duration || 250, LayoutAnimation.Types.keyboard, LayoutAnimation.Properties.opacity));
+        LayoutAnimation.configureNext(
+          LayoutAnimation.create(
+            duration || 250,
+            LayoutAnimation.Types.keyboard,
+            LayoutAnimation.Properties.opacity,
+          ),
+        );
       } else {
-        LayoutAnimation.configureNext(LayoutAnimation.create(duration || 200, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
+        LayoutAnimation.configureNext(
+          LayoutAnimation.create(
+            duration || 200,
+            LayoutAnimation.Types.easeInEaseOut,
+            LayoutAnimation.Properties.opacity,
+          ),
+        );
       }
       setHeight(next);
     };
     const subscriptions = ios
       ? [
-          Keyboard.addListener("keyboardWillChangeFrame", (event) => apply(iosKeyboardHeight(event, Dimensions.get("screen").height), event.duration)),
+          Keyboard.addListener("keyboardWillChangeFrame", (event) =>
+            apply(iosKeyboardHeight(event, Dimensions.get("screen").height), event.duration),
+          ),
           Keyboard.addListener("keyboardWillHide", (event) => apply(0, event.duration)),
         ]
       : [
-          Keyboard.addListener("keyboardDidShow", (event) => apply(Math.max(0, event.endCoordinates.height), undefined)),
+          Keyboard.addListener("keyboardDidShow", (event) =>
+            apply(Math.max(0, event.endCoordinates.height), undefined),
+          ),
           Keyboard.addListener("keyboardDidHide", () => apply(0, undefined)),
         ];
     return () => subscriptions.forEach((subscription) => subscription.remove());
@@ -53,7 +77,9 @@ export function useKeyboardHeight(): number {
 
 // ---------------------------------------------------------------- safe area
 
-type SafeAreaModule = { getConstants?: () => { initialWindowMetrics?: { insets?: { bottom?: number } } | null } };
+type SafeAreaModule = {
+  getConstants?: () => { initialWindowMetrics?: { insets?: { bottom?: number } } | null };
+};
 let initialBottomInset: number | null | undefined;
 
 /** The host's own safe-area insets (react-native-safe-area-context's startup metrics), when its module is reachable. */
@@ -62,7 +88,8 @@ function readInitialBottomInset(): number | null {
   initialBottomInset = null;
   try {
     const module =
-      (TurboModuleRegistry.get("RNCSafeAreaContext") as SafeAreaModule | null) ?? (NativeModules.RNCSafeAreaContext as SafeAreaModule | undefined);
+      (TurboModuleRegistry.get("RNCSafeAreaContext") as SafeAreaModule | null) ??
+      (NativeModules.RNCSafeAreaContext as SafeAreaModule | undefined);
     const bottom = module?.getConstants?.().initialWindowMetrics?.insets?.bottom;
     if (typeof bottom === "number" && Number.isFinite(bottom) && bottom >= 0) initialBottomInset = bottom;
   } catch {

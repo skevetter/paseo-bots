@@ -16,7 +16,19 @@ import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-export type SectionId = "overview" | "identity" | "soul" | "skills" | "playbooks" | "memory" | "routines" | "access" | "model" | "permissions" | "history" | "usage";
+export type SectionId =
+  | "overview"
+  | "identity"
+  | "soul"
+  | "skills"
+  | "playbooks"
+  | "memory"
+  | "routines"
+  | "access"
+  | "model"
+  | "permissions"
+  | "history"
+  | "usage";
 
 interface SectionEntry {
   id: SectionId;
@@ -35,36 +47,122 @@ const GROUPS: { label: string; sections: SectionEntry[] }[] = [
   {
     label: "Bot",
     sections: [
-      { id: "overview", label: "Overview", icon: "LayoutDashboard", rows: ["Set up with the bot", "System prompt"], keywords: "summary setup prompt preview tokens" },
-      { id: "identity", label: "Identity", icon: "IdCard", rows: ["Avatar", "Colour", "Shape", "Image URL", "Name", "Title", "Blurb", "Voice", "Read replies aloud"], keywords: "description picture color face upload generate speech speak tts" },
-      { id: "soul", label: "Soul", icon: "ScrollText", rows: ["Standing instructions"], keywords: "system prompt soul behaviour behavior" },
+      {
+        id: "overview",
+        label: "Overview",
+        icon: "LayoutDashboard",
+        rows: ["Set up with the bot", "System prompt"],
+        keywords: "summary setup prompt preview tokens",
+      },
+      {
+        id: "identity",
+        label: "Identity",
+        icon: "IdCard",
+        rows: [
+          "Avatar",
+          "Colour",
+          "Shape",
+          "Image URL",
+          "Name",
+          "Title",
+          "Blurb",
+          "Voice",
+          "Read replies aloud",
+        ],
+        keywords: "description picture color face upload generate speech speak tts",
+      },
+      {
+        id: "soul",
+        label: "Soul",
+        icon: "ScrollText",
+        rows: ["Standing instructions"],
+        keywords: "system prompt soul behaviour behavior",
+      },
     ],
   },
   {
     label: "Knowledge",
     sections: [
-      { id: "skills", label: "Skills", icon: "Puzzle", rows: ["Library skills"], keywords: "skill github SKILL.md library" },
-      { id: "playbooks", label: "Playbooks", icon: "BookOpenCheck", rows: ["New playbook", "Trigger words", "Steps"], keywords: "playbook process guidance triggers steps procedure" },
-      { id: "memory", label: "Memory", icon: "Brain", rows: ["MEMORY.md", "Topic files", "Changes", "Daily log", "New topic file"], keywords: "memory notes remember undo journal log" },
+      {
+        id: "skills",
+        label: "Skills",
+        icon: "Puzzle",
+        rows: ["Library skills"],
+        keywords: "skill github SKILL.md library",
+      },
+      {
+        id: "playbooks",
+        label: "Playbooks",
+        icon: "BookOpenCheck",
+        rows: ["New playbook", "Trigger words", "Steps"],
+        keywords: "playbook process guidance triggers steps procedure",
+      },
+      {
+        id: "memory",
+        label: "Memory",
+        icon: "Brain",
+        rows: ["MEMORY.md", "Topic files", "Changes", "Daily log", "New topic file"],
+        keywords: "memory notes remember undo journal log",
+      },
     ],
   },
   {
     label: "Automation",
-    sections: [{ id: "routines", label: "Routines", icon: "CalendarClock", rows: ["New routine", "Cadence", "Run now"], keywords: "schedule routine daily interval cron automation" }],
+    sections: [
+      {
+        id: "routines",
+        label: "Routines",
+        icon: "CalendarClock",
+        rows: ["New routine", "Cadence", "Run now"],
+        keywords: "schedule routine daily interval cron automation",
+      },
+    ],
   },
   {
     label: "Agent",
     sections: [
-      { id: "access", label: "Access", icon: "KeyRound", rows: ["Working folder", "Paseo tools", "MCP servers", "Connected apps", "Always allowed"], keywords: "folder directory path mcp tools apps composio gmail slack grants library" },
-      { id: "model", label: "Model", icon: "Sparkles", rows: ["Host", "Agent profile", "Provider", "Model", "Thinking"], keywords: "effort reasoning" },
-      { id: "permissions", label: "Permissions", icon: "Shield", rows: ["Mode", "Contact other bots", "Allowed commands"], keywords: "approval permissions ask auto bots contact delegate commands allowlist shell" },
+      {
+        id: "access",
+        label: "Access",
+        icon: "KeyRound",
+        rows: ["Working folder", "Paseo tools", "MCP servers", "Connected apps", "Always allowed"],
+        keywords: "folder directory path mcp tools apps composio gmail slack grants library",
+      },
+      {
+        id: "model",
+        label: "Model",
+        icon: "Sparkles",
+        rows: ["Host", "Agent profile", "Provider", "Model", "Thinking"],
+        keywords: "effort reasoning",
+      },
+      {
+        id: "permissions",
+        label: "Permissions",
+        icon: "Shield",
+        rows: ["Mode", "Contact other bots", "Allowed commands"],
+        keywords: "approval permissions ask auto bots contact delegate commands allowlist shell",
+      },
     ],
   },
   {
     label: "Activity",
     sections: [
-      { id: "history", label: "History", icon: "History", rows: ["Earlier versions"], keywords: "undo restore changes", modal: true },
-      { id: "usage", label: "Usage", icon: "ChartNoAxesColumn", rows: ["Chats", "Tokens", "Cost"], keywords: "usage", modal: true },
+      {
+        id: "history",
+        label: "History",
+        icon: "History",
+        rows: ["Earlier versions"],
+        keywords: "undo restore changes",
+        modal: true,
+      },
+      {
+        id: "usage",
+        label: "Usage",
+        icon: "ChartNoAxesColumn",
+        rows: ["Chats", "Tokens", "Cost"],
+        keywords: "usage",
+        modal: true,
+      },
     ],
   },
 ];
@@ -116,8 +214,17 @@ export function BotPanel(props: BotPanelProps) {
   if (open) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-        <PanelHeader colors={colors} compact={compact} title={open.label} onBack={() => onSection(null)} onClose={onClose} />
-        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 16, paddingTop: 24, paddingBottom: 32 + bottomInset }}>
+        <PanelHeader
+          colors={colors}
+          compact={compact}
+          title={open.label}
+          onBack={() => onSection(null)}
+          onClose={onClose}
+        />
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ padding: 16, paddingTop: 24, paddingBottom: 32 + bottomInset }}
+        >
           {renderSection(open.id, props)}
         </ScrollView>
       </View>
@@ -136,26 +243,62 @@ export function BotPanel(props: BotPanelProps) {
   return (
     <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
       <PanelHeader colors={colors} compact={compact} title={bot.name || "Untitled bot"} onClose={onClose} />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 24 + bottomInset }}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 24 + bottomInset }}
+      >
         <View style={{ paddingHorizontal: 8, paddingTop: 8, gap: 8 }}>
           <SearchField colors={colors} value={query} onChangeText={setQuery} placeholder="Search settings" />
-          {problems.length > 0 ? <Alert colors={colors} variant="warning" title="Needs attention" description={problems} /> : null}
+          {problems.length > 0 ? (
+            <Alert colors={colors} variant="warning" title="Needs attention" description={problems} />
+          ) : null}
         </View>
         {needle ? (
           <View style={{ paddingVertical: 8, paddingHorizontal: 8, gap: 2 }}>
             {matches.map(({ entry, rows }) => (
-              <SectionRow key={entry.id} colors={colors} compact={compact} entry={entry} hint={rows.join(", ")} onPress={() => choose(entry)} />
+              <SectionRow
+                key={entry.id}
+                colors={colors}
+                compact={compact}
+                entry={entry}
+                hint={rows.join(", ")}
+                onPress={() => choose(entry)}
+              />
             ))}
             {matches.length === 0 ? (
-              <Text style={{ fontSize: ui(14), color: colors.foregroundMuted, textAlign: "center", paddingVertical: 32 }}>No settings match "{query.trim()}"</Text>
+              <Text
+                style={{
+                  fontSize: ui(14),
+                  color: colors.foregroundMuted,
+                  textAlign: "center",
+                  paddingVertical: 32,
+                }}
+              >
+                No settings match "{query.trim()}"
+              </Text>
             ) : null}
           </View>
         ) : (
           GROUPS.map((group) => (
             <View key={group.label} style={{ paddingVertical: 8, paddingHorizontal: 8, gap: 2 }}>
-              <Text style={{ fontSize: ui(14), color: nativeTokens(colors).foregroundExtraMuted, paddingHorizontal: 8, paddingVertical: 4 }}>{group.label}</Text>
+              <Text
+                style={{
+                  fontSize: ui(14),
+                  color: nativeTokens(colors).foregroundExtraMuted,
+                  paddingHorizontal: 8,
+                  paddingVertical: 4,
+                }}
+              >
+                {group.label}
+              </Text>
               {group.sections.map((entry) => (
-                <SectionRow key={entry.id} colors={colors} compact={compact} entry={entry} onPress={() => choose(entry)} />
+                <SectionRow
+                  key={entry.id}
+                  colors={colors}
+                  compact={compact}
+                  entry={entry}
+                  onPress={() => choose(entry)}
+                />
               ))}
             </View>
           ))
@@ -204,7 +347,19 @@ function renderSection(id: SectionId, props: PanelProps): ReactNode {
  * padding, radius 8, 16pt icon, muted 14pt label, surfaceSidebarHover on hover) with a
  * drill-in chevron when the detail replaces the list. Touch-sized (36) on compact.
  */
-function SectionRow({ colors, compact, entry, hint, onPress }: { colors: Colors; compact: boolean; entry: SectionEntry; hint?: string; onPress(): void }) {
+function SectionRow({
+  colors,
+  compact,
+  entry,
+  hint,
+  onPress,
+}: {
+  colors: Colors;
+  compact: boolean;
+  entry: SectionEntry;
+  hint?: string;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   return (
     <Pressable
@@ -225,7 +380,10 @@ function SectionRow({ colors, compact, entry, hint, onPress }: { colors: Colors;
     >
       <Icon name={entry.icon} size={16} color={hovered ? colors.foreground : colors.foregroundMuted} />
       <View style={{ flex: 1, minWidth: 0 }}>
-        <Text numberOfLines={1} style={{ fontSize: ui(14), color: hovered ? colors.foreground : colors.foregroundMuted }}>
+        <Text
+          numberOfLines={1}
+          style={{ fontSize: ui(14), color: hovered ? colors.foreground : colors.foregroundMuted }}
+        >
           {entry.label}
         </Text>
         {hint ? (
@@ -244,7 +402,19 @@ function SectionRow({ colors, compact, entry, hint, onPress }: { colors: Colors;
  * detail page (BackHeader), and the close button. 36 high on desktop, 48 on compact;
  * the title is ScreenTitle (14pt, weight 300 desktop / 400 compact).
  */
-function PanelHeader({ colors, compact, title, onBack, onClose }: { colors: Colors; compact: boolean; title: string; onBack?: () => void; onClose(): void }) {
+function PanelHeader({
+  colors,
+  compact,
+  title,
+  onBack,
+  onClose,
+}: {
+  colors: Colors;
+  compact: boolean;
+  title: string;
+  onBack?: () => void;
+  onClose(): void;
+}) {
   return (
     <View
       style={{
@@ -259,17 +429,56 @@ function PanelHeader({ colors, compact, title, onBack, onClose }: { colors: Colo
         backgroundColor: colors.surface0,
       }}
     >
-      {onBack ? <HeaderButton colors={colors} compact={compact} icon="ArrowLeft" label="Back to bot settings" iconSize={20} onPress={onBack} /> : null}
-      <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: ui(14), fontWeight: compact ? "400" : "300", color: colors.foreground }}>
+      {onBack ? (
+        <HeaderButton
+          colors={colors}
+          compact={compact}
+          icon="ArrowLeft"
+          label="Back to bot settings"
+          iconSize={20}
+          onPress={onBack}
+        />
+      ) : null}
+      <Text
+        numberOfLines={1}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          fontSize: ui(14),
+          fontWeight: compact ? "400" : "300",
+          color: colors.foreground,
+        }}
+      >
         {title}
       </Text>
-      <HeaderButton colors={colors} compact={compact} icon="X" label="Close bot settings" iconSize={18} onPress={onClose} />
+      <HeaderButton
+        colors={colors}
+        compact={compact}
+        icon="X"
+        label="Close bot settings"
+        iconSize={18}
+        onPress={onClose}
+      />
     </View>
   );
 }
 
 /** Header control: 34 box on desktop, 32 on compact; interactionHighlight on hover and press. */
-function HeaderButton({ colors, compact, icon, label, iconSize, onPress }: { colors: Colors; compact: boolean; icon: string; label: string; iconSize: number; onPress(): void }) {
+function HeaderButton({
+  colors,
+  compact,
+  icon,
+  label,
+  iconSize,
+  onPress,
+}: {
+  colors: Colors;
+  compact: boolean;
+  icon: string;
+  label: string;
+  iconSize: number;
+  onPress(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   const box = compact ? 32 : 34;
   return (

@@ -30,7 +30,10 @@ export function hslToHex(h: number, s: number, l: number): string {
   const k = (n: number) => (n + hue / 30) % 12;
   const a = sat * Math.min(light, 1 - light);
   const f = (n: number) => light - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  const hex = (x: number) => Math.round(x * 255).toString(16).padStart(2, "0");
+  const hex = (x: number) =>
+    Math.round(x * 255)
+      .toString(16)
+      .padStart(2, "0");
   return `#${hex(f(0))}${hex(f(8))}${hex(f(4))}`;
 }
 
@@ -141,7 +144,16 @@ export function luminance(hex: string): number {
 function blend(a: string, b: string, weight: number): string {
   const x = hexRgb(a);
   const y = hexRgb(b);
-  return "#" + x.map((channel, i) => Math.round(channel * weight + y[i]! * (1 - weight)).toString(16).padStart(2, "0")).join("");
+  return (
+    "#" +
+    x
+      .map((channel, i) =>
+        Math.round(channel * weight + y[i]! * (1 - weight))
+          .toString(16)
+          .padStart(2, "0"),
+      )
+      .join("")
+  );
 }
 
 /** Dark-theme background: a quiet tint of the body over near-black. Night palettes are already dark. */

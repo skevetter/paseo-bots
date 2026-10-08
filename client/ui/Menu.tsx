@@ -1,6 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { ActivityIndicator, Platform, Pressable, Text, View, type LayoutRectangle } from "react-native";
 import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
@@ -67,7 +77,10 @@ export function measureAnchor(ref: RefObject<View | null>): Promise<LayoutRectan
 export function contextMenuProps(onOpen: (anchor: LayoutRectangle) => void): object {
   if (Platform.OS !== "web") return {};
   return {
-    onContextMenu: (event: { preventDefault?: () => void; nativeEvent: { clientX?: number; clientY?: number; pageX?: number; pageY?: number } }) => {
+    onContextMenu: (event: {
+      preventDefault?: () => void;
+      nativeEvent: { clientX?: number; clientY?: number; pageX?: number; pageY?: number };
+    }) => {
       event.preventDefault?.();
       const x = event.nativeEvent.clientX ?? event.nativeEvent.pageX ?? 0;
       const y = event.nativeEvent.clientY ?? event.nativeEvent.pageY ?? 0;
@@ -78,11 +91,27 @@ export function contextMenuProps(onOpen: (anchor: LayoutRectangle) => void): obj
 
 // This plugin typechecks without the DOM library. Declare only what this module uses.
 const dom = globalThis as unknown as {
-  addEventListener?: (type: "keydown", listener: (event: { key: string; stopPropagation(): void }) => void, capture?: boolean) => void;
-  removeEventListener?: (type: "keydown", listener: (event: { key: string; stopPropagation(): void }) => void, capture?: boolean) => void;
+  addEventListener?: (
+    type: "keydown",
+    listener: (event: { key: string; stopPropagation(): void }) => void,
+    capture?: boolean,
+  ) => void;
+  removeEventListener?: (
+    type: "keydown",
+    listener: (event: { key: string; stopPropagation(): void }) => void,
+    capture?: boolean,
+  ) => void;
 };
 
-export function MenuProvider({ colors, compact, children }: { colors: Colors; compact: boolean; children: ReactNode }) {
+export function MenuProvider({
+  colors,
+  compact,
+  children,
+}: {
+  colors: Colors;
+  compact: boolean;
+  children: ReactNode;
+}) {
   const [spec, setSpec] = useState<MenuSpec | null>(null);
   const [origin, setOrigin] = useState<LayoutRectangle>({ x: 0, y: 0, width: 0, height: 0 });
   const root = useRef<View>(null);
@@ -124,7 +153,17 @@ export function MenuProvider({ colors, compact, children }: { colors: Colors; co
   );
 }
 
-function Popover({ colors, spec, origin, onClose }: { colors: Colors; spec: MenuSpec; origin: LayoutRectangle; onClose(): void }) {
+function Popover({
+  colors,
+  spec,
+  origin,
+  onClose,
+}: {
+  colors: Colors;
+  spec: MenuSpec;
+  origin: LayoutRectangle;
+  onClose(): void;
+}) {
   const tokens = nativeTokens(colors);
   const [height, setHeight] = useState(0);
   const width = spec.width ?? 220;
@@ -135,7 +174,11 @@ function Popover({ colors, spec, origin, onClose }: { colors: Colors; spec: Menu
   const top = height && below + height > origin.height - 8 ? Math.max(8, anchor.y - height - 4) : below;
   return (
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
-      <Pressable accessibilityLabel="Close menu" onPress={onClose} style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} />
+      <Pressable
+        accessibilityLabel="Close menu"
+        onPress={onClose}
+        style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
+      />
       <View
         accessibilityRole="menu"
         onLayout={(event) => setHeight(event.nativeEvent.layout.height)}
@@ -163,22 +206,51 @@ function Popover({ colors, spec, origin, onClose }: { colors: Colors; spec: Menu
   );
 }
 
-function Entries({ colors, entries, compact, onClose }: { colors: Colors; entries: MenuEntry[]; compact: boolean; onClose(): void }) {
+function Entries({
+  colors,
+  entries,
+  compact,
+  onClose,
+}: {
+  colors: Colors;
+  entries: MenuEntry[];
+  compact: boolean;
+  onClose(): void;
+}) {
   const tokens = nativeTokens(colors);
   return (
     <>
       {entries.map((entry, index) =>
         entry.kind === "separator" ? (
-          <View key={`sep-${index}`} style={{ height: 1, marginVertical: 4, backgroundColor: tokens.borderAccent }} />
+          <View
+            key={`sep-${index}`}
+            style={{ height: 1, marginVertical: 4, backgroundColor: tokens.borderAccent }}
+          />
         ) : (
-          <MenuRow key={`${entry.label}-${index}`} colors={colors} entry={entry} compact={compact} onClose={onClose} />
+          <MenuRow
+            key={`${entry.label}-${index}`}
+            colors={colors}
+            entry={entry}
+            compact={compact}
+            onClose={onClose}
+          />
         ),
       )}
     </>
   );
 }
 
-function MenuRow({ colors, entry, compact, onClose }: { colors: Colors; entry: Exclude<MenuEntry, { kind: "separator" }>; compact: boolean; onClose(): void }) {
+function MenuRow({
+  colors,
+  entry,
+  compact,
+  onClose,
+}: {
+  colors: Colors;
+  entry: Exclude<MenuEntry, { kind: "separator" }>;
+  compact: boolean;
+  onClose(): void;
+}) {
   const { hovered, hoverProps } = useHover();
   const [pending, setPending] = useState(false);
   const tint = entry.destructive ? colors.statusDanger : colors.foreground;
@@ -217,13 +289,27 @@ function MenuRow({ colors, entry, compact, onClose }: { colors: Colors; entry: E
     >
       {entry.icon || entry.leading || pending ? (
         <View style={{ width: 16, alignItems: "center", justifyContent: "center" }}>
-          {pending ? <ActivityIndicator size="small" color={colors.foregroundMuted} /> : (entry.leading ?? <Icon name={entry.icon!} size={14} color={entry.destructive ? colors.statusDanger : colors.foregroundMuted} />)}
+          {pending ? (
+            <ActivityIndicator size="small" color={colors.foregroundMuted} />
+          ) : (
+            (entry.leading ?? (
+              <Icon
+                name={entry.icon!}
+                size={14}
+                color={entry.destructive ? colors.statusDanger : colors.foregroundMuted}
+              />
+            ))
+          )}
         </View>
       ) : null}
       <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), lineHeight: 18, color: tint }}>
         {pending && entry.pendingLabel ? entry.pendingLabel : entry.label}
       </Text>
-      {entry.trailing ? <Text style={{ marginLeft: "auto", fontSize: ui(12), color: colors.foregroundMuted }}>{entry.trailing}</Text> : null}
+      {entry.trailing ? (
+        <Text style={{ marginLeft: "auto", fontSize: ui(12), color: colors.foregroundMuted }}>
+          {entry.trailing}
+        </Text>
+      ) : null}
       {entry.selected ? (
         <View style={{ marginLeft: "auto", width: 16, alignItems: "center", justifyContent: "center" }}>
           <Icon name="Check" size={16} color={colors.foregroundMuted} />

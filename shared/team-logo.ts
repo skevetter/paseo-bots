@@ -6,7 +6,17 @@
 // Each motif is hand-drawn on a 12×12 area of a 16×16 grid and shaded the way the
 // avatars are: light from the top-left, two shadow tones and a coloured outline.
 
-import { buildPalette, darkBackground, PALETTES, pick, rng, toRuns, type Palette, type PaletteDef, type PixelRun } from "./pixel";
+import {
+  buildPalette,
+  darkBackground,
+  PALETTES,
+  pick,
+  rng,
+  toRuns,
+  type Palette,
+  type PaletteDef,
+  type PixelRun,
+} from "./pixel";
 
 export const LOGO_SIZE = 16;
 
@@ -279,7 +289,8 @@ function draw(motif: MotifName, team: Palette): TeamLogoImage {
     const left = Math.floor((LOGO_SIZE - line.length) / 2);
     line.split("").forEach((char, dx) => (grid[top + dy]![left + dx] = char));
   });
-  const at = (x: number, y: number) => (x >= 0 && y >= 0 && x < LOGO_SIZE && y < LOGO_SIZE ? grid[y]![x]! : ".");
+  const at = (x: number, y: number) =>
+    x >= 0 && y >= 0 && x < LOGO_SIZE && y < LOGO_SIZE ? grid[y]![x]! : ".";
   // Thin lines neither take nor cast shading and outline.
   const solid = (x: number, y: number) => at(x, y) !== "." && at(x, y) !== "L";
   const midY = top + (def.art.length - 1) / 2;
@@ -317,7 +328,11 @@ function themed(motif: MotifName, team: Palette, options: LogoOptions): TeamLogo
 }
 
 /** A team's logo from its seed; `palette` pins the team colour. */
-export function teamLogo(seed: string, palette: number | null = null, options: LogoOptions = {}): TeamLogoImage {
+export function teamLogo(
+  seed: string,
+  palette: number | null = null,
+  options: LogoOptions = {},
+): TeamLogoImage {
   const next = rng(`team:${seed}`);
   const motif = pick(next, MOTIF_NAMES);
   const seeded = pick(next, PALETTES);

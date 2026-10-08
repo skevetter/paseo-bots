@@ -5,7 +5,18 @@ import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect } from "@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { formatPairs, joinArgs, MCP_NAME, RESERVED_MCP_NAMES, parseMcpJson, parsePairs, splitArgs, type BotMcpServer, type LibraryMcpServer, type McpServerConfig } from "../../shared/bot";
+import {
+  formatPairs,
+  joinArgs,
+  MCP_NAME,
+  RESERVED_MCP_NAMES,
+  parseMcpJson,
+  parsePairs,
+  splitArgs,
+  type BotMcpServer,
+  type LibraryMcpServer,
+  type McpServerConfig,
+} from "../../shared/bot";
 import { PASEO_MCP_NAME } from "../../shared/paseo-tools";
 import { mcpSourcesRpc } from "../../shared/rpc";
 import { Button, FormTextArea, InputField, SheetFooter, TextAreaField } from "../panel/controls";
@@ -16,7 +27,11 @@ type Colors = PluginTheme["colors"];
 /** The editable part of a library MCP server. */
 export type McpDraft = Pick<LibraryMcpServer, "name" | "description" | "config">;
 
-export const BLANK_SERVER: McpDraft = { name: "", description: "", config: { type: "stdio", command: "", args: [], env: {} } };
+export const BLANK_SERVER: McpDraft = {
+  name: "",
+  description: "",
+  config: { type: "stdio", command: "", args: [], env: {} },
+};
 
 const URL_PATTERN = /^https?:\/\/\S+$/i;
 
@@ -34,12 +49,20 @@ interface ServerSheetProps {
 export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSave }: ServerSheetProps) {
   const [server, setServer] = useState<McpDraft>(() => JSON.parse(JSON.stringify(initial)) as McpDraft);
   const { config } = server;
-  const [pairsText, setPairsText] = useState(() => formatPairs(config.type === "stdio" ? config.env : config.headers));
+  const [pairsText, setPairsText] = useState(() =>
+    formatPairs(config.type === "stdio" ? config.env : config.headers),
+  );
   const setConfig = (next: McpServerConfig) => setServer({ ...server, config: next });
   const setType = (type: McpServerConfig["type"]) => {
     if (type === config.type) return;
     const next: McpServerConfig =
-      type === "stdio" ? { type, command: "", args: [], env: {} } : { type, url: config.type === "stdio" ? "" : config.url, headers: config.type === "stdio" ? {} : config.headers };
+      type === "stdio"
+        ? { type, command: "", args: [], env: {} }
+        : {
+            type,
+            url: config.type === "stdio" ? "" : config.url,
+            headers: config.type === "stdio" ? {} : config.headers,
+          };
     setConfig(next);
     setPairsText(formatPairs(next.type === "stdio" ? next.env : next.headers));
   };
@@ -54,17 +77,38 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
         : otherNames.includes(name)
           ? `"${name}" is already in the library`
           : null;
-  const urlError = config.type !== "stdio" && config.url.trim() && !URL_PATTERN.test(config.url.trim()) ? "Use an http:// or https:// URL" : null;
+  const urlError =
+    config.type !== "stdio" && config.url.trim() && !URL_PATTERN.test(config.url.trim())
+      ? "Use an http:// or https:// URL"
+      : null;
   const complete = !!name && (config.type === "stdio" ? !!config.command.trim() : !!config.url.trim());
   const canSave = complete && !nameError && !urlError;
 
   return (
-    <Modal title={isNew ? "New MCP server" : "Edit MCP server"} open onOpenChange={(open) => !open && onClose()}>
+    <Modal
+      title={isNew ? "New MCP server" : "Edit MCP server"}
+      open
+      onOpenChange={(open) => !open && onClose()}
+    >
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <View style={{ marginBottom: 24 }}>
           <SettingsCard>
-            <InputField colors={colors} label="Name" hint="Agents see its tools as name/tool" error={nameError} initialValue={server.name} placeholder="gmail" onChangeText={(text) => setServer({ ...server, name: text })} />
-            <InputField colors={colors} label="Description" initialValue={server.description} placeholder="What it's for" onChangeText={(description) => setServer({ ...server, description })} />
+            <InputField
+              colors={colors}
+              label="Name"
+              hint="Agents see its tools as name/tool"
+              error={nameError}
+              initialValue={server.name}
+              placeholder="gmail"
+              onChangeText={(text) => setServer({ ...server, name: text })}
+            />
+            <InputField
+              colors={colors}
+              label="Description"
+              initialValue={server.description}
+              placeholder="What it's for"
+              onChangeText={(description) => setServer({ ...server, description })}
+            />
             <SettingsSelect
               label="Transport"
               value={config.type}
@@ -76,12 +120,31 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
               onValueChange={setType}
             />
             {config.type === "stdio" ? (
-              <InputField colors={colors} key="command" label="Command" monospace autoCapitalize="none" autoCorrect={false} initialValue={config.command} placeholder="npx" onChangeText={(command) => setConfig({ ...config, command })} />
+              <InputField
+                colors={colors}
+                key="command"
+                label="Command"
+                monospace
+                autoCapitalize="none"
+                autoCorrect={false}
+                initialValue={config.command}
+                placeholder="npx"
+                onChangeText={(command) => setConfig({ ...config, command })}
+              />
             ) : (
-              <InputField colors={colors} key={`url-${config.type}`} label="URL" error={urlError} initialValue={config.url} placeholder="https://example.com/mcp" onChangeText={(url) => setConfig({ ...config, url: url.trim() })} />
+              <InputField
+                colors={colors}
+                key={`url-${config.type}`}
+                label="URL"
+                error={urlError}
+                initialValue={config.url}
+                placeholder="https://example.com/mcp"
+                onChangeText={(url) => setConfig({ ...config, url: url.trim() })}
+              />
             )}
             {config.type === "stdio" ? (
-              <InputField colors={colors}
+              <InputField
+                colors={colors}
                 key="args"
                 label="Arguments"
                 monospace
@@ -103,7 +166,9 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
               onChangeText={(text) => {
                 setPairsText(text);
                 const pairs = parsePairs(text);
-                setConfig(config.type === "stdio" ? { ...config, env: pairs } : { ...config, headers: pairs });
+                setConfig(
+                  config.type === "stdio" ? { ...config, env: pairs } : { ...config, headers: pairs },
+                );
               }}
               autoCapitalize="none"
               autoCorrect={false}
@@ -133,7 +198,15 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
  * Adds servers from an `{"mcpServers": {...}}` block: pasted, or read from
  * Claude Code, Claude Desktop or Cursor on this computer. They arrive off.
  */
-export function ImportSheet({ colors, onClose, onImport }: { colors: Colors; onClose(): void; onImport(servers: BotMcpServer[]): void }) {
+export function ImportSheet({
+  colors,
+  onClose,
+  onImport,
+}: {
+  colors: Colors;
+  onClose(): void;
+  onImport(servers: BotMcpServer[]): void;
+}) {
   const [json, setJson] = useState("");
   const [error, setError] = useState<string | null>(null);
   const readSources = useRpc(mcpSourcesRpc);
@@ -142,7 +215,10 @@ export function ImportSheet({ colors, onClose, onImport }: { colors: Colors; onC
     <Modal title="Import MCP servers" open onOpenChange={(open) => !open && onClose()}>
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         {sources.data?.sources.length ? (
-          <SettingsSection title="On this computer" info="Servers other apps have set up here. Pick one to review its JSON before adding.">
+          <SettingsSection
+            title="On this computer"
+            info="Servers other apps have set up here. Pick one to review its JSON before adding."
+          >
             <SettingsCard>
               {sources.data.sources.map((source) => (
                 <SettingsAction
@@ -159,7 +235,10 @@ export function ImportSheet({ colors, onClose, onImport }: { colors: Colors; onC
             </SettingsCard>
           </SettingsSection>
         ) : null}
-        <SettingsSection title="JSON" info='Paste {"mcpServers": {...}} from Claude Code, Cursor or a .mcp.json file. Servers arrive switched off until a test connects to them; a name that is already taken gets a number added.'>
+        <SettingsSection
+          title="JSON"
+          info='Paste {"mcpServers": {...}} from Claude Code, Cursor or a .mcp.json file. Servers arrive switched off until a test connects to them; a name that is already taken gets a number added.'
+        >
           <FormTextArea
             colors={colors}
             monospace
@@ -175,7 +254,10 @@ export function ImportSheet({ colors, onClose, onImport }: { colors: Colors; onC
             placeholder='{"mcpServers": {"fetch": {"command": "uvx", "args": ["mcp-server-fetch"]}}}'
           />
           {error ? (
-            <Text accessibilityRole="alert" style={{ fontSize: ui(12), color: colors.statusDanger, marginLeft: 4 }}>
+            <Text
+              accessibilityRole="alert"
+              style={{ fontSize: ui(12), color: colors.statusDanger, marginLeft: 4 }}
+            >
               {error}
             </Text>
           ) : null}

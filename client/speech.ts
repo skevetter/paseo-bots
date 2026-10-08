@@ -91,7 +91,9 @@ const subscribeVoices = (listener: () => void) => {
 /** This device's voices in the languages the user reads, or all of them when none match. */
 export function useVoices(): DeviceVoice[] {
   const all = useSyncExternalStore(subscribeVoices, readVoices);
-  const languages = ((globalThis as { navigator?: { languages?: readonly string[] } }).navigator?.languages ?? []).map((language) => language.split("-")[0]!.toLowerCase());
+  const languages = (
+    (globalThis as { navigator?: { languages?: readonly string[] } }).navigator?.languages ?? []
+  ).map((language) => language.split("-")[0]!.toLowerCase());
   const preferred = all.filter((voice) => languages.includes(voice.lang.split(/[-_]/)[0]!.toLowerCase()));
   return (preferred.length ? preferred : all).slice().sort((a, b) => a.name.localeCompare(b.name));
 }

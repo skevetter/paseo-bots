@@ -33,7 +33,9 @@ function parse(raw: string | null | undefined): TypeScale {
     const stored = JSON.parse(raw) as Record<string, unknown>;
     // Older versions stored `uiFontSize` on a 16pt scale; Paseo converts it to the 14pt base.
     const legacy = readNumber(stored.uiFontSize, 11, 24);
-    const ui = readNumber(stored.uiBaseFontSize, 10, 21) ?? (legacy !== undefined ? Math.min(21, Math.max(10, Math.round((14 * legacy) / 16))) : DEFAULTS.ui);
+    const ui =
+      readNumber(stored.uiBaseFontSize, 10, 21) ??
+      (legacy !== undefined ? Math.min(21, Math.max(10, Math.round((14 * legacy) / 16))) : DEFAULTS.ui);
     // A missing content size follows the interface size when one was stored.
     const hasUi = stored.uiBaseFontSize !== undefined || legacy !== undefined;
     return {
@@ -49,13 +51,19 @@ function parse(raw: string | null | undefined): TypeScale {
 // This plugin typechecks without the DOM library. Declare only what this module uses.
 declare const localStorage: { getItem(key: string): string | null } | undefined;
 
-type AsyncStorageModule = { multiGet(keys: string[], callback: (errors: unknown, result: [string, string | null][] | null) => void): void };
+type AsyncStorageModule = {
+  multiGet(
+    keys: string[],
+    callback: (errors: unknown, result: [string, string | null][] | null) => void,
+  ): void;
+};
 
 function readNative(): Promise<string | null> {
   return new Promise((resolve) => {
     try {
       const storage =
-        (TurboModuleRegistry.get("RNCAsyncStorage") as AsyncStorageModule | null) ?? (NativeModules.RNCAsyncStorage as AsyncStorageModule | undefined);
+        (TurboModuleRegistry.get("RNCAsyncStorage") as AsyncStorageModule | null) ??
+        (NativeModules.RNCAsyncStorage as AsyncStorageModule | undefined);
       if (!storage?.multiGet) return resolve(null);
       storage.multiGet([SETTINGS_KEY], (_errors, result) => resolve(result?.[0]?.[1] ?? null));
     } catch {
@@ -106,7 +114,11 @@ export function useTypeScale(): number {
     let alive = true;
     const refresh = () =>
       void readScale().then((next) => {
-        if (!alive || (next.ui === current.ui && next.content === current.content && next.code === current.code)) return;
+        if (
+          !alive ||
+          (next.ui === current.ui && next.content === current.content && next.code === current.code)
+        )
+          return;
         current = next;
         setVersion((value) => value + 1);
       });

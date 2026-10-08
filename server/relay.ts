@@ -59,7 +59,11 @@ function json(response: ServerResponse, status: number, body: unknown) {
 }
 
 /** Extra routes other features add (webhooks). Return true when handled. */
-export type RelayRoute = (request: IncomingMessage, response: ServerResponse, path: string) => Promise<boolean>;
+export type RelayRoute = (
+  request: IncomingMessage,
+  response: ServerResponse,
+  path: string,
+) => Promise<boolean>;
 
 /** A bot's limits on its apps, with the read-only tools and the pinned accounts' aliases looked up. */
 async function appLimits(bot: Bot): Promise<Map<string, AppLimit>> {
@@ -67,9 +71,19 @@ async function appLimits(bot: Bot): Promise<Map<string, AppLimit>> {
   for (const slug of bot.apps) {
     const rule = bot.appRules[slug];
     if (!rule || (rule.tools === "all" && !rule.account)) continue;
-    const tools = rule.tools === "all" ? null : rule.tools === "read" ? (await appTools({ slug })).tools.filter((tool) => tool.readOnly).map((tool) => tool.slug) : rule.tools;
-    const alias = rule.account ? ((await accounts()).accounts.find((account) => account.id === rule.account)?.alias ?? null) : null;
-    limits.set(slug, { tools: tools && new Set(tools.map((tool) => tool.toUpperCase())), account: rule.account ? { id: rule.account, alias } : null });
+    const tools =
+      rule.tools === "all"
+        ? null
+        : rule.tools === "read"
+          ? (await appTools({ slug })).tools.filter((tool) => tool.readOnly).map((tool) => tool.slug)
+          : rule.tools;
+    const alias = rule.account
+      ? ((await accounts()).accounts.find((account) => account.id === rule.account)?.alias ?? null)
+      : null;
+    limits.set(slug, {
+      tools: tools && new Set(tools.map((tool) => tool.toUpperCase())),
+      account: rule.account ? { id: rule.account, alias } : null,
+    });
   }
   return limits;
 }
@@ -125,14 +139,22 @@ export class Relay {
     const state = await readState();
     if (!state.apiKey) return null;
     const port = await this.start();
-    return { type: "http", url: `http://127.0.0.1:${port}/mcp/${botId}`, headers: { Authorization: `Bearer ${botToken(state.secret, botId)}` } };
+    return {
+      type: "http",
+      url: `http://127.0.0.1:${port}/mcp/${botId}`,
+      headers: { Authorization: `Bearer ${botToken(state.secret, botId)}` },
+    };
   }
 
   /** The plugin's tools for one chat. */
   async mountTools(botId: string, agentId: string): Promise<McpServerConfig> {
     const state = await readState();
     const port = await this.start();
-    return { type: "http", url: `http://127.0.0.1:${port}/bots/${botId}/${agentId}`, headers: { Authorization: `Bearer ${toolsToken(state.secret, botId, agentId)}` } };
+    return {
+      type: "http",
+      url: `http://127.0.0.1:${port}/bots/${botId}/${agentId}`,
+      headers: { Authorization: `Bearer ${toolsToken(state.secret, botId, agentId)}` },
+    };
   }
 
   private async handle(request: IncomingMessage, response: ServerResponse) {
@@ -145,7 +167,12 @@ export class Relay {
       for (const route of this.routes) if (await route(request, response, path)) return;
       json(response, 404, { error: "not found" });
     } catch (error) {
-      if (!response.headersSent) json(response, 502, { jsonrpc: "2.0", id: null, error: { code: -32002, message: error instanceof Error ? error.message : String(error) } });
+      if (!response.headersSent)
+        json(response, 502, {
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32002, message: error instanceof Error ? error.message : String(error) },
+        });
     }
   }
 
@@ -157,7 +184,10 @@ export class Relay {
     return true;
   }
 
-  private async parse(request: IncomingMessage, response: ServerResponse): Promise<{ body: string; message: Record<string, unknown> } | null> {
+  private async parse(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<{ body: string; message: Record<string, unknown> } | null> {
     const body = await readBody(request);
     try {
       return { body, message: JSON.parse(body) as Record<string, unknown> };
@@ -167,9 +197,18 @@ export class Relay {
     }
   }
 
-  private async handleTools(request: IncomingMessage, response: ServerResponse, botId: string, agentId: string) {
+  private async handleTools(
+    request: IncomingMessage,
+    response: ServerResponse,
+    botId: string,
+    agentId: string,
+  ) {
     const state = await readState();
-    if (!ID.test(botId) || !ID.test(agentId) || !tokenMatches(toolsToken(state.secret, botId, agentId), request.headers.authorization)) {
+    if (
+      !ID.test(botId) ||
+      !ID.test(agentId) ||
+      !tokenMatches(toolsToken(state.secret, botId, agentId), request.headers.authorization)
+    ) {
       return json(response, 401, { error: "unauthorized" });
     }
     if (this.refuseNonPost(request, response)) return;
@@ -177,8 +216,18 @@ export class Relay {
     if (!parsed) return;
     const bot = await this.host.bot(botId);
     const id = (parsed.message.id as string | number | undefined) ?? null;
-    if (!bot || bot.archived) return json(response, 403, { jsonrpc: "2.0", id, error: { code: -32001, message: "This bot no longer exists." } });
-    const answer = await answerMcp(parsed.message, this.tools, { bot, agentId, host: this.host, relay: this });
+    if (!bot || bot.archived)
+      return json(response, 403, {
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32001, message: "This bot no longer exists." },
+      });
+    const answer = await answerMcp(parsed.message, this.tools, {
+      bot,
+      agentId,
+      host: this.host,
+      relay: this,
+    });
     if (!answer) return response.writeHead(202).end();
     json(response, 200, answer);
   }
@@ -194,13 +243,34 @@ export class Relay {
     const bot = await this.host.bot(botId);
     const id = (parsed.message.id as string | number | undefined) ?? null;
     if (!bot || bot.archived || bot.hostId || bot.apps.length === 0) {
-      return json(response, 403, { jsonrpc: "2.0", id, error: { code: -32001, message: "Connected apps are off for this bot. Turn them on under its Access settings in Paseo." } });
+      return json(response, 403, {
+        jsonrpc: "2.0",
+        id,
+        error: {
+          code: -32001,
+          message: "Connected apps are off for this bot. Turn them on under its Access settings in Paseo.",
+        },
+      });
     }
     // Limits need Composio's tool lists, so they're looked up for tool calls only.
-    const limits = parsed.message.method === "tools/call" ? await appLimits(bot) : new Map<string, AppLimit>();
-    const verdict = checkAppCall(parsed.message, { allowed: bot.apps, connected: await connectedSlugs(), limits });
-    if ("refusal" in verdict) return json(response, 200, { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: verdict.refusal }], isError: true } });
-    await this.forward(request, response, verdict.message === parsed.message ? parsed.body : JSON.stringify(verdict.message));
+    const limits =
+      parsed.message.method === "tools/call" ? await appLimits(bot) : new Map<string, AppLimit>();
+    const verdict = checkAppCall(parsed.message, {
+      allowed: bot.apps,
+      connected: await connectedSlugs(),
+      limits,
+    });
+    if ("refusal" in verdict)
+      return json(response, 200, {
+        jsonrpc: "2.0",
+        id,
+        result: { content: [{ type: "text", text: verdict.refusal }], isError: true },
+      });
+    await this.forward(
+      request,
+      response,
+      verdict.message === parsed.message ? parsed.body : JSON.stringify(verdict.message),
+    );
   }
 
   private async forward(request: IncomingMessage, response: ServerResponse, body: string) {
@@ -214,7 +284,9 @@ export class Relay {
           "content-type": "application/json",
           accept: "application/json, text/event-stream",
           ...(typeof transport === "string" ? { "mcp-session-id": transport } : {}),
-          ...(typeof request.headers["mcp-protocol-version"] === "string" ? { "mcp-protocol-version": request.headers["mcp-protocol-version"] } : {}),
+          ...(typeof request.headers["mcp-protocol-version"] === "string"
+            ? { "mcp-protocol-version": request.headers["mcp-protocol-version"] }
+            : {}),
         },
         body,
         signal: deadline(10 * 60_000),

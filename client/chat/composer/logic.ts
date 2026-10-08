@@ -20,7 +20,10 @@ export function parseSendBehavior(raw: string | null | undefined): SendBehavior 
 }
 
 /** Queueing behind a permission prompt would strand the message, so Paseo interrupts instead (input/state.ts). */
-export function resolveActiveSendBehavior(behavior: SendBehavior, hasPendingPermission: boolean): SendBehavior {
+export function resolveActiveSendBehavior(
+  behavior: SendBehavior,
+  hasPendingPermission: boolean,
+): SendBehavior {
   return behavior === "queue" && hasPendingPermission ? "interrupt" : behavior;
 }
 
@@ -32,12 +35,20 @@ export function activeTurnBehaviorFor(behavior: SendBehavior): "steer" | "interr
 export type SendAction = "send" | "queue" | "none";
 
 /** Enter / the send button (input/state.ts runDefaultSendAction). */
-export function resolveDefaultAction(input: { behavior: SendBehavior; running: boolean; canQueue: boolean }): SendAction {
+export function resolveDefaultAction(input: {
+  behavior: SendBehavior;
+  running: boolean;
+  canQueue: boolean;
+}): SendAction {
   return input.behavior === "queue" && input.running && input.canQueue ? "queue" : "send";
 }
 
 /** Cmd/Ctrl+Enter (input/state.ts runAlternateSendAction). */
-export function resolveAlternateAction(input: { behavior: SendBehavior; running: boolean; canQueue: boolean }): SendAction {
+export function resolveAlternateAction(input: {
+  behavior: SendBehavior;
+  running: boolean;
+  canQueue: boolean;
+}): SendAction {
   if (input.behavior === "queue") return "send";
   return input.running && input.canQueue ? "queue" : "none";
 }
@@ -45,7 +56,11 @@ export function resolveAlternateAction(input: { behavior: SendBehavior; running:
 export type PrimaryActionKind = "send" | "active" | "none";
 
 /** Which button sits at the right of the toolbar (input.tsx resolvePrimaryActionKind). */
-export function resolvePrimaryAction(input: { hasContent: boolean; running: boolean; loading: boolean }): PrimaryActionKind {
+export function resolvePrimaryAction(input: {
+  hasContent: boolean;
+  running: boolean;
+  loading: boolean;
+}): PrimaryActionKind {
   if (input.hasContent) return "send";
   if (input.running) return "active";
   if (input.loading) return "send";
@@ -53,7 +68,11 @@ export function resolvePrimaryAction(input: { hasContent: boolean; running: bool
 }
 
 /** input/labels.ts resolveSubmitAccessibilityLabel with Paseo's English strings. */
-export function submitAccessibilityLabel(input: { canPressLoading: boolean; behavior: SendBehavior; running: boolean }): string {
+export function submitAccessibilityLabel(input: {
+  canPressLoading: boolean;
+  behavior: SendBehavior;
+  running: boolean;
+}): string {
   if (input.canPressLoading) return "Interrupt agent";
   if (input.behavior === "queue" && input.running) return "Queue message";
   if (input.running) return input.behavior === "steer" ? "Send and steer" : "Send and interrupt";
@@ -80,7 +99,10 @@ export function isImeComposing(event: { isComposing?: boolean; keyCode?: number 
  * input.tsx handleDesktopKeyPressImpl: Enter sends only on desktop web, Shift+Enter is a
  * newline, Cmd/Ctrl+Enter is the alternate action while the agent runs.
  */
-export function resolveEnterKey(event: ComposerKeyEvent, context: { submitOnEnter: boolean; running: boolean; canQueue: boolean }): "default" | "alternate" | null {
+export function resolveEnterKey(
+  event: ComposerKeyEvent,
+  context: { submitOnEnter: boolean; running: boolean; canQueue: boolean },
+): "default" | "alternate" | null {
   if (isImeComposing(event)) return null;
   if (event.key !== "Enter" || !context.submitOnEnter || event.shiftKey) return null;
   if ((event.metaKey || event.ctrlKey) && context.running && context.canQueue) return "alternate";
@@ -117,13 +139,21 @@ export function enqueue(queue: readonly QueuedMessage[], message: QueuedMessage)
 }
 
 /** Takes one message out of the queue (edit, send now, drain). */
-export function takeQueued(queue: readonly QueuedMessage[], id: string): { item: QueuedMessage | null; rest: QueuedMessage[] } {
+export function takeQueued(
+  queue: readonly QueuedMessage[],
+  id: string,
+): { item: QueuedMessage | null; rest: QueuedMessage[] } {
   const item = queue.find((entry) => entry.id === id) ?? null;
   return { item, rest: item ? queue.filter((entry) => entry.id !== id) : [...queue] };
 }
 
 /** Whether the next queued message should go out now: the agent is idle and nothing is in flight. */
-export function shouldDrainQueue(input: { running: boolean; queued: number; inFlight: boolean; hasAgent: boolean }): boolean {
+export function shouldDrainQueue(input: {
+  running: boolean;
+  queued: number;
+  inFlight: boolean;
+  hasAgent: boolean;
+}): boolean {
   return input.hasAgent && !input.running && input.queued > 0 && !input.inFlight;
 }
 
@@ -140,7 +170,9 @@ export function composerDraftKey(hostKey: string, botId: string, agentId: string
   return agentId ? `agent:${hostKey}:${agentId}` : `new:${hostKey}:${botId}`;
 }
 
-export function isDraftEmpty(draft: { text: string; attachments: readonly unknown[] } | null | undefined): boolean {
+export function isDraftEmpty(
+  draft: { text: string; attachments: readonly unknown[] } | null | undefined,
+): boolean {
   return !draft || (draft.text.length === 0 && draft.attachments.length === 0);
 }
 
@@ -150,7 +182,8 @@ const MAX_DRAFT_BYTES = 2 * 1024 * 1024;
 function isAttachment(value: unknown): value is ComposerAttachment {
   if (!value || typeof value !== "object") return false;
   const entry = value as Record<string, unknown>;
-  if (typeof entry.id !== "string" || typeof entry.name !== "string" || typeof entry.size !== "number") return false;
+  if (typeof entry.id !== "string" || typeof entry.name !== "string" || typeof entry.size !== "number")
+    return false;
   if (entry.kind === "image") return typeof entry.data === "string" && typeof entry.mimeType === "string";
   if (entry.kind === "text") return typeof entry.text === "string";
   if (entry.kind === "file") return typeof entry.path === "string" && typeof entry.mimeType === "string";
@@ -181,7 +214,10 @@ export function parseDrafts(raw: string | null | undefined): Record<string, Comp
  * Keeps the newest drafts and, when the store would outgrow storage quotas, drops image
  * data from the oldest drafts first (text and other attachments always survive).
  */
-export function serializeDrafts(drafts: Record<string, ComposerDraft>, limits: { maxDrafts?: number; maxBytes?: number } = {}): string {
+export function serializeDrafts(
+  drafts: Record<string, ComposerDraft>,
+  limits: { maxDrafts?: number; maxBytes?: number } = {},
+): string {
   const maxDrafts = limits.maxDrafts ?? MAX_DRAFTS;
   const maxBytes = limits.maxBytes ?? MAX_DRAFT_BYTES;
   const entries = Object.entries(drafts)
@@ -192,7 +228,10 @@ export function serializeDrafts(drafts: Record<string, ComposerDraft>, limits: {
   for (let index = entries.length - 1; index >= 0 && json.length > maxBytes; index--) {
     const [key, draft] = entries[index]!;
     if (!draft.attachments.some((attachment) => attachment.kind === "image")) continue;
-    entries[index] = [key, { ...draft, attachments: draft.attachments.filter((attachment) => attachment.kind !== "image") }];
+    entries[index] = [
+      key,
+      { ...draft, attachments: draft.attachments.filter((attachment) => attachment.kind !== "image") },
+    ];
     json = JSON.stringify(Object.fromEntries(entries.filter(([, value]) => !isDraftEmpty(value))));
   }
   return json;
@@ -209,7 +248,13 @@ export function restoreFailedSend(
   const typed = current.text.trim();
   const text = !typed ? failed.text : !failed.text ? current.text : `${failed.text}\n${current.text}`;
   const ids = new Set(failed.attachments.map((attachment) => attachment.id));
-  return { text, attachments: [...failed.attachments, ...current.attachments.filter((attachment) => !ids.has(attachment.id))] };
+  return {
+    text,
+    attachments: [
+      ...failed.attachments,
+      ...current.attachments.filter((attachment) => !ids.has(attachment.id)),
+    ],
+  };
 }
 
 // ---------------------------------------------------------------- context window meter
@@ -223,11 +268,26 @@ export interface ContextUsage {
 
 /** components/context-window-meter.tsx: only valid numbers produce a reading. */
 export function contextUsage(
-  usage: { contextWindowMaxTokens?: number | null; contextWindowUsedTokens?: number | null; totalCostUsd?: number | null } | null | undefined,
+  usage:
+    | {
+        contextWindowMaxTokens?: number | null;
+        contextWindowUsedTokens?: number | null;
+        totalCostUsd?: number | null;
+      }
+    | null
+    | undefined,
 ): ContextUsage | null {
   const max = usage?.contextWindowMaxTokens;
   const used = usage?.contextWindowUsedTokens;
-  if (typeof max !== "number" || typeof used !== "number" || !Number.isFinite(max) || max <= 0 || !Number.isFinite(used) || used < 0) return null;
+  if (
+    typeof max !== "number" ||
+    typeof used !== "number" ||
+    !Number.isFinite(max) ||
+    max <= 0 ||
+    !Number.isFinite(used) ||
+    used < 0
+  )
+    return null;
   const cost = usage?.totalCostUsd;
   return { percent: (used / max) * 100, used, max, costUsd: typeof cost === "number" ? cost : null };
 }
@@ -278,7 +338,10 @@ export function commandQuery(text: string): string | null {
 }
 
 /** The plugin's own commands first; a provider command with the same name is hidden (Paseo's mergeSlashCommandSources). */
-export function withPluginCommands(plugin: readonly SlashCommand[], provider: readonly SlashCommand[]): SlashCommand[] {
+export function withPluginCommands(
+  plugin: readonly SlashCommand[],
+  provider: readonly SlashCommand[],
+): SlashCommand[] {
   const taken = new Set(plugin.map((command) => command.name));
   return [...plugin, ...provider.filter((command) => !taken.has(command.name))];
 }

@@ -1,6 +1,12 @@
 import { useHosts, useRpc } from "@getpaseo/plugin/client";
 import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect } from "@getpaseo/plugin/client/ui";
+import {
+  SettingsAction,
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+  SettingsSelect,
+} from "@getpaseo/plugin/client/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { APPS_MCP_NAME } from "../../shared/apps";
@@ -10,7 +16,15 @@ import { commandListRpc, commandRemoveRpc } from "../../shared/rpc";
 import { useAgentProfiles, useBotHost, useHostWorkspaces, usePaseoTools, useProviders } from "../data";
 import { errorText } from "../native";
 import type { PanelProps } from "./BotPanel";
-import { AdvancedToggle, CardNote, DrillRow, InputField, SectionMeta, StatusBadge, TextAreaField } from "./controls";
+import {
+  AdvancedToggle,
+  CardNote,
+  DrillRow,
+  InputField,
+  SectionMeta,
+  StatusBadge,
+  TextAreaField,
+} from "./controls";
 import { AppsPicker } from "./AppsPicker";
 import { LibraryPicker } from "./LibraryPicker";
 
@@ -28,7 +42,12 @@ export function AccessSection(props: PanelProps) {
   return (
     <>
       <PaseoToolsSection colors={colors} bot={bot} localHost={localHost} />
-      <LibraryPicker {...props} kind="mcp" title="MCP servers" info="Added on top of the MCP servers the provider already loads. Paseo's own tools are always included. Add and edit servers in Skills & Tools." />
+      <LibraryPicker
+        {...props}
+        kind="mcp"
+        title="MCP servers"
+        info="Added on top of the MCP servers the provider already loads. Paseo's own tools are always included. Add and edit servers in Skills & Tools."
+      />
       <AppsPicker colors={colors} bot={bot} localHost={localHost} onPatch={onPatch} />
       <AdvancedToggle colors={colors} open={advanced} onToggle={() => setAdvanced(!advanced)} />
       {advanced ? (
@@ -51,10 +70,20 @@ function FolderSection({ colors, bot, localHost, onPatch }: PanelProps) {
     ...(host.isLocal ? [{ label: "Shared", value: MANAGED }] : []),
     ...(workspaces.data ?? []).map((workspace) => ({ label: workspace.label, value: workspace.directory })),
   ];
-  const folderValue = bot.cwd === null ? (host.isLocal ? MANAGED : "Choose a folder") : options.some((option) => option.value === bot.cwd) ? bot.cwd : CUSTOM;
+  const folderValue =
+    bot.cwd === null
+      ? host.isLocal
+        ? MANAGED
+        : "Choose a folder"
+      : options.some((option) => option.value === bot.cwd)
+        ? bot.cwd
+        : CUSTOM;
   const pathError = pathText.trim() && !ABSOLUTE_PATH.test(pathText.trim()) ? "Use an absolute path" : null;
   return (
-    <SettingsSection title="Working folder" info="Where the bot's chats run. The shared folder keeps every bot chat in one Bots workspace.">
+    <SettingsSection
+      title="Working folder"
+      info="Where the bot's chats run. The shared folder keeps every bot chat in one Bots workspace."
+    >
       <SettingsCard>
         <SettingsSelect
           label="Folder"
@@ -90,16 +119,31 @@ function FolderSection({ colors, bot, localHost, onPatch }: PanelProps) {
 function GrantsSection({ colors, bot, library, localHost, onPatch }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
   const [allowText, setAllowText] = useState(bot.alwaysAllow.join("\n"));
-  const lines = allowText.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = allowText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
   // Only grants for the bot's own servers are sent; Paseo rejects the rest.
-  const active = new Set([...botMcpServers(bot, library).map((server) => server.name), ...(host.isLocal && bot.apps.length ? [APPS_MCP_NAME] : []), ...(host.isLocal ? [TOOLS_MCP_NAME] : [])]);
+  const active = new Set([
+    ...botMcpServers(bot, library).map((server) => server.name),
+    ...(host.isLocal && bot.apps.length ? [APPS_MCP_NAME] : []),
+    ...(host.isLocal ? [TOOLS_MCP_NAME] : []),
+  ]);
   const grants = toolGrants(lines).filter((grant) => active.has(grant.server));
   const ignored = lines.length - grants.length;
   return (
     <SettingsSection
       title="Always allowed"
-      info={'Tools from the bot\'s MCP servers it may use without asking, one "server/tool" per line. Only providers with exact tool grants (Claude, Codex, OpenCode) accept these.'}
-      trailing={<SectionMeta colors={colors} text={`${grants.length} valid${ignored ? ` · ${ignored} ignored` : ""}`} tone={ignored ? "warning" : undefined} />}
+      info={
+        'Tools from the bot\'s MCP servers it may use without asking, one "server/tool" per line. Only providers with exact tool grants (Claude, Codex, OpenCode) accept these.'
+      }
+      trailing={
+        <SectionMeta
+          colors={colors}
+          text={`${grants.length} valid${ignored ? ` · ${ignored} ignored` : ""}`}
+          tone={ignored ? "warning" : undefined}
+        />
+      }
     >
       <SettingsCard>
         <TextAreaField
@@ -109,7 +153,12 @@ function GrantsSection({ colors, bot, library, localHost, onPatch }: PanelProps)
           value={allowText}
           onChangeText={(text) => {
             setAllowText(text);
-            onPatch({ alwaysAllow: text.split("\n").map((line) => line.trim()).filter(Boolean) });
+            onPatch({
+              alwaysAllow: text
+                .split("\n")
+                .map((line) => line.trim())
+                .filter(Boolean),
+            });
           }}
           autoCapitalize="none"
           autoCorrect={false}
@@ -131,7 +180,13 @@ function PaseoToolsSection({ colors, bot, localHost }: Pick<PanelProps, "colors"
   const tools = usePaseoTools(host, bot.provider);
   const [busy, setBusy] = useState(false);
   const state = tools.state;
-  const label = !state ? (tools.loading ? "Checking..." : "Couldn't read the host's settings") : state.on ? "Included in every chat" : "Turned off";
+  const label = !state
+    ? tools.loading
+      ? "Checking..."
+      : "Couldn't read the host's settings"
+    : state.on
+      ? "Included in every chat"
+      : "Turned off";
   const hint = !state
     ? null
     : state.on
@@ -142,7 +197,10 @@ function PaseoToolsSection({ colors, bot, localHost }: Pick<PanelProps, "colors"
           ? `Off for every agent on ${host.label}`
           : `Paseo's MCP server is off on ${host.label}`;
   return (
-    <SettingsSection title="Paseo tools" info="Paseo gives every agent it starts its own tools, bots included. Changing this changes it for all agents on the host.">
+    <SettingsSection
+      title="Paseo tools"
+      info="Paseo gives every agent it starts its own tools, bots included. Changing this changes it for all agents on the host."
+    >
       <SettingsCard>
         {state && !state.on && state.reason !== "mcp" ? (
           <SettingsAction
@@ -176,7 +234,9 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
   const models = (provider?.models ?? []).filter((model) => model.isSelectable !== false);
   const model = models.find((entry) => entry.id === bot.model);
   const thinking = model?.thinkingOptions ?? models.find((entry) => entry.isDefault)?.thinkingOptions ?? [];
-  const profile = (profiles.data ?? []).find((entry) => entry.provider === bot.provider && (entry.model ?? null) === bot.model);
+  const profile = (profiles.data ?? []).find(
+    (entry) => entry.provider === bot.provider && (entry.model ?? null) === bot.model,
+  );
   const providerPlaceholder = providers.isLoading ? "Loading..." : "Choose a provider";
   // Another host counts as in use, so it shows.
   const [advanced, setAdvanced] = useState(bot.hostId !== null);
@@ -189,33 +249,54 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
             label="Provider"
             value={bot.provider || providerPlaceholder}
             disabled={providers.isLoading}
-            options={(providers.data ?? []).map((entry) => ({ label: (entry.label ?? entry.provider) + (entry.status === "ready" ? "" : ` (${entry.status})`), value: entry.provider }))}
+            options={(providers.data ?? []).map((entry) => ({
+              label: (entry.label ?? entry.provider) + (entry.status === "ready" ? "" : ` (${entry.status})`),
+              value: entry.provider,
+            }))}
             onValueChange={(value) => {
               const entry = providers.data?.find((candidate) => candidate.provider === value);
-              onPatch({ provider: value, model: null, modeId: entry?.defaultModeId ?? null, thinkingOptionId: null });
+              onPatch({
+                provider: value,
+                model: null,
+                modeId: entry?.defaultModeId ?? null,
+                thinkingOptionId: null,
+              });
             }}
           />
           <SettingsSelect
             label="Model"
             value={provider ? (bot.model ?? "") : "Choose a provider first"}
             disabled={!provider}
-            options={provider ? [{ label: "Default", value: "" }, ...models.map((entry) => ({ label: entry.label, value: entry.id }))] : []}
+            options={
+              provider
+                ? [
+                    { label: "Default", value: "" },
+                    ...models.map((entry) => ({ label: entry.label, value: entry.id })),
+                  ]
+                : []
+            }
             onValueChange={(value) => onPatch({ model: value || null, thinkingOptionId: null })}
           />
           {thinking.length > 0 ? (
             <SettingsSelect
               label="Thinking"
               value={bot.thinkingOptionId ?? ""}
-              options={[{ label: "Default", value: "" }, ...thinking.map((option) => ({ label: option.label, value: option.id }))]}
+              options={[
+                { label: "Default", value: "" },
+                ...thinking.map((option) => ({ label: option.label, value: option.id })),
+              ]}
               onValueChange={(value) => onPatch({ thinkingOptionId: value || null })}
             />
           ) : null}
         </SettingsCard>
       </SettingsSection>
-  
+
       <AdvancedToggle colors={colors} open={advanced} onToggle={() => setAdvanced(!advanced)} />
       {advanced ? (
-        <SettingsSection title="Where it runs" info="The Paseo host the bot's chats start on, and an agent profile that fills in the settings above.">
+        <SettingsSection
+          title="Where it runs"
+          info="The Paseo host the bot's chats start on, and an agent profile that fills in the settings above."
+        >
           <SettingsCard>
             <SettingsSelect
               label="Host"
@@ -226,9 +307,21 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
                 { label: localHost.label, value: "" },
                 ...hosts
                   .filter((entry) => entry.serverId !== localHost.id)
-                  .map((entry) => ({ label: `${entry.label}${entry.status === "online" ? "" : ` (${entry.status})`}`, value: entry.serverId })),
+                  .map((entry) => ({
+                    label: `${entry.label}${entry.status === "online" ? "" : ` (${entry.status})`}`,
+                    value: entry.serverId,
+                  })),
               ]}
-              onValueChange={(value) => onPatch({ hostId: value || null, provider: "", model: null, modeId: null, thinkingOptionId: null, cwd: value ? bot.cwd : null })}
+              onValueChange={(value) =>
+                onPatch({
+                  hostId: value || null,
+                  provider: "",
+                  model: null,
+                  modeId: null,
+                  thinkingOptionId: null,
+                  cwd: value ? bot.cwd : null,
+                })
+              }
             />
             {(profiles.data ?? []).length > 0 ? (
               <SettingsSelect
@@ -238,7 +331,13 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
                 options={profiles.data!.map((entry) => ({ label: entry.name, value: entry.id }))}
                 onValueChange={(id) => {
                   const chosen = profiles.data?.find((entry) => entry.id === id);
-                  if (chosen) onPatch({ provider: chosen.provider, model: chosen.model ?? null, modeId: chosen.modeId ?? null, thinkingOptionId: chosen.thinkingOptionId ?? null });
+                  if (chosen)
+                    onPatch({
+                      provider: chosen.provider,
+                      model: chosen.model ?? null,
+                      modeId: chosen.modeId ?? null,
+                      thinkingOptionId: chosen.thinkingOptionId ?? null,
+                    });
                 }}
               />
             ) : null}
@@ -259,24 +358,49 @@ export function PermissionsSection({ colors, bot, localHost, onPatch }: PanelPro
   const current = modes.find((mode) => mode.id === (bot.modeId ?? provider?.defaultModeId));
   return (
     <>
-      <SettingsSection title="Approval" info="How much the bot may do before asking you. Also applies to its routines.">
+      <SettingsSection
+        title="Approval"
+        info="How much the bot may do before asking you. Also applies to its routines."
+      >
         <SettingsCard>
           <SettingsSelect
             label="Mode"
-            hint={provider ? (current?.description ? `${current.label}: ${current.description}` : undefined) : "Pick a provider under Model to see its modes"}
+            hint={
+              provider
+                ? current?.description
+                  ? `${current.label}: ${current.description}`
+                  : undefined
+                : "Pick a provider under Model to see its modes"
+            }
             value={provider ? (bot.modeId ?? "") : "Choose a provider first"}
             disabled={!provider}
-            options={provider ? [{ label: "Default", value: "" }, ...modes.map((mode) => ({ label: mode.label, value: mode.id }))] : []}
+            options={
+              provider
+                ? [
+                    { label: "Default", value: "" },
+                    ...modes.map((mode) => ({ label: mode.label, value: mode.id })),
+                  ]
+                : []
+            }
             onValueChange={(value) => onPatch({ modeId: value || null })}
           />
         </SettingsCard>
       </SettingsSection>
       {host.isLocal ? (
-        <SettingsSection title="Other bots" info="Whether this bot may ask other bots on this host for help. Each request starts a chat under the other bot, which works with its own settings.">
+        <SettingsSection
+          title="Other bots"
+          info="Whether this bot may ask other bots on this host for help. Each request starts a chat under the other bot, which works with its own settings."
+        >
           <SettingsCard>
             <SettingsSelect
               label="Contact other bots"
-              hint={bot.contactBots === "ask" ? "You approve each request, when the mode asks before using tools" : bot.contactBots === "allow" ? "Without asking you first" : "Never"}
+              hint={
+                bot.contactBots === "ask"
+                  ? "You approve each request, when the mode asks before using tools"
+                  : bot.contactBots === "allow"
+                    ? "Without asking you first"
+                    : "Never"
+              }
               value={bot.contactBots}
               options={[
                 { label: "Ask first", value: "ask" },
@@ -303,17 +427,34 @@ function AllowedCommands({ colors, bot }: Pick<PanelProps, "colors" | "bot">) {
   const key = ["paseo-bots", "commands", bot.id];
   const rules = useQuery({ queryKey: key, queryFn: () => list({ botId: bot.id }) });
   const items = rules.data?.rules ?? [];
-  const info = "Commands this bot runs without asking you: the exact command, in the exact folder. Add one with Always allow on the command's approval card.";
+  const info =
+    "Commands this bot runs without asking you: the exact command, in the exact folder. Add one with Always allow on the command's approval card.";
   return (
     <SettingsSection title="Commands" info={info}>
       <SettingsCard>
-        <DrillRow colors={colors} label="Allowed commands" hint={rules.isLoading ? "Loading..." : items.length ? `${items.length} ${items.length === 1 ? "command" : "commands"}` : "None yet"} onPress={() => setOpen(true)} />
+        <DrillRow
+          colors={colors}
+          label="Allowed commands"
+          hint={
+            rules.isLoading
+              ? "Loading..."
+              : items.length
+                ? `${items.length} ${items.length === 1 ? "command" : "commands"}`
+                : "None yet"
+          }
+          onPress={() => setOpen(true)}
+        />
       </SettingsCard>
       {open ? (
         <Modal title="Allowed commands" open onOpenChange={(next) => !next && setOpen(false)}>
           <Modal.Content>
             <SettingsCard>
-              {items.length === 0 ? <CardNote colors={colors} text="None yet. Add one with Always allow on a command's approval card." /> : null}
+              {items.length === 0 ? (
+                <CardNote
+                  colors={colors}
+                  text="None yet. Add one with Always allow on a command's approval card."
+                />
+              ) : null}
               {items.map((rule) => (
                 <SettingsAction
                   key={rule.id}

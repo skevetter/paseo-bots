@@ -1,7 +1,15 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { appDomain, appStatus, canonicalSlug, isComposioUrl, type AppAccount, type AppCard, type AppTool } from "../shared/apps";
+import {
+  appDomain,
+  appStatus,
+  canonicalSlug,
+  isComposioUrl,
+  type AppAccount,
+  type AppCard,
+  type AppTool,
+} from "../shared/apps";
 import { pluginDataPath } from "./bot-home";
 
 // Composio over its REST API, the way OpenMausBot's self-hosted mode does it:
@@ -44,7 +52,14 @@ export async function readState(): Promise<State> {
   try {
     cached = JSON.parse(await readFile(statePath(), "utf8")) as State;
   } catch {
-    cached = { apiKey: null, userId: `paseo_bots_${randomUUID()}`, sessionId: null, mcpUrl: null, secret: randomBytes(32).toString("hex"), port: null };
+    cached = {
+      apiKey: null,
+      userId: `paseo_bots_${randomUUID()}`,
+      sessionId: null,
+      mcpUrl: null,
+      secret: randomBytes(32).toString("hex"),
+      port: null,
+    };
   }
   return cached;
 }
@@ -79,7 +94,9 @@ async function failure(response: Response, fallback: string): Promise<Error> {
   let message = raw.trim().slice(0, 300);
   try {
     const body = JSON.parse(raw) as { message?: unknown; error?: { message?: unknown } | string };
-    message = String(body.message ?? (typeof body.error === "object" ? body.error?.message : body.error) ?? message);
+    message = String(
+      body.message ?? (typeof body.error === "object" ? body.error?.message : body.error) ?? message,
+    );
   } catch {
     // Not JSON; keep the text.
   }
@@ -99,7 +116,11 @@ async function createSession(apiKey: string, userId: string): Promise<SessionRes
     headers: headers(apiKey, true),
     body: JSON.stringify({
       user_id: userId,
-      manage_connections: { enable: true, enable_wait_for_connections: true, enable_connection_removal: false },
+      manage_connections: {
+        enable: true,
+        enable_wait_for_connections: true,
+        enable_connection_removal: false,
+      },
       // Several accounts per app (work and personal Gmail); bots pick one by its alias.
       multi_account: { enable: true, max_accounts_per_toolkit: MAX_ACCOUNTS_PER_APP },
     }),
@@ -107,12 +128,16 @@ async function createSession(apiKey: string, userId: string): Promise<SessionRes
   });
   if (!response.ok) throw await failure(response, `Composio rejected the key (HTTP ${response.status})`);
   const session = (await response.json()) as SessionResponse;
-  if (!session.session_id || !session.mcp?.url || !trusted(session.mcp.url)) throw new Error("Composio returned an unexpected session.");
+  if (!session.session_id || !session.mcp?.url || !trusted(session.mcp.url))
+    throw new Error("Composio returned an unexpected session.");
   return session;
 }
 
 async function sessionExists(apiKey: string, sessionId: string): Promise<boolean> {
-  const response = await fetch(`${API()}/tool_router/session/${encodeURIComponent(sessionId)}`, { headers: headers(apiKey), signal: deadline(15_000) });
+  const response = await fetch(`${API()}/tool_router/session/${encodeURIComponent(sessionId)}`, {
+    headers: headers(apiKey),
+    signal: deadline(15_000),
+  });
   if (response.status === 404) return false;
   if (!response.ok) throw await failure(response, `Composio session: HTTP ${response.status}`);
   return true;
@@ -141,12 +166,15 @@ export async function status() {
 }
 
 /** The key and a live session, recreating the session when Composio has dropped it. */
-export async function session(options: { recreate?: boolean } = {}): Promise<{ apiKey: string; sessionId: string; mcpUrl: string }> {
+export async function session(
+  options: { recreate?: boolean } = {},
+): Promise<{ apiKey: string; sessionId: string; mcpUrl: string }> {
   const state = await readState();
   if (!state.apiKey) throw new Error("Connected apps aren't set up. Add a Composio key in Skills & Tools.");
   // A session from before several accounts per app were allowed is replaced once.
   const current = !options.recreate && state.multiAccount;
-  if (current && state.sessionId && state.mcpUrl) return { apiKey: state.apiKey, sessionId: state.sessionId, mcpUrl: state.mcpUrl };
+  if (current && state.sessionId && state.mcpUrl)
+    return { apiKey: state.apiKey, sessionId: state.sessionId, mcpUrl: state.mcpUrl };
   if (current && state.sessionId && (await sessionExists(state.apiKey, state.sessionId)) && state.mcpUrl) {
     return { apiKey: state.apiKey, sessionId: state.sessionId, mcpUrl: state.mcpUrl };
   }
@@ -185,14 +213,18 @@ export async function catalog(): Promise<{ apps: AppCard[] }> {
   const { apiKey } = await readState();
   if (!apiKey) return { apps: [] };
   const key = fingerprint(apiKey);
-  if (catalogCache?.key === key && Date.now() - catalogCache.at < CATALOG_TTL_MS) return { apps: catalogCache.apps };
+  if (catalogCache?.key === key && Date.now() - catalogCache.at < CATALOG_TTL_MS)
+    return { apps: catalogCache.apps };
   const apps: AppCard[] = [];
   const seen = new Set<string>();
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({ limit: "500", sort_by: "usage" });
     if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${CATALOG_API()}/toolkits?${params}`, { headers: headers(apiKey), signal: deadline(20_000) });
+    const response = await fetch(`${CATALOG_API()}/toolkits?${params}`, {
+      headers: headers(apiKey),
+      signal: deadline(20_000),
+    });
     if (!response.ok) {
       // Keep what earlier pages returned; only the first page failing is an error.
       if (apps.length) break;
@@ -242,13 +274,20 @@ export async function appTools({ slug }: { slug: string }): Promise<{ tools: App
   for (let page = 0; page < MAX_PAGES; page++) {
     const params = new URLSearchParams({ toolkit_slug: app, limit: "200" });
     if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${CATALOG_API()}/tools?${params}`, { headers: headers(apiKey), signal: deadline(20_000) });
+    const response = await fetch(`${CATALOG_API()}/tools?${params}`, {
+      headers: headers(apiKey),
+      signal: deadline(20_000),
+    });
     if (!response.ok) throw await failure(response, `Composio tools: HTTP ${response.status}`);
     const body = (await response.json()) as { items?: ToolItem[]; next_cursor?: string | null };
     for (const item of body.items ?? []) {
       const tags = item.tags ?? [];
       if (!item.slug || item.is_deprecated || tags.includes("mcpIgnore")) continue;
-      tools.push({ slug: item.slug.toUpperCase(), name: item.name?.trim() || item.slug, readOnly: tags.includes("readOnlyHint") });
+      tools.push({
+        slug: item.slug.toUpperCase(),
+        name: item.name?.trim() || item.slug,
+        readOnly: tags.includes("readOnlyHint"),
+      });
     }
     const next = body.next_cursor?.trim();
     if (!next || next === cursor) break;
@@ -274,19 +313,38 @@ export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ a
   const { apiKey, userId } = await readState();
   if (!apiKey) return { accounts: [] };
   const key = fingerprint(apiKey);
-  if (!fresh && connectedCache?.key === key && Date.now() - connectedCache.at < CONNECTED_TTL_MS) return { accounts: connectedCache.accounts };
+  if (!fresh && connectedCache?.key === key && Date.now() - connectedCache.at < CONNECTED_TTL_MS)
+    return { accounts: connectedCache.accounts };
   const found: AppAccount[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < MAX_PAGES; page++) {
-    const params = new URLSearchParams({ limit: "50", user_ids: userId, order_by: "updated_at", order_direction: "desc" });
+    const params = new URLSearchParams({
+      limit: "50",
+      user_ids: userId,
+      order_by: "updated_at",
+      order_direction: "desc",
+    });
     if (cursor) params.set("cursor", cursor);
-    const response = await fetch(`${API()}/connected_accounts?${params}`, { headers: headers(apiKey), signal: deadline(15_000) });
+    const response = await fetch(`${API()}/connected_accounts?${params}`, {
+      headers: headers(apiKey),
+      signal: deadline(15_000),
+    });
     if (!response.ok) throw await failure(response, `Composio accounts: HTTP ${response.status}`);
     const body = (await response.json()) as { items?: AccountItem[]; next_cursor?: string | null };
     for (const item of body.items ?? []) {
       if (!item.id || !item.toolkit?.slug) continue;
-      const name = typeof item.data?.displayName === "string" && item.data.displayName.trim() ? item.data.displayName.trim().slice(0, 120) : null;
-      found.push({ id: item.id, slug: canonicalSlug(item.toolkit.slug), status: appStatus(item.status), alias: item.alias?.trim() || null, name, wordId: item.word_id?.trim() || null });
+      const name =
+        typeof item.data?.displayName === "string" && item.data.displayName.trim()
+          ? item.data.displayName.trim().slice(0, 120)
+          : null;
+      found.push({
+        id: item.id,
+        slug: canonicalSlug(item.toolkit.slug),
+        status: appStatus(item.status),
+        alias: item.alias?.trim() || null,
+        name,
+        wordId: item.word_id?.trim() || null,
+      });
     }
     const next = body.next_cursor?.trim();
     if (!next || next === cursor) break;
@@ -299,7 +357,9 @@ export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ a
 /** Slugs of apps with a working account. */
 export async function connectedSlugs(): Promise<string[]> {
   const { accounts: list } = await accounts().catch(() => ({ accounts: [] as AppAccount[] }));
-  return [...new Set(list.filter((account) => account.status === "connected").map((account) => account.slug))];
+  return [
+    ...new Set(list.filter((account) => account.status === "connected").map((account) => account.slug)),
+  ];
 }
 
 /** A Composio-hosted sign-in link for an app, with an optional alias for the new account ("work"). The user finishes in their browser; the app polls `accounts`. */
@@ -320,7 +380,8 @@ export async function connect({ slug, alias }: { slug: string; alias?: string })
   }
   if (!response.ok) throw await failure(response, `Composio sign-in: HTTP ${response.status}`);
   const body = (await response.json()) as { redirect_url?: string };
-  if (!body.redirect_url || !trusted(body.redirect_url)) throw new Error("Composio returned an unexpected sign-in link.");
+  if (!body.redirect_url || !trusted(body.redirect_url))
+    throw new Error("Composio returned an unexpected sign-in link.");
   connectedCache = null;
   return { url: body.redirect_url };
 }
@@ -330,7 +391,8 @@ export async function renameAccount({ accountId, alias }: { accountId: string; a
   const { apiKey } = await readState();
   if (!apiKey) throw new Error("Connected apps aren't set up.");
   const { accounts: mine } = await accounts({ fresh: true });
-  if (!mine.some((account) => account.id === accountId)) throw new Error("That account isn't connected on this host.");
+  if (!mine.some((account) => account.id === accountId))
+    throw new Error("That account isn't connected on this host.");
   const response = await fetch(`${CATALOG_API()}/connected_accounts/${encodeURIComponent(accountId)}`, {
     method: "PATCH",
     headers: headers(apiKey, true),
@@ -347,13 +409,18 @@ export async function disconnect({ accountId }: { accountId: string }) {
   const { apiKey } = await readState();
   if (!apiKey) throw new Error("Connected apps aren't set up.");
   const { accounts: mine } = await accounts({ fresh: true });
-  if (!mine.some((account) => account.id === accountId)) throw new Error("That account isn't connected on this host.");
-  const response = await fetch(`${API()}/connected_accounts/${encodeURIComponent(accountId)}?revoke_on_delete=true`, {
-    method: "DELETE",
-    headers: headers(apiKey),
-    signal: deadline(15_000),
-  });
-  if (!response.ok && response.status !== 404) throw await failure(response, `Composio disconnect: HTTP ${response.status}`);
+  if (!mine.some((account) => account.id === accountId))
+    throw new Error("That account isn't connected on this host.");
+  const response = await fetch(
+    `${API()}/connected_accounts/${encodeURIComponent(accountId)}?revoke_on_delete=true`,
+    {
+      method: "DELETE",
+      headers: headers(apiKey),
+      signal: deadline(15_000),
+    },
+  );
+  if (!response.ok && response.status !== 404)
+    throw await failure(response, `Composio disconnect: HTTP ${response.status}`);
   connectedCache = null;
   return { ok: true };
 }

@@ -33,7 +33,15 @@ interface PermissionCardProps {
 }
 
 /** Paseo's PermissionRequestCard (agent-stream/view.tsx): plan, question and tool requests. */
-export function PermissionCard({ colors, permission, api, agentId, compact = false, botId, cwd }: PermissionCardProps) {
+export function PermissionCard({
+  colors,
+  permission,
+  api,
+  agentId,
+  compact = false,
+  botId,
+  cwd,
+}: PermissionCardProps) {
   const toast = useToast();
   const allowCommand = useRpc(commandAllowRpc);
   const shell = botId && cwd && permission.kind === "tool" ? shellCommand(permission, cwd) : null;
@@ -75,12 +83,25 @@ export function PermissionCard({ colors, permission, api, agentId, compact = fal
   }, [permission]);
 
   const detail = useMemo(
-    () => (permission.detail ?? { type: "unknown", input: permission.input ?? null, output: null }) as ToolCallDetail,
+    () =>
+      (permission.detail ?? {
+        type: "unknown",
+        input: permission.input ?? null,
+        output: null,
+      }) as ToolCallDetail,
     [permission.detail, permission.input],
   );
 
   if (permission.kind === "question") {
-    return <QuestionFormCard colors={colors} input={permission.input} compact={compact} isResponding={responding} onRespond={(response) => void respond(response)} />;
+    return (
+      <QuestionFormCard
+        colors={colors}
+        input={permission.input}
+        compact={compact}
+        isResponding={responding}
+        onRespond={(response) => void respond(response)}
+      />
+    );
   }
 
   // OpenMausBot's "Always allow": this exact command in this folder won't ask again for this bot.
@@ -99,7 +120,11 @@ export function PermissionCard({ colors, permission, api, agentId, compact = fal
 
   const press = (action: Action) => {
     setRespondingId(action.id);
-    void respond(action.behavior === "allow" ? { behavior: "allow", selectedActionId: action.id } : { behavior: "deny", selectedActionId: action.id, message: "Denied by user" });
+    void respond(
+      action.behavior === "allow"
+        ? { behavior: "allow", selectedActionId: action.id }
+        : { behavior: "deny", selectedActionId: action.id, message: "Denied by user" },
+    );
   };
 
   const title = isPlan ? "Plan" : (permissionTitle(permission) ?? "Permission Required");
@@ -107,8 +132,23 @@ export function PermissionCard({ colors, permission, api, agentId, compact = fal
 
   const footer = (
     <>
-      <Text style={{ fontSize: ui(14), marginVertical: 4, color: colors.foregroundMuted }}>How would you like to proceed?</Text>
-      <View style={compact ? { gap: 8 } : { gap: 8, flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-start", alignItems: "center", width: "100%" }}>
+      <Text style={{ fontSize: ui(14), marginVertical: 4, color: colors.foregroundMuted }}>
+        How would you like to proceed?
+      </Text>
+      <View
+        style={
+          compact
+            ? { gap: 8 }
+            : {
+                gap: 8,
+                flexDirection: "row",
+                flexWrap: "wrap",
+                justifyContent: "flex-start",
+                alignItems: "center",
+                width: "100%",
+              }
+        }
+      >
         {actions.map((action) => (
           <CardButton
             key={action.id}
@@ -121,20 +161,53 @@ export function PermissionCard({ colors, permission, api, agentId, compact = fal
             onPress={() => press(action)}
           />
         ))}
-        {shell ? <CardButton colors={colors} label="Always allow" icon="CheckCheck" busy={responding || respondingId === "always"} spinning={respondingId === "always"} onPress={() => void always()} /> : null}
+        {shell ? (
+          <CardButton
+            colors={colors}
+            label="Always allow"
+            icon="CheckCheck"
+            busy={responding || respondingId === "always"}
+            spinning={respondingId === "always"}
+            onPress={() => void always()}
+          />
+        ) : null}
       </View>
     </>
   );
 
   if (isPlan && planText) {
-    return <PlanCard colors={colors} title={title} description={description} text={planText} outcome="pending" footer={footer} disableOuterSpacing />;
+    return (
+      <PlanCard
+        colors={colors}
+        title={title}
+        description={description}
+        text={planText}
+        outcome="pending"
+        footer={footer}
+        disableOuterSpacing
+      />
+    );
   }
 
   return (
-    <View style={{ marginVertical: 12, padding: 12, borderRadius: 8, borderWidth: 1, gap: 8, backgroundColor: colors.surface1, borderColor: colors.border }}>
+    <View
+      style={{
+        marginVertical: 12,
+        padding: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        gap: 8,
+        backgroundColor: colors.surface1,
+        borderColor: colors.border,
+      }}
+    >
       <Text style={{ fontSize: ui(14), lineHeight: 22, color: colors.foreground }}>{title}</Text>
-      {description ? <Text style={{ fontSize: ui(14), lineHeight: 20, color: colors.foregroundMuted }}>{description}</Text> : null}
-      {planText ? <PlanCard colors={colors} title="Proposed plan" text={planText} disableOuterSpacing /> : null}
+      {description ? (
+        <Text style={{ fontSize: ui(14), lineHeight: 20, color: colors.foregroundMuted }}>{description}</Text>
+      ) : null}
+      {planText ? (
+        <PlanCard colors={colors} title="Proposed plan" text={planText} disableOuterSpacing />
+      ) : null}
       {!isPlan ? <ToolCallDetailsContent colors={colors} detail={detail} maxHeight={200} /> : null}
       {footer}
     </View>

@@ -68,7 +68,20 @@ interface DomImage {
 interface DomCanvas {
   width: number;
   height: number;
-  getContext(type: "2d"): { imageSmoothingQuality: string; drawImage(image: DomImage, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void } | null;
+  getContext(type: "2d"): {
+    imageSmoothingQuality: string;
+    drawImage(
+      image: DomImage,
+      sx: number,
+      sy: number,
+      sw: number,
+      sh: number,
+      dx: number,
+      dy: number,
+      dw: number,
+      dh: number,
+    ): void;
+  } | null;
   toDataURL(type: string, quality: number): string;
 }
 declare const document: {
@@ -119,11 +132,18 @@ function readBase64(file: DomFile): Promise<string> {
 }
 
 function toHandle(file: DomFile): FileHandle {
-  return { name: file.name || "file", mimeType: file.type || "application/octet-stream", size: file.size, readBase64: () => readBase64(file) };
+  return {
+    name: file.name || "file",
+    mimeType: file.type || "application/octet-stream",
+    size: file.size,
+    readBase64: () => readBase64(file),
+  };
 }
 
 /** Opens the browser's file picker. Resolves with lazy handles so sizes can be checked before reading. */
-export function pickFileHandles(options: { accept?: string; multiple?: boolean } = {}): Promise<FileHandle[]> {
+export function pickFileHandles(
+  options: { accept?: string; multiple?: boolean } = {},
+): Promise<FileHandle[]> {
   if (!web) return Promise.resolve([]);
   return new Promise((resolve) => {
     const input = document.createElement("input");
@@ -157,7 +177,17 @@ export async function squareImage(source: string, size: number): Promise<string>
   const context = canvas.getContext("2d");
   if (!side || !context) throw new Error("That picture couldn't be read.");
   context.imageSmoothingQuality = "high";
-  context.drawImage(image, (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+  context.drawImage(
+    image,
+    (image.naturalWidth - side) / 2,
+    (image.naturalHeight - side) / 2,
+    side,
+    side,
+    0,
+    0,
+    size,
+    size,
+  );
   return canvas.toDataURL("image/webp", 0.85);
 }
 
@@ -179,16 +209,27 @@ export function domNode(ref: unknown): DomElement | null {
 
 /** Scrolls a React Native view's element to the middle of its scroller (web; list estimates can be off for tall rows). */
 export function scrollIntoView(ref: unknown): void {
-  const node = domNode(ref) as (DomElement & { scrollIntoView?(options: { block: string; behavior: string }): void }) | null;
+  const node = domNode(ref) as
+    | (DomElement & { scrollIntoView?(options: { block: string; behavior: string }): void })
+    | null;
   node?.scrollIntoView?.({ block: "center", behavior: "smooth" });
 }
 
 /** Calls `onFind` for ⌘F / Ctrl+F instead of the browser's own find. */
 export function listenForFind(onFind: () => void): () => void {
-  const target = globalThis as { addEventListener?(type: "keydown", listener: (event: KeyEventLike) => void, capture: boolean): void; removeEventListener?(type: "keydown", listener: (event: KeyEventLike) => void, capture: boolean): void };
+  const target = globalThis as {
+    addEventListener?(type: "keydown", listener: (event: KeyEventLike) => void, capture: boolean): void;
+    removeEventListener?(type: "keydown", listener: (event: KeyEventLike) => void, capture: boolean): void;
+  };
   if (!web || !target.addEventListener) return () => {};
   const handler = (event: KeyEventLike) => {
-    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "f" || event.shiftKey || event.altKey) return;
+    if (
+      !(event.metaKey || event.ctrlKey) ||
+      event.key.toLowerCase() !== "f" ||
+      event.shiftKey ||
+      event.altKey
+    )
+      return;
     event.preventDefault();
     event.stopPropagation();
     onFind();
@@ -224,10 +265,15 @@ function clipboardFiles(data: DataTransferLike | null | undefined): DomFile[] {
  * Paseo's usePasteImagesEffect: pasting images into the textarea attaches them instead of
  * inserting anything. Text pastes are left alone.
  */
-export function listenForImagePaste(element: DomElement | null, onImages: (files: FileHandle[]) => void): () => void {
+export function listenForImagePaste(
+  element: DomElement | null,
+  onImages: (files: FileHandle[]) => void,
+): () => void {
   if (!web || !element) return () => {};
   const handler = (event: DomEvent) => {
-    const images = clipboardFiles(event.clipboardData).filter((file) => file.type.toLowerCase().startsWith("image/"));
+    const images = clipboardFiles(event.clipboardData).filter((file) =>
+      file.type.toLowerCase().startsWith("image/"),
+    );
     if (images.length === 0) return;
     event.preventDefault();
     onImages(
@@ -259,7 +305,13 @@ function hasFiles(data: DataTransferLike | null | undefined): boolean {
  */
 export function listenForFileDrop(
   zone: DomElement | null,
-  options: { label: string; background: string; foreground: string; isEnabled(): boolean; onFiles(files: FileHandle[]): void },
+  options: {
+    label: string;
+    background: string;
+    foreground: string;
+    isEnabled(): boolean;
+    onFiles(files: FileHandle[]): void;
+  },
 ): () => void {
   if (!web || !zone || typeof zone.appendChild !== "function") return () => {};
   let depth = 0;
@@ -396,7 +448,9 @@ export function createTextMeasurer(): TextMeasurer | null {
 }
 
 type ResizeObserverLike = { observe(target: unknown): void; disconnect(): void };
-const ResizeObserverCtor = (globalThis as { ResizeObserver?: new (callback: () => void) => ResizeObserverLike }).ResizeObserver;
+const ResizeObserverCtor = (
+  globalThis as { ResizeObserver?: new (callback: () => void) => ResizeObserverLike }
+).ResizeObserver;
 
 /** Calls back when the element's width changes (the draft re-wraps). */
 export function observeWidth(element: DomElement | null, onChange: () => void): () => void {

@@ -1,7 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Platform, Pressable, Text, View, useWindowDimensions, type LayoutRectangle, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  Text,
+  View,
+  useWindowDimensions,
+  type LayoutRectangle,
+  type StyleProp,
+  type TextInputProps,
+  type ViewStyle,
+} from "react-native";
 import { MONO_FONT, MONO_PROPS, nativeTokens, useHover, withAlpha } from "../native";
 import { fieldStateStyle, multilineStyle } from "../theme";
 import { code, ui } from "../typography";
@@ -52,9 +63,22 @@ export function Button({
   const tokens = nativeTokens(colors);
   const { hovered, hoverProps } = useHover();
   const inactive = disabled || loading;
-  const fill = variant === "default" ? colors.accent : variant === "secondary" ? tokens.surface3 : "transparent";
-  const border = variant === "default" ? colors.accent : variant === "secondary" ? tokens.surface3 : variant === "outline" ? tokens.borderAccent : "transparent";
-  const tint = variant === "default" ? colors.accentForeground : variant === "ghost" && !hovered ? colors.foregroundMuted : colors.foreground;
+  const fill =
+    variant === "default" ? colors.accent : variant === "secondary" ? tokens.surface3 : "transparent";
+  const border =
+    variant === "default"
+      ? colors.accent
+      : variant === "secondary"
+        ? tokens.surface3
+        : variant === "outline"
+          ? tokens.borderAccent
+          : "transparent";
+  const tint =
+    variant === "default"
+      ? colors.accentForeground
+      : variant === "ghost" && !hovered
+        ? colors.foregroundMuted
+        : colors.foreground;
   return (
     <Pressable
       accessibilityRole="button"
@@ -80,7 +104,11 @@ export function Button({
         style,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={tint} /> : icon ? <Icon name={icon} size={size === "md" ? 16 : 14} color={tint} /> : null}
+      {loading ? (
+        <ActivityIndicator size="small" color={tint} />
+      ) : icon ? (
+        <Icon name={icon} size={size === "md" ? 16 : 14} color={tint} />
+      ) : null}
       <Text numberOfLines={1} style={{ fontSize: ui(size === "xs" ? 12 : 14), color: tint }}>
         {label}
       </Text>
@@ -112,7 +140,15 @@ type AreaProps = Omit<TextInputProps, "style" | "multiline"> & {
 };
 
 /** Paseo's FormTextInput, multi-line: surface2, borderAccent on hover, 2px accent focus ring. */
-export function FormTextArea({ colors, minHeight = 96, monospace, onFocus, onBlur, editable, ...props }: AreaProps) {
+export function FormTextArea({
+  colors,
+  minHeight = 96,
+  monospace,
+  onFocus,
+  onBlur,
+  editable,
+  ...props
+}: AreaProps) {
   const { hovered, hoverProps } = useHover();
   const [focused, setFocused] = useState(false);
   return (
@@ -131,7 +167,10 @@ export function FormTextArea({ colors, minHeight = 96, monospace, onFocus, onBlu
           setFocused(false);
           onBlur?.(event);
         }}
-        style={[multilineStyle(colors, minHeight, monospace), fieldStateStyle(colors, { hovered, focused, disabled: editable === false })]}
+        style={[
+          multilineStyle(colors, minHeight, monospace),
+          fieldStateStyle(colors, { hovered, focused, disabled: editable === false }),
+        ]}
       />
     </Pressable>
   );
@@ -142,7 +181,13 @@ export function FormTextArea({ colors, minHeight = 96, monospace, onFocus, onBlu
  * area across the row, matching `InputField` so single- and multi-line inputs
  * look the same. Render it inside a SettingsCard.
  */
-export function TextAreaField({ colors, label, hint, error, ...props }: AreaProps & { label?: string; hint?: string | null; error?: string | null }) {
+export function TextAreaField({
+  colors,
+  label,
+  hint,
+  error,
+  ...props
+}: AreaProps & { label?: string; hint?: string | null; error?: string | null }) {
   return (
     <View style={{ paddingVertical: 16, paddingHorizontal: 16, gap: 12 }}>
       {label ? <RowText colors={colors} label={label} hint={hint} /> : null}
@@ -175,7 +220,18 @@ interface InputFieldProps extends Omit<TextInputProps, "style" | "multiline" | "
  * width, which leaves it cramped in the 320-wide panel and short on phones.
  * The input is FormTextInput: 32 high with radius 6, or 44 and 8 on compact.
  */
-export function InputField({ colors, label, hint, error, initialValue, monospace, disabled, onFocus, onBlur, ...props }: InputFieldProps) {
+export function InputField({
+  colors,
+  label,
+  hint,
+  error,
+  initialValue,
+  monospace,
+  disabled,
+  onFocus,
+  onBlur,
+  ...props
+}: InputFieldProps) {
   const compact = useCompact();
   const { hovered, hoverProps } = useHover();
   const [focused, setFocused] = useState(false);
@@ -229,7 +285,17 @@ export function InputField({ colors, label, hint, error, initialValue, monospace
 // ---------------------------------------------------------------- search
 
 /** Paseo's SearchField: 6/12 padding, radius 6, focus lifts to surface2 + borderAccent, clear X. */
-export function SearchField({ colors, value, onChangeText, placeholder }: { colors: Colors; value: string; onChangeText(text: string): void; placeholder: string }) {
+export function SearchField({
+  colors,
+  value,
+  onChangeText,
+  placeholder,
+}: {
+  colors: Colors;
+  value: string;
+  onChangeText(text: string): void;
+  placeholder: string;
+}) {
   const [focused, setFocused] = useState(false);
   const tokens = nativeTokens(colors);
   return (
@@ -259,10 +325,24 @@ export function SearchField({ colors, value, onChangeText, placeholder }: { colo
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="search"
-        style={{ flex: 1, minWidth: 0, padding: 0, height: 20, fontSize: ui(14), color: colors.foreground, outlineWidth: 0 }}
+        style={{
+          flex: 1,
+          minWidth: 0,
+          padding: 0,
+          height: 20,
+          fontSize: ui(14),
+          color: colors.foreground,
+          outlineWidth: 0,
+        }}
       />
       {value.length > 0 ? (
-        <Pressable accessibilityRole="button" accessibilityLabel="Clear search" {...tooltip("Clear search")} hitSlop={8} onPress={() => onChangeText("")}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Clear search"
+          {...tooltip("Clear search")}
+          hitSlop={8}
+          onPress={() => onChangeText("")}
+        >
           <Icon name="X" size={14} color={colors.foregroundMuted} />
         </Pressable>
       ) : null}
@@ -273,8 +353,19 @@ export function SearchField({ colors, value, onChangeText, placeholder }: { colo
 // ---------------------------------------------------------------- alert, badge, switch
 
 /** Paseo's Alert at size sm: 1px tinted border, transparent fill, 14pt icon, muted body. */
-export function Alert({ colors, variant = "default", title, description }: { colors: Colors; variant?: "default" | "warning" | "error"; title?: string; description?: string | string[] }) {
-  const accent = variant === "warning" ? colors.statusWarning : variant === "error" ? colors.statusDanger : null;
+export function Alert({
+  colors,
+  variant = "default",
+  title,
+  description,
+}: {
+  colors: Colors;
+  variant?: "default" | "warning" | "error";
+  title?: string;
+  description?: string | string[];
+}) {
+  const accent =
+    variant === "warning" ? colors.statusWarning : variant === "error" ? colors.statusDanger : null;
   const icon = variant === "warning" ? "AlertTriangle" : variant === "error" ? "CircleX" : null;
   const lines = description === undefined ? [] : Array.isArray(description) ? description : [description];
   const body = lines.map((line, index) => (
@@ -283,16 +374,37 @@ export function Alert({ colors, variant = "default", title, description }: { col
     </Text>
   ));
   return (
-    <View accessibilityRole="alert" style={{ borderWidth: 1, borderColor: accent ? withAlpha(accent, 0.5) : colors.border, backgroundColor: "transparent", borderRadius: 16, paddingVertical: 12, paddingHorizontal: 16, gap: 2 }}>
+    <View
+      accessibilityRole="alert"
+      style={{
+        borderWidth: 1,
+        borderColor: accent ? withAlpha(accent, 0.5) : colors.border,
+        backgroundColor: "transparent",
+        borderRadius: 16,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        gap: 2,
+      }}
+    >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
         {icon ? (
           <View style={{ width: 14, alignItems: "center" }}>
             <Icon name={icon} size={14} color={accent ?? colors.foreground} />
           </View>
         ) : null}
-        <View style={{ flex: 1, minWidth: 0 }}>{title ? <Text style={{ fontSize: ui(14), fontWeight: "500", color: accent ?? colors.foreground }}>{title}</Text> : body[0]}</View>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {title ? (
+            <Text style={{ fontSize: ui(14), fontWeight: "500", color: accent ?? colors.foreground }}>
+              {title}
+            </Text>
+          ) : (
+            body[0]
+          )}
+        </View>
       </View>
-      {(title ? body : body.slice(1)).length ? <View style={{ marginLeft: icon ? 26 : 0 }}>{title ? body : body.slice(1)}</View> : null}
+      {(title ? body : body.slice(1)).length ? (
+        <View style={{ marginLeft: icon ? 26 : 0 }}>{title ? body : body.slice(1)}</View>
+      ) : null}
     </View>
   );
 }
@@ -300,9 +412,24 @@ export function Alert({ colors, variant = "default", title, description }: { col
 export type BadgeVariant = "success" | "warning" | "error" | "muted";
 
 /** Paseo's StatusBadge: surface3 pill, or the status tint (12% light / 16% dark) with the status text. */
-export function StatusBadge({ colors, label, variant = "muted" }: { colors: Colors; label: string; variant?: BadgeVariant }) {
+export function StatusBadge({
+  colors,
+  label,
+  variant = "muted",
+}: {
+  colors: Colors;
+  label: string;
+  variant?: BadgeVariant;
+}) {
   const tokens = nativeTokens(colors);
-  const status = variant === "success" ? colors.statusSuccess : variant === "warning" ? colors.statusWarning : variant === "error" ? colors.statusDanger : null;
+  const status =
+    variant === "success"
+      ? colors.statusSuccess
+      : variant === "warning"
+        ? colors.statusWarning
+        : variant === "error"
+          ? colors.statusDanger
+          : null;
   return (
     <View
       style={{
@@ -323,7 +450,19 @@ export function StatusBadge({ colors, label, variant = "muted" }: { colors: Colo
 }
 
 /** Paseo's Switch: 34x20 track (surface3 / accent), 16pt thumb, in a 32-high control slot. */
-export function Switch({ colors, value, onValueChange, label, disabled }: { colors: Colors; value: boolean; onValueChange(value: boolean): void; label: string; disabled?: boolean }) {
+export function Switch({
+  colors,
+  value,
+  onValueChange,
+  label,
+  disabled,
+}: {
+  colors: Colors;
+  value: boolean;
+  onValueChange(value: boolean): void;
+  label: string;
+  disabled?: boolean;
+}) {
   const tokens = nativeTokens(colors);
   return (
     <Pressable
@@ -338,7 +477,16 @@ export function Switch({ colors, value, onValueChange, label, disabled }: { colo
       onPress={() => onValueChange(!value)}
       style={{ minHeight: 32, justifyContent: "center", opacity: disabled ? 0.5 : 1 }}
     >
-      <View style={{ width: 34, height: 20, borderRadius: 10, padding: 2, justifyContent: "center", backgroundColor: value ? colors.accent : tokens.surface3 }}>
+      <View
+        style={{
+          width: 34,
+          height: 20,
+          borderRadius: 10,
+          padding: 2,
+          justifyContent: "center",
+          backgroundColor: value ? colors.accent : tokens.surface3,
+        }}
+      >
         <View
           style={{
             width: 16,
@@ -361,19 +509,37 @@ export function Switch({ colors, value, onValueChange, label, disabled }: { colo
 // ---------------------------------------------------------------- rows
 
 /** Title + hint + optional error, with settingsStyles.rowTitle/rowHint/rowError. */
-export function RowText({ colors, label, hint, error, hintLines }: { colors: Colors; label: string; hint?: string | null; error?: string | null; hintLines?: number }) {
+export function RowText({
+  colors,
+  label,
+  hint,
+  error,
+  hintLines,
+}: {
+  colors: Colors;
+  label: string;
+  hint?: string | null;
+  error?: string | null;
+  hintLines?: number;
+}) {
   return (
     <View style={{ flex: 1, minWidth: 0 }}>
       <Text numberOfLines={1} style={{ fontSize: ui(14), color: colors.foreground }}>
         {label}
       </Text>
       {hint ? (
-        <Text numberOfLines={hintLines} style={{ fontSize: ui(12), color: colors.foregroundMuted, marginTop: 4 }}>
+        <Text
+          numberOfLines={hintLines}
+          style={{ fontSize: ui(12), color: colors.foregroundMuted, marginTop: 4 }}
+        >
           {hint}
         </Text>
       ) : null}
       {error ? (
-        <Text accessibilityRole="alert" style={{ fontSize: ui(12), color: colors.statusDanger, marginTop: 4 }}>
+        <Text
+          accessibilityRole="alert"
+          style={{ fontSize: ui(12), color: colors.statusDanger, marginTop: 4 }}
+        >
           {error}
         </Text>
       ) : null}
@@ -386,7 +552,17 @@ export function RowText({ colors, label, hint, error, hintLines }: { colors: Col
  * and surface3 while pressed, like Paseo's schedule rows. Render it as a direct card child
  * so the card draws the divider.
  */
-export function PressableRow({ colors, onPress, accessibilityLabel, children }: { colors: Colors; onPress(): void; accessibilityLabel: string; children: (state: { hovered: boolean }) => ReactNode }) {
+export function PressableRow({
+  colors,
+  onPress,
+  accessibilityLabel,
+  children,
+}: {
+  colors: Colors;
+  onPress(): void;
+  accessibilityLabel: string;
+  children: (state: { hovered: boolean }) => ReactNode;
+}) {
   const tokens = nativeTokens(colors);
   const { hovered, hoverProps } = useHover();
   return (
@@ -410,7 +586,23 @@ export function PressableRow({ colors, onPress, accessibilityLabel, children }: 
 }
 
 /** A row that drills into a detail: whole row pressable, ChevronRight 14 in the trailing slot. */
-export function DrillRow({ colors, label, hint, error, trailing, onPress, hintLines = 1 }: { colors: Colors; label: string; hint?: string | null; error?: string | null; trailing?: ReactNode; onPress(): void; hintLines?: number }) {
+export function DrillRow({
+  colors,
+  label,
+  hint,
+  error,
+  trailing,
+  onPress,
+  hintLines = 1,
+}: {
+  colors: Colors;
+  label: string;
+  hint?: string | null;
+  error?: string | null;
+  trailing?: ReactNode;
+  onPress(): void;
+  hintLines?: number;
+}) {
   return (
     <PressableRow colors={colors} onPress={onPress} accessibilityLabel={label}>
       {({ hovered }) => (
@@ -428,14 +620,29 @@ export function DrillRow({ colors, label, hint, error, trailing, onPress, hintLi
  * Paseo's "Advanced" disclosure (add-host-modal.tsx advancedToggle): a chevron (right, down
  * when open) and the medium-weight label. Settings people rarely need wait behind it.
  */
-export function AdvancedToggle({ colors, open, onToggle }: { colors: Colors; open: boolean; onToggle(): void }) {
+export function AdvancedToggle({
+  colors,
+  open,
+  onToggle,
+}: {
+  colors: Colors;
+  open: boolean;
+  onToggle(): void;
+}) {
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={open ? "Hide advanced" : "Show advanced"}
       accessibilityState={{ expanded: open }}
       onPress={onToggle}
-      style={{ flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", paddingVertical: 4, marginBottom: open ? 16 : 0 }}
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        alignSelf: "flex-start",
+        paddingVertical: 4,
+        marginBottom: open ? 16 : 0,
+      }}
     >
       <Icon name={open ? "ChevronDown" : "ChevronRight"} size={16} color={colors.foregroundMuted} />
       <Text style={{ fontSize: ui(14), fontWeight: "500", color: colors.foreground }}>Advanced</Text>
@@ -444,7 +651,17 @@ export function AdvancedToggle({ colors, open, onToggle }: { colors: Colors; ope
 }
 
 /** A card row whose control needs the full width under its label (e.g. colour swatches). */
-export function StackedRow({ colors, label, hint, children }: { colors: Colors; label: string; hint?: string; children: ReactNode }) {
+export function StackedRow({
+  colors,
+  label,
+  hint,
+  children,
+}: {
+  colors: Colors;
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <View style={{ paddingVertical: 16, paddingHorizontal: 16, gap: 12 }}>
       <RowText colors={colors} label={label} hint={hint} />
@@ -456,7 +673,9 @@ export function StackedRow({ colors, label, hint, children }: { colors: Colors; 
 /** Empty or loading state inside a card: 16 padding, centered, muted 14. */
 export function CardNote({ colors, text, loading }: { colors: Colors; text: string; loading?: boolean }) {
   return (
-    <View style={{ padding: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 }}>
+    <View
+      style={{ padding: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 }}
+    >
       {loading ? <ActivityIndicator size="small" color={colors.foregroundMuted} /> : null}
       <Text style={{ fontSize: ui(14), color: colors.foregroundMuted, textAlign: "center" }}>{text}</Text>
     </View>
@@ -466,7 +685,15 @@ export function CardNote({ colors, text, loading }: { colors: Colors; text: stri
 // ---------------------------------------------------------------- triggers
 
 /** Paseo's row kebab (MoreVertical 14, padding 4, radius 4, hover surface2, hitSlop 8). */
-export function KebabButton({ colors, label, onOpen }: { colors: Colors; label: string; onOpen(anchor: LayoutRectangle): void }) {
+export function KebabButton({
+  colors,
+  label,
+  onOpen,
+}: {
+  colors: Colors;
+  label: string;
+  onOpen(anchor: LayoutRectangle): void;
+}) {
   const ref = useRef<View>(null);
   const { hovered, hoverProps } = useHover();
   return (
@@ -487,7 +714,17 @@ export function KebabButton({ colors, label, onOpen }: { colors: Colors; label: 
 }
 
 /** A section header's trailing action (settingsStyles.sectionHeaderLink: muted 12, gap 4). */
-export function SectionLink({ colors, label, icon = "Plus", onPress }: { colors: Colors; label: string; icon?: string; onPress(anchor: LayoutRectangle | null): void }) {
+export function SectionLink({
+  colors,
+  label,
+  icon = "Plus",
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  icon?: string;
+  onPress(anchor: LayoutRectangle | null): void;
+}) {
   const ref = useRef<View>(null);
   const { hovered, hoverProps } = useHover();
   const tint = hovered ? colors.foreground : colors.foregroundMuted;
@@ -508,7 +745,20 @@ export function SectionLink({ colors, label, icon = "Plus", onPress }: { colors:
 }
 
 /** Muted 12pt text for a section header's trailing slot (counters, totals). */
-export function SectionMeta({ colors, text, tone }: { colors: Colors; text: string; tone?: "warning" | "danger" }) {
-  const color = tone === "danger" ? colors.statusDanger : tone === "warning" ? colors.statusWarning : colors.foregroundMuted;
+export function SectionMeta({
+  colors,
+  text,
+  tone,
+}: {
+  colors: Colors;
+  text: string;
+  tone?: "warning" | "danger";
+}) {
+  const color =
+    tone === "danger"
+      ? colors.statusDanger
+      : tone === "warning"
+        ? colors.statusWarning
+        : colors.foregroundMuted;
   return <Text style={{ fontSize: ui(12), color }}>{text}</Text>;
 }

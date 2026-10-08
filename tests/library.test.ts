@@ -4,7 +4,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { EMPTY_LIBRARY, parseMcpJson, type Bot, type BotMcpServer, type Library } from "../shared/bot";
-import { addMcpServers, forgetItem, matchesQuery, mcpServerTested, mcpTarget, renameGrants, setBotUses, upsertSkills } from "../shared/library";
+import {
+  addMcpServers,
+  forgetItem,
+  matchesQuery,
+  mcpServerTested,
+  mcpTarget,
+  renameGrants,
+  setBotUses,
+  upsertSkills,
+} from "../shared/library";
 
 const NOW = "2026-09-27T00:00:00.000Z";
 
@@ -45,7 +54,11 @@ const fetchDraft: BotMcpServer = { name: "fetch", enabled: true, config: fetchCo
 describe("addMcpServers", () => {
   it("reuses an identical server and renames a clashing one", () => {
     const first = addMcpServers(EMPTY_LIBRARY, [fetchDraft], { now: NOW });
-    const again = addMcpServers(first.library, [fetchDraft, { ...fetchDraft, config: { ...fetchConfig, args: ["other"] } }], { now: NOW });
+    const again = addMcpServers(
+      first.library,
+      [fetchDraft, { ...fetchDraft, config: { ...fetchConfig, args: ["other"] } }],
+      { now: NOW },
+    );
     expect(again.ids[0]).toBe(first.ids[0]);
     expect(again.library.mcpServers.map((server) => server.name)).toEqual(["fetch", "fetch-2"]);
   });
@@ -69,19 +82,43 @@ describe("addMcpServers", () => {
 
 describe("upsertSkills", () => {
   it("adds fetched skills switched off and unreviewed, and a refresh needs a new review", () => {
-    const library: Library = { ...EMPTY_LIBRARY, skills: [{ id: "pdf", description: "old", source: "a", enabled: true, reviewedSha: "abc", createdAt: NOW, updatedAt: NOW }] };
+    const library: Library = {
+      ...EMPTY_LIBRARY,
+      skills: [
+        {
+          id: "pdf",
+          description: "old",
+          source: "a",
+          enabled: true,
+          reviewedSha: "abc",
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+    };
     const next = upsertSkills(library, [
       { id: "pdf", description: "new", source: "" },
       { id: "docx", description: "Word", source: "b" },
     ]);
-    expect(next.skills.map((skill) => [skill.id, skill.description, skill.source, skill.enabled, skill.reviewedSha, skill.createdAt === NOW])).toEqual([
+    expect(
+      next.skills.map((skill) => [
+        skill.id,
+        skill.description,
+        skill.source,
+        skill.enabled,
+        skill.reviewedSha,
+        skill.createdAt === NOW,
+      ]),
+    ).toEqual([
       ["pdf", "new", "a", true, null, true],
       ["docx", "Word", "b", false, null, false],
     ]);
   });
 
   it("switches on a skill written here, reviewed as written", () => {
-    const next = upsertSkills(EMPTY_LIBRARY, [{ id: "mine", description: "d", source: "", reviewedSha: "f00" }]);
+    const next = upsertSkills(EMPTY_LIBRARY, [
+      { id: "mine", description: "d", source: "", reviewedSha: "f00" },
+    ]);
     expect(next.skills[0]).toMatchObject({ enabled: true, reviewedSha: "f00" });
   });
 });
@@ -96,7 +133,11 @@ describe("bot references", () => {
   });
 
   it("rewrites always-allowed grants when a server is renamed", () => {
-    const [renamed, untouched] = renameGrants([bot("a", { alwaysAllow: ["fetch/get", "fetcher/x"] }), bot("b")], "fetch", "web");
+    const [renamed, untouched] = renameGrants(
+      [bot("a", { alwaysAllow: ["fetch/get", "fetcher/x"] }), bot("b")],
+      "fetch",
+      "web",
+    );
     expect(renamed!.alwaysAllow).toEqual(["web/get", "fetcher/x"]);
     expect(untouched!.alwaysAllow).toEqual([]);
   });
@@ -144,9 +185,24 @@ describe("server library", () => {
     const { promptContext } = await import("../server/prompt");
     const text = "---\nname: gated\ndescription: G\n---\nBody\n";
     await writeSkill({ id: "gated", text });
-    const skill = (reviewedSha: string | null | undefined) => ({ id: "gated", description: "G", source: "", enabled: true, reviewedSha, createdAt: NOW, updatedAt: NOW });
+    const skill = (reviewedSha: string | null | undefined) => ({
+      id: "gated",
+      description: "G",
+      source: "",
+      enabled: true,
+      reviewedSha,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
     const names = async (reviewedSha: string | null | undefined) =>
-      (await promptContext(bot("gate-bot", { skillIds: ["gated"] }), true, { skills: [skill(reviewedSha)], mcpServers: [] }, false)).skills.map((entry) => entry.name);
+      (
+        await promptContext(
+          bot("gate-bot", { skillIds: ["gated"] }),
+          true,
+          { skills: [skill(reviewedSha)], mcpServers: [] },
+          false,
+        )
+      ).skills.map((entry) => entry.name);
     expect(await names(sha256(text))).toEqual(["gated"]);
     expect(await names(undefined)).toEqual(["gated"]);
     expect(await names(null)).toEqual([]);
@@ -156,7 +212,10 @@ describe("server library", () => {
   it("writes, reads and deletes library skills", async () => {
     const { writeSkill, readSkill, deleteSkill, sha256 } = await import("../server/library");
     const written = "---\nname: notes\ndescription: Keep notes\n---\n\nBody\n";
-    expect(await writeSkill({ id: "notes", text: written })).toEqual({ description: "Keep notes", sha: sha256(written) });
+    expect(await writeSkill({ id: "notes", text: written })).toEqual({
+      description: "Keep notes",
+      sha: sha256(written),
+    });
     const read = await readSkill({ id: "notes" });
     expect(read.missing).toBe(false);
     expect(read.files).toEqual(["SKILL.md"]);
@@ -182,7 +241,10 @@ describe("server library", () => {
     const { botDataPath } = await import("../server/bot-home");
     const { mkdir } = await import("node:fs/promises");
     await mkdir(join(botDataPath("bot-old"), "skills", "legacy"), { recursive: true });
-    await writeFile(join(botDataPath("bot-old"), "skills", "legacy", "SKILL.md"), "---\nname: legacy\ndescription: Old\n---\n");
+    await writeFile(
+      join(botDataPath("bot-old"), "skills", "legacy", "SKILL.md"),
+      "---\nname: legacy\ndescription: Old\n---\n",
+    );
     await migrateBotSkills();
     expect((await readSkill({ id: "legacy" })).text).toContain("Old");
   });
@@ -194,15 +256,32 @@ describe("server library", () => {
     const library: Library = {
       skills: [{ id: "shared", description: "S", source: "", enabled: true, createdAt: NOW, updatedAt: NOW }],
       mcpServers: [
-        { id: "m1", name: "gh", description: "", enabled: true, config: { type: "http", url: "https://x", headers: { Authorization: "Bearer secret" } }, tools: null, checkedAt: null, checkError: null, createdAt: NOW, updatedAt: NOW },
+        {
+          id: "m1",
+          name: "gh",
+          description: "",
+          enabled: true,
+          config: { type: "http", url: "https://x", headers: { Authorization: "Bearer secret" } },
+          tools: null,
+          checkedAt: null,
+          checkError: null,
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
       ],
     };
-    const { json } = await exportBot({ bot: bot("src", { skillIds: ["shared"], mcpServerIds: ["m1"] }), includeMemory: false }, library);
+    const { json } = await exportBot(
+      { bot: bot("src", { skillIds: ["shared"], mcpServerIds: ["m1"] }), includeMemory: false },
+      library,
+    );
     expect(json).not.toContain("secret");
     const imported = await importBot({ botId: "bot-new", json });
     expect(imported.bot.skillIds).toEqual(["shared"]);
     expect(imported.skills.map((skill) => skill.id)).toEqual(["shared"]);
-    expect(imported.mcpServers[0]).toMatchObject({ name: "gh", config: { headers: { Authorization: "<redacted>" } } });
+    expect(imported.mcpServers[0]).toMatchObject({
+      name: "gh",
+      config: { headers: { Authorization: "<redacted>" } },
+    });
   });
 
   it("still imports v1 files that kept skills and servers on the bot", async () => {
@@ -211,7 +290,14 @@ describe("server library", () => {
       // Exported before the rename.
       format: "paseo-bot",
       version: 1,
-      bot: { name: "Old", avatar: { seed: "s" }, provider: "claude", mcpServers: [fetchDraft], skills: [{ name: "Old Skill", description: "d", enabled: true }], routines: [] },
+      bot: {
+        name: "Old",
+        avatar: { seed: "s" },
+        provider: "claude",
+        mcpServers: [fetchDraft],
+        skills: [{ name: "Old Skill", description: "d", enabled: true }],
+        routines: [],
+      },
       files: { "skills/Old Skill/SKILL.md": "---\nname: old-skill\n---\n" },
     };
     const imported = await importBot({ botId: "bot-v1", json: JSON.stringify(v1) });
@@ -232,15 +318,32 @@ describe("probeMcpServer", () => {
 
   it("lists a stdio server's tools across pages", async () => {
     const { probeMcpServer } = await import("../server/mcp-probe");
-    const result = await probeMcpServer({ config: { type: "stdio", command: process.execPath, args: ["-e", fakeServer], env: {} } });
-    expect(result).toEqual({ ok: true, tools: [{ name: "echo", description: "Echoes" }, { name: "add", description: "" }] });
+    const result = await probeMcpServer({
+      config: { type: "stdio", command: process.execPath, args: ["-e", fakeServer], env: {} },
+    });
+    expect(result).toEqual({
+      ok: true,
+      tools: [
+        { name: "echo", description: "Echoes" },
+        { name: "add", description: "" },
+      ],
+    });
   });
 
   it("reports a command that can't start or exits, without leaking env values", async () => {
     const { probeMcpServer } = await import("../server/mcp-probe");
-    const missing = await probeMcpServer({ config: { type: "stdio", command: "definitely-not-a-command-xyz", args: [], env: {} } });
+    const missing = await probeMcpServer({
+      config: { type: "stdio", command: "definitely-not-a-command-xyz", args: [], env: {} },
+    });
     expect(missing.ok).toBe(false);
-    const exits = await probeMcpServer({ config: { type: "stdio", command: process.execPath, args: ["-e", "console.error('bad key ' + process.env.TOKEN); process.exit(3)"], env: { TOKEN: "sk-12345" } } });
+    const exits = await probeMcpServer({
+      config: {
+        type: "stdio",
+        command: process.execPath,
+        args: ["-e", "console.error('bad key ' + process.env.TOKEN); process.exit(3)"],
+        env: { TOKEN: "sk-12345" },
+      },
+    });
     expect(exits).toMatchObject({ ok: false });
     expect(!exits.ok && exits.error).toContain("code 3");
     expect(!exits.ok && exits.error).not.toContain("sk-12345");
@@ -262,13 +365,17 @@ describe("probeMcpServer", () => {
           return response.end(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }));
         }
         response.writeHead(200, { "Content-Type": "text/event-stream" });
-        response.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "search", description: "Find" }] } })}\n\n`);
+        response.end(
+          `event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: [{ name: "search", description: "Find" }] } })}\n\n`,
+        );
       });
     });
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const { port } = http.address() as { port: number };
     try {
-      const result = await probeMcpServer({ config: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { Authorization: "Bearer t" } } });
+      const result = await probeMcpServer({
+        config: { type: "http", url: `http://127.0.0.1:${port}/mcp`, headers: { Authorization: "Bearer t" } },
+      });
       expect(result).toEqual({ ok: true, tools: [{ name: "search", description: "Find" }] });
       expect(seen).toEqual(["- Bearer t", "s1 Bearer t", "s1 Bearer t"]);
     } finally {
@@ -286,7 +393,13 @@ describe("MCP servers on this computer", () => {
     const previous = process.env.HOME;
     process.env.HOME = home;
     try {
-      await writeFile(join(home, ".claude.json"), JSON.stringify({ projects: { "/x": { mcpServers: { local: { command: "a" } } } }, mcpServers: { fetch: { command: "uvx", args: ["mcp-server-fetch"] } } }));
+      await writeFile(
+        join(home, ".claude.json"),
+        JSON.stringify({
+          projects: { "/x": { mcpServers: { local: { command: "a" } } } },
+          mcpServers: { fetch: { command: "uvx", args: ["mcp-server-fetch"] } },
+        }),
+      );
       await mkdir(join(home, ".cursor"));
       await writeFile(join(home, ".cursor", "mcp.json"), "{ not json");
       const { mcpSources } = await import("../server/mcp-sources");

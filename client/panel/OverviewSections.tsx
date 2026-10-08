@@ -45,7 +45,14 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
   const promptBot = useDebounced(bot, 600);
   const prompt = useQuery({
     // The server reads skills and teams from the saved settings, so changes there recompose too.
-    queryKey: ["paseo-bots", "prompt", JSON.stringify(promptBot), host.isLocal, JSON.stringify(library.skills), JSON.stringify(groups)],
+    queryKey: [
+      "paseo-bots",
+      "prompt",
+      JSON.stringify(promptBot),
+      host.isLocal,
+      JSON.stringify(library.skills),
+      JSON.stringify(groups),
+    ],
     queryFn: () => compose({ bot: promptBot, local: host.isLocal }),
     // Keep the previous composition while edits recompose it, so the card doesn't jump.
     placeholderData: (previous) => previous,
@@ -53,11 +60,18 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
   const [sheet, setSheet] = useState<"summary" | "prompt" | null>(null);
 
   const appsStatus = useAppsStatus();
-  const appNames = new Map((useAppsCatalog(appsStatus.data?.configured ?? false).data?.apps ?? []).map((app) => [app.slug, app.name]));
+  const appNames = new Map(
+    (useAppsCatalog(appsStatus.data?.configured ?? false).data?.apps ?? []).map((app) => [
+      app.slug,
+      app.name,
+    ]),
+  );
   const tools = [
     ...botMcpServers(bot, library).map((server) => server.name),
     ...botSkills(bot, library).map((skill) => `${skill.id} (skill)`),
-    ...(appsStatus.data?.configured && host.isLocal ? bot.apps.map((slug) => `${appNames.get(slug) ?? slug} (app)`) : []),
+    ...(appsStatus.data?.configured && host.isLocal
+      ? bot.apps.map((slug) => `${appNames.get(slug) ?? slug} (app)`)
+      : []),
   ];
   const sections = prompt.data?.sections ?? [];
 
@@ -65,24 +79,71 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
     <>
       <SettingsSection title="Setup">
         <SettingsCard>
-          <SettingsAction label="Set up with the bot" hint="Starts a chat where the bot interviews you and proposes its own instructions and memory" actionLabel="Start" onPress={onSetup} />
+          <SettingsAction
+            label="Set up with the bot"
+            hint="Starts a chat where the bot interviews you and proposes its own instructions and memory"
+            actionLabel="Start"
+            onPress={onSetup}
+          />
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="About this bot">
         <SettingsCard>
-          <DrillRow colors={colors} label="Summary" hint="What it does, reaches and won't do" onPress={() => setSheet("summary")} />
-          <DrillRow colors={colors} label="System prompt" hint={prompt.data ? size(prompt.data.systemPrompt) : prompt.isError ? "Unable to compose the prompt" : "Loading..."} onPress={() => setSheet("prompt")} />
+          <DrillRow
+            colors={colors}
+            label="Summary"
+            hint="What it does, reaches and won't do"
+            onPress={() => setSheet("summary")}
+          />
+          <DrillRow
+            colors={colors}
+            label="System prompt"
+            hint={
+              prompt.data
+                ? size(prompt.data.systemPrompt)
+                : prompt.isError
+                  ? "Unable to compose the prompt"
+                  : "Loading..."
+            }
+            onPress={() => setSheet("prompt")}
+          />
         </SettingsCard>
       </SettingsSection>
       {sheet === "summary" ? (
         <Modal title="Summary" open onOpenChange={(next) => !next && setSheet(null)}>
           <Modal.Content>
             <SettingsCard>
-              <SettingsRow label="Does" hint={bot.title || bot.description || "No title yet. Add one under Identity."} />
+              <SettingsRow
+                label="Does"
+                hint={bot.title || bot.description || "No title yet. Add one under Identity."}
+              />
               <SettingsRow label="Team" hint={teamLine(bot, groups)} />
-              <SettingsRow label="Can reach" hint={tools.length ? tools.join(", ") : "Only its provider's built-in tools and Paseo's tools"} />
-              <SettingsRow label="Runs" hint={bot.routines.length ? bot.routines.map((routine) => `${routine.name}: ${describeSchedule(routine.schedule)}${routine.enabled ? "" : " (paused)"}`).join("\n") : "Only when you message it"} />
-              <SettingsRow label="Won't" hint={botLimits(bot, { local: host.isLocal, appsConfigured: !!appsStatus.data?.configured }).join("\n")} />
+              <SettingsRow
+                label="Can reach"
+                hint={
+                  tools.length ? tools.join(", ") : "Only its provider's built-in tools and Paseo's tools"
+                }
+              />
+              <SettingsRow
+                label="Runs"
+                hint={
+                  bot.routines.length
+                    ? bot.routines
+                        .map(
+                          (routine) =>
+                            `${routine.name}: ${describeSchedule(routine.schedule)}${routine.enabled ? "" : " (paused)"}`,
+                        )
+                        .join("\n")
+                    : "Only when you message it"
+                }
+              />
+              <SettingsRow
+                label="Won't"
+                hint={botLimits(bot, {
+                  local: host.isLocal,
+                  appsConfigured: !!appsStatus.data?.configured,
+                }).join("\n")}
+              />
             </SettingsCard>
           </Modal.Content>
         </Modal>
@@ -90,16 +151,48 @@ export function OverviewSection({ colors, bot, library, groups, localHost, onSet
       {sheet === "prompt" ? (
         <Modal title="System prompt" open onOpenChange={(next) => !next && setSheet(null)}>
           <Modal.Content>
-            <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>Sent with every new chat{prompt.data ? `: ${size(prompt.data.systemPrompt)}` : "."}</Text>
-            {sections.length === 0 ? <CardNote colors={colors} text={prompt.isError ? "Unable to compose the prompt" : "Loading..."} loading={!prompt.isError} /> : null}
+            <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
+              Sent with every new chat{prompt.data ? `: ${size(prompt.data.systemPrompt)}` : "."}
+            </Text>
+            {sections.length === 0 ? (
+              <CardNote
+                colors={colors}
+                text={prompt.isError ? "Unable to compose the prompt" : "Loading..."}
+                loading={!prompt.isError}
+              />
+            ) : null}
             {sections.map((section) => (
               <View key={section.title} style={{ gap: 8 }}>
-                <View style={{ flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "baseline",
+                    justifyContent: "space-between",
+                    gap: 8,
+                  }}
+                >
                   <Text style={{ fontSize: ui(14), color: colors.foreground }}>{section.title}</Text>
                   <SectionMeta colors={colors} text={size(section.text)} />
                 </View>
-                <View style={{ padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface1 }}>
-                  <Text selectable {...MONO_PROPS} style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foreground }}>
+                <View
+                  style={{
+                    padding: 12,
+                    borderRadius: 8,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                    backgroundColor: colors.surface1,
+                  }}
+                >
+                  <Text
+                    selectable
+                    {...MONO_PROPS}
+                    style={{
+                      fontFamily: MONO_FONT,
+                      fontSize: code(),
+                      lineHeight: codeLine(),
+                      color: colors.foreground,
+                    }}
+                  >
                     {section.text}
                   </Text>
                 </View>
@@ -135,18 +228,29 @@ function summarize(before: Bot, after: Bot): string {
     ["modeId", "mode"],
     ["thinkingOptionId", "thinking"],
   ];
-  const changed = labels.filter(([key]) => JSON.stringify(before[key]) !== JSON.stringify(after[key])).map(([, label]) => label);
+  const changed = labels
+    .filter(([key]) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
+    .map(([, label]) => label);
   return changed.length ? `Changed since: ${changed.join(", ")}` : "Same as now";
 }
 
 export function HistorySection({ colors, bot, history, onRestore }: PanelProps) {
   const mine = history.filter((entry) => entry.botId === bot.id).reverse();
   return (
-    <SettingsSection title="Earlier versions" info="Each burst of edits is kept so you can undo it. Restoring keeps the current version here too.">
+    <SettingsSection
+      title="Earlier versions"
+      info="Each burst of edits is kept so you can undo it. Restoring keeps the current version here too."
+    >
       <SettingsCard>
         {mine.length === 0 ? <CardNote colors={colors} text="No earlier versions yet" /> : null}
         {mine.map((entry) => (
-          <SettingsAction key={entry.at} label={`Version from ${relativeTime(entry.at)}`} hint={summarize(entry.snapshot, bot)} actionLabel="Restore" onPress={() => onRestore(entry.snapshot)} />
+          <SettingsAction
+            key={entry.at}
+            label={`Version from ${relativeTime(entry.at)}`}
+            hint={summarize(entry.snapshot, bot)}
+            actionLabel="Restore"
+            onPress={() => onRestore(entry.snapshot)}
+          />
         ))}
       </SettingsCard>
     </SettingsSection>
@@ -167,11 +271,23 @@ export function UsageSection({ bot, localHost }: PanelProps) {
   const working = list.filter((chat) => chat.status === "running").length;
   const loading = chats.isLoading;
   return (
-    <SettingsSection title="All chats" info="From each chat's latest turn as reported by the provider. Archived chats aren't counted.">
+    <SettingsSection
+      title="All chats"
+      info="From each chat's latest turn as reported by the provider. Archived chats aren't counted."
+    >
       <SettingsCard>
-        <SettingsRow label="Chats" hint={loading ? "Loading..." : `${list.length} open${working ? `, ${working} working now` : ""}`} />
-        <SettingsRow label="Tokens" hint={loading ? "Loading..." : `${input.toLocaleString()} in · ${output.toLocaleString()} out`} />
-        <SettingsRow label="Cost" hint={loading ? "Loading..." : cost > 0 ? `$${cost.toFixed(2)}` : "Not reported by this provider"} />
+        <SettingsRow
+          label="Chats"
+          hint={loading ? "Loading..." : `${list.length} open${working ? `, ${working} working now` : ""}`}
+        />
+        <SettingsRow
+          label="Tokens"
+          hint={loading ? "Loading..." : `${input.toLocaleString()} in · ${output.toLocaleString()} out`}
+        />
+        <SettingsRow
+          label="Cost"
+          hint={loading ? "Loading..." : cost > 0 ? `$${cost.toFixed(2)}` : "Not reported by this provider"}
+        />
       </SettingsCard>
     </SettingsSection>
   );

@@ -49,7 +49,10 @@ describe("applyStoredOrdering", () => {
 
 describe("orderChats", () => {
   const chat = (id: string, createdAt: string, updatedAt: string) => ({ id, createdAt, updatedAt });
-  const chats = [chat("old", "2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z"), chat("new", "2026-02-01T00:00:00Z", "2026-02-02T00:00:00Z")];
+  const chats = [
+    chat("old", "2026-01-01T00:00:00Z", "2026-03-01T00:00:00Z"),
+    chat("new", "2026-02-01T00:00:00Z", "2026-02-02T00:00:00Z"),
+  ];
 
   it("sorts manual order newest-created first so replies don't reshuffle rows", () => {
     expect(orderChats(chats, "manual").map((entry) => entry.id)).toEqual(["new", "old"]);
@@ -74,7 +77,17 @@ describe("bot list UI state", () => {
   it("is optional in the settings document and fills its defaults", () => {
     expect(botSettings.schema.parse({}).ui).toBeUndefined();
     expect(botSettings.schema.parse({ ui: {} }).ui).toEqual(DEFAULT_BOT_LIST_UI);
-    expect(DEFAULT_BOT_LIST_UI).toEqual({ collapsed: [], pinnedCollapsed: false, pinnedChats: [], chatOrder: {}, chatSort: "manual", showArchived: false, tab: null, listWidth: 320, panelWidth: 320 });
+    expect(DEFAULT_BOT_LIST_UI).toEqual({
+      collapsed: [],
+      pinnedCollapsed: false,
+      pinnedChats: [],
+      chatOrder: {},
+      chatSort: "manual",
+      showArchived: false,
+      tab: null,
+      listWidth: 320,
+      panelWidth: 320,
+    });
   });
 
   it("rejects an unknown sort", () => {
@@ -135,7 +148,9 @@ import { PLUGIN_VERSION } from "../shared/version";
 
 describe("plugin version", () => {
   it("matches package.json", () => {
-    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+      version: string;
+    };
     expect(PLUGIN_VERSION).toBe(pkg.version);
   });
 });

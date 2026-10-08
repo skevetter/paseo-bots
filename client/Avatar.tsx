@@ -31,20 +31,40 @@ export function Avatar({ avatar, size, dark: darkProp }: AvatarProps) {
   const sprite = useMemo(() => pixelAvatar(avatar.seed, palette, { dark }), [avatar.seed, palette, dark]);
   const radius = radiusFor(avatar.shape, size);
   if (avatar.imageUrl) {
-    return <Image accessibilityIgnoresInvertColors source={{ uri: avatar.imageUrl }} style={{ width: size, height: size, borderRadius: radius }} />;
+    return (
+      <Image
+        accessibilityIgnoresInvertColors
+        source={{ uri: avatar.imageUrl }}
+        style={{ width: size, height: size, borderRadius: radius }}
+      />
+    );
   }
   return <PixelSprite sprite={sprite} size={size} radius={radius} />;
 }
 
 /** A team's logo: its picture, or the generated pixel-art motif on a rounded tile. */
-export function TeamLogo({ group, size, dark: darkProp }: { group: Pick<BotGroup, "id" | "logo">; size: number; dark?: boolean }) {
+export function TeamLogo({
+  group,
+  size,
+  dark: darkProp,
+}: {
+  group: Pick<BotGroup, "id" | "logo">;
+  size: number;
+  dark?: boolean;
+}) {
   const themeDark = useContext(AvatarThemeContext);
   const dark = darkProp ?? themeDark;
   const logo = teamLogoOf(group);
   const image = useMemo(() => teamLogo(logo.seed, logo.palette, { dark }), [logo.seed, logo.palette, dark]);
   const radius = size / 4;
   if (logo.imageUrl) {
-    return <Image accessibilityIgnoresInvertColors source={{ uri: logo.imageUrl }} style={{ width: size, height: size, borderRadius: radius }} />;
+    return (
+      <Image
+        accessibilityIgnoresInvertColors
+        source={{ uri: logo.imageUrl }}
+        style={{ width: size, height: size, borderRadius: radius }}
+      />
+    );
   }
   // The motif has its margin drawn in, so it fills the tile.
   return <PixelSprite sprite={image} size={size} radius={radius} grid={LOGO_SIZE} inset={false} />;
@@ -54,7 +74,19 @@ export function TeamLogo({ group, size, dark: darkProp }: { group: Pick<BotGroup
  * Draws a generated sprite: one View per same-coloured run on a rounded background. Avatars
  * sit inset in their frame except when small; `inset` false fills it (team logos).
  */
-export function PixelSprite({ sprite, size, radius = size / 2, grid = SPRITE_SIZE, inset = true }: { sprite: { background: string; rows: PixelRun[][] }; size: number; radius?: number; grid?: number; inset?: boolean }) {
+export function PixelSprite({
+  sprite,
+  size,
+  radius = size / 2,
+  grid = SPRITE_SIZE,
+  inset = true,
+}: {
+  sprite: { background: string; rows: PixelRun[][] };
+  size: number;
+  radius?: number;
+  grid?: number;
+  inset?: boolean;
+}) {
   // Small avatars (sidebar rows) use the full frame so each sprite pixel stays about one point.
   const inner = !inset || size <= 24 ? size : size * 0.82;
   const pixel = inner / grid;
@@ -62,7 +94,15 @@ export function PixelSprite({ sprite, size, radius = size / 2, grid = SPRITE_SIZ
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={{ width: size, height: size, borderRadius: radius, backgroundColor: sprite.background, alignItems: "center", justifyContent: "center", overflow: "hidden" }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: sprite.background,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+      }}
     >
       <View style={{ width: inner, height: inner }}>
         {sprite.rows.map((runs, y) =>

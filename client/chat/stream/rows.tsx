@@ -3,10 +3,21 @@ import { Icon, Modal, useRevealedText } from "@getpaseo/plugin/client/react-nati
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import type { ComposerAttachment } from "../../../shared/attachments";
-import { capMessageForRender, formatDuration, formatMessageTimestamp, utf8ByteLength } from "../../../shared/markdown";
+import {
+  capMessageForRender,
+  formatDuration,
+  formatMessageTimestamp,
+  utf8ByteLength,
+} from "../../../shared/markdown";
 import { appSignIns } from "../../../shared/apps";
 import { proposalIdOf } from "../../../shared/proposals";
-import { buildToolCallPresentation, type TaskActivity, type TaskEntry, type ToolCallDetail, type ToolCallStatus } from "../../../shared/tools";
+import {
+  buildToolCallPresentation,
+  type TaskActivity,
+  type TaskEntry,
+  type ToolCallDetail,
+  type ToolCallStatus,
+} from "../../../shared/tools";
 import { AttachmentPill } from "../../AttachmentPill";
 import { Markdown } from "../../Markdown";
 import { CONTENT_MAX_WIDTH, nativeTokens } from "../../native";
@@ -46,33 +57,95 @@ export interface RowContext {
 }
 
 /** One stream item, laid out like Paseo's StreamItemWrapper (820 wide, 8 inset). */
-export function RowFrame({ gapBelow, highlight, children }: { gapBelow: number; /** Background of the current find match, which scrolls into view. */ highlight?: string; children: ReactNode }) {
+export function RowFrame({
+  gapBelow,
+  highlight,
+  children,
+}: {
+  gapBelow: number /** Background of the current find match, which scrolls into view. */;
+  highlight?: string;
+  children: ReactNode;
+}) {
   const ref = useRef<View>(null);
   useEffect(() => {
     if (highlight) scrollIntoView(ref.current);
   }, [highlight]);
   return (
-    <View ref={ref} style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, alignSelf: "center", paddingHorizontal: 8, marginBottom: gapBelow, ...(highlight ? { backgroundColor: highlight, borderRadius: 8 } : {}) }}>
+    <View
+      ref={ref}
+      style={{
+        width: "100%",
+        maxWidth: CONTENT_MAX_WIDTH,
+        alignSelf: "center",
+        paddingHorizontal: 8,
+        marginBottom: gapBelow,
+        ...(highlight ? { backgroundColor: highlight, borderRadius: 8 } : {}),
+      }}
+    >
       {children}
     </View>
   );
 }
 
-export function RowContent({ row, context, compactBottom }: { row: StreamRow; context: RowContext; compactBottom: boolean }) {
+export function RowContent({
+  row,
+  context,
+  compactBottom,
+}: {
+  row: StreamRow;
+  context: RowContext;
+  compactBottom: boolean;
+}) {
   const { colors } = context;
   switch (row.kind) {
     case "user":
-      return <UserMessage colors={colors} compact={context.compact} text={row.text} timestamp={row.timestamp} attachments={context.attachmentsFor(row)} />;
+      return (
+        <UserMessage
+          colors={colors}
+          compact={context.compact}
+          text={row.text}
+          timestamp={row.timestamp}
+          attachments={context.attachmentsFor(row)}
+        />
+      );
     case "assistant":
-      return <AssistantMessage colors={colors} text={row.text} phase={row.phase} compactBottom={compactBottom} />;
+      return (
+        <AssistantMessage colors={colors} text={row.text} phase={row.phase} compactBottom={compactBottom} />
+      );
     case "thought":
       return <ThoughtRow colors={colors} compact={context.compact} text={row.text} loading={row.loading} />;
     case "tool": {
       const proposalId = proposalIdOf(row);
-      if (proposalId) return <ProposalCard colors={colors} compact={context.compact} proposalId={proposalId} />;
+      if (proposalId)
+        return <ProposalCard colors={colors} compact={context.compact} proposalId={proposalId} />;
       const signIns = appSignIns(row);
-      if (signIns.length) return <>{signIns.map((signIn) => <ConnectCard key={signIn.url} colors={colors} signIn={signIn} since={row.timestamp} agentId={context.agentId} botId={context.botId} />)}</>;
-      return <ToolCallRow colors={colors} compact={context.compact} cwd={context.cwd} name={row.name} status={row.status} error={row.error} detail={row.detail} metadata={row.metadata} />;
+      if (signIns.length)
+        return (
+          <>
+            {signIns.map((signIn) => (
+              <ConnectCard
+                key={signIn.url}
+                colors={colors}
+                signIn={signIn}
+                since={row.timestamp}
+                agentId={context.agentId}
+                botId={context.botId}
+              />
+            ))}
+          </>
+        );
+      return (
+        <ToolCallRow
+          colors={colors}
+          compact={context.compact}
+          cwd={context.cwd}
+          name={row.name}
+          status={row.status}
+          error={row.error}
+          detail={row.detail}
+          metadata={row.metadata}
+        />
+      );
     }
     case "speak":
       return <SpeakMessage colors={colors} text={row.text} />;
@@ -81,7 +154,14 @@ export function RowContent({ row, context, compactBottom }: { row: StreamRow; co
     case "notification":
       return <Notification colors={colors} level={row.level} message={row.message} />;
     case "compaction":
-      return <CompactionMarker colors={colors} status={row.status} trigger={row.trigger} preTokens={row.preTokens} />;
+      return (
+        <CompactionMarker
+          colors={colors}
+          status={row.status}
+          trigger={row.trigger}
+          preTokens={row.preTokens}
+        />
+      );
     case "routine-run":
       return <RoutineRunCard colors={colors} card={row.card} onOpenChat={context.openChat} />;
   }
@@ -89,17 +169,36 @@ export function RowContent({ row, context, compactBottom }: { row: StreamRow; co
 
 // ---------------------------------------------------------------- user
 
-
-const UserMessage = memo(function UserMessage({ colors, compact, text, timestamp, attachments }: { colors: Colors; compact: boolean; text: string; timestamp: number; attachments: ComposerAttachment[] }) {
+const UserMessage = memo(function UserMessage({
+  colors,
+  compact,
+  text,
+  timestamp,
+  attachments,
+}: {
+  colors: Colors;
+  compact: boolean;
+  text: string;
+  timestamp: number;
+  attachments: ComposerAttachment[];
+}) {
   const [hovered, setHovered] = useState(false);
   const [lightbox, setLightbox] = useState<ImageAttachment | null>(null);
   const hasText = text.trim().length > 0;
-  const images = attachments.filter((attachment): attachment is ImageAttachment => attachment.kind === "image");
+  const images = attachments.filter(
+    (attachment): attachment is ImageAttachment => attachment.kind === "image",
+  );
   const files = attachments.filter((attachment) => attachment.kind !== "image");
   const showTrailing = hasText && (compact || !isWeb || hovered);
   const getText = useCallback(() => text, [text]);
   return (
-    <View style={{ flexDirection: "row", justifyContent: "flex-end", ...(isWeb ? ({ userSelect: "text" } as object) : {}) }}>
+    <View
+      style={{
+        flexDirection: "row",
+        justifyContent: "flex-end",
+        ...(isWeb ? ({ userSelect: "text" } as object) : {}),
+      }}
+    >
       {/* On web a Pressable tracks hover for the timestamp row; phones always show it. */}
       <HoverArea onHover={setHovered} style={{ alignItems: "flex-end", maxWidth: "100%", cursor: "auto" }}>
         <View
@@ -114,9 +213,21 @@ const UserMessage = memo(function UserMessage({ colors, compact, text, timestamp
           }}
         >
           {images.length > 0 ? (
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: hasText || files.length > 0 ? 8 : 0 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                gap: 8,
+                flexWrap: "wrap",
+                marginBottom: hasText || files.length > 0 ? 8 : 0,
+              }}
+            >
               {images.map((image) => (
-                <Pressable key={image.id} accessibilityRole="button" accessibilityLabel="Open image" onPress={() => setLightbox(image)}>
+                <Pressable
+                  key={image.id}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open image"
+                  onPress={() => setLightbox(image)}
+                >
                   <AttachmentPill colors={colors} attachment={image} />
                 </Pressable>
               ))}
@@ -130,15 +241,41 @@ const UserMessage = memo(function UserMessage({ colors, compact, text, timestamp
             </View>
           ) : null}
           {hasText ? (
-            <Text selectable style={{ color: colors.foreground, fontSize: content(), lineHeight: contentLine(), ...(isWeb ? ({ overflowWrap: "anywhere" } as object) : {}) }}>
+            <Text
+              selectable
+              style={{
+                color: colors.foreground,
+                fontSize: content(),
+                lineHeight: contentLine(),
+                ...(isWeb ? ({ overflowWrap: "anywhere" } as object) : {}),
+              }}
+            >
               {text}
             </Text>
           ) : null}
         </View>
         {hasText ? (
-          <View pointerEvents={showTrailing ? "auto" : "none"} style={{ alignSelf: "flex-end", flexDirection: "row", alignItems: "center", height: 24, gap: 8, marginTop: 8, opacity: showTrailing ? 1 : 0 }}>
-            <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE }}>{formatMessageTimestamp(new Date(timestamp))}</Text>
-            <CopyButton colors={colors} getContent={getText} label="Copy message" style={{ alignSelf: "center", marginRight: -4 }} />
+          <View
+            pointerEvents={showTrailing ? "auto" : "none"}
+            style={{
+              alignSelf: "flex-end",
+              flexDirection: "row",
+              alignItems: "center",
+              height: 24,
+              gap: 8,
+              marginTop: 8,
+              opacity: showTrailing ? 1 : 0,
+            }}
+          >
+            <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE }}>
+              {formatMessageTimestamp(new Date(timestamp))}
+            </Text>
+            <CopyButton
+              colors={colors}
+              getContent={getText}
+              label="Copy message"
+              style={{ alignSelf: "center", marginRight: -4 }}
+            />
           </View>
         ) : null}
       </HoverArea>
@@ -147,7 +284,15 @@ const UserMessage = memo(function UserMessage({ colors, compact, text, timestamp
   );
 });
 
-function HoverArea({ onHover, style, children }: { onHover(hovered: boolean): void; style: object; children: ReactNode }) {
+function HoverArea({
+  onHover,
+  style,
+  children,
+}: {
+  onHover(hovered: boolean): void;
+  style: object;
+  children: ReactNode;
+}) {
   if (!isWeb) return <View style={style}>{children}</View>;
   return (
     <Pressable onHoverIn={() => onHover(true)} onHoverOut={() => onHover(false)} style={style}>
@@ -171,7 +316,14 @@ function Lightbox({ colors, image, onClose }: { colors: Colors; image: ImageAtta
     <Modal title={image.name} open onOpenChange={(open) => !open && onClose()}>
       <Modal.Content contentContainerStyle={{ padding: 0, gap: 0 }}>
         <View style={{ backgroundColor: colors.surface0, alignItems: "center", justifyContent: "center" }}>
-          <Image accessibilityLabel={image.name} source={{ uri }} resizeMode="contain" style={ratio ? { width: "100%", aspectRatio: ratio, maxHeight: 720 } : { width: "100%", height: 360 }} />
+          <Image
+            accessibilityLabel={image.name}
+            source={{ uri }}
+            resizeMode="contain"
+            style={
+              ratio ? { width: "100%", aspectRatio: ratio, maxHeight: 720 } : { width: "100%", height: 360 }
+            }
+          />
         </View>
       </Modal.Content>
     </Modal>
@@ -180,14 +332,37 @@ function Lightbox({ colors, image, onClose }: { colors: Colors; image: ImageAtta
 
 // ---------------------------------------------------------------- assistant
 
-const AssistantMessage = memo(function AssistantMessage({ colors, text, phase, compactBottom }: { colors: Colors; text: string; phase: "streaming" | "complete"; compactBottom: boolean }) {
+const AssistantMessage = memo(function AssistantMessage({
+  colors,
+  text,
+  phase,
+  compactBottom,
+}: {
+  colors: Colors;
+  text: string;
+  phase: "streaming" | "complete";
+  compactBottom: boolean;
+}) {
   const capped = useMemo(() => capMessageForRender(text), [text]);
   const revealed = useRevealedText(capped.text, phase);
-  const bytes = useMemo(() => (capped.capped && phase === "complete" ? utf8ByteLength(text) : null), [capped.capped, phase, text]);
+  const bytes = useMemo(
+    () => (capped.capped && phase === "complete" ? utf8ByteLength(text) : null),
+    [capped.capped, phase, text],
+  );
   return (
-    <View style={{ paddingTop: 12, paddingBottom: compactBottom ? 0 : 12, ...(isWeb ? ({ userSelect: "text" } as object) : {}) }}>
+    <View
+      style={{
+        paddingTop: 12,
+        paddingBottom: compactBottom ? 0 : 12,
+        ...(isWeb ? ({ userSelect: "text" } as object) : {}),
+      }}
+    >
       <Markdown colors={colors} text={revealed} streaming={phase === "streaming"} />
-      {bytes !== null ? <Text style={{ marginTop: 12, fontSize: ui(14), fontStyle: "italic", color: colors.foregroundMuted }}>This message was capped ({bytes} bytes).</Text> : null}
+      {bytes !== null ? (
+        <Text style={{ marginTop: 12, fontSize: ui(14), fontStyle: "italic", color: colors.foregroundMuted }}>
+          This message was capped ({bytes} bytes).
+        </Text>
+      ) : null}
     </View>
   );
 });
@@ -199,7 +374,10 @@ const SpeakMessage = memo(function SpeakMessage({ colors, text }: { colors: Colo
         <Icon name="MicVocal" size={12} color={colors.foregroundMuted} />
         <Text style={{ fontSize: ui(14), color: colors.foregroundMuted }}>Spoke</Text>
       </View>
-      <Text selectable style={{ fontSize: content(), lineHeight: Math.round(content() * 1.4), color: colors.foreground }}>
+      <Text
+        selectable
+        style={{ fontSize: content(), lineHeight: Math.round(content() * 1.4), color: colors.foreground }}
+      >
         {text}
       </Text>
     </View>
@@ -221,17 +399,40 @@ interface ToolCallRowProps {
 }
 
 /** Paseo's ToolCall: an expandable badge inline on desktop, a sheet on phones, a plan card for plans. */
-const ToolCallRow = memo(function ToolCallRow({ colors, compact, cwd, name, status, error, detail, metadata, maxDetailHeight = 400 }: ToolCallRowProps) {
+const ToolCallRow = memo(function ToolCallRow({
+  colors,
+  compact,
+  cwd,
+  name,
+  status,
+  error,
+  detail,
+  metadata,
+  maxDetailHeight = 400,
+}: ToolCallRowProps) {
   const [expanded, setExpanded] = useState(false);
   const [sheet, setSheet] = useState(false);
-  const presentation = useMemo(() => buildToolCallPresentation({ name, status, error: error ?? null, detail, metadata, cwd }), [name, status, error, detail, metadata, cwd]);
+  const presentation = useMemo(
+    () => buildToolCallPresentation({ name, status, error: error ?? null, detail, metadata, cwd }),
+    [name, status, error, detail, metadata, cwd],
+  );
   const toggle = useCallback(() => (compact ? setSheet(true) : setExpanded((value) => !value)), [compact]);
   const renderDetails = useCallback(
-    () => <ToolCallDetailsContent colors={colors} toolName={name} detail={detail} errorText={presentation.errorText} maxHeight={maxDetailHeight} showLoadingSkeleton={presentation.isLoadingDetails} />,
+    () => (
+      <ToolCallDetailsContent
+        colors={colors}
+        toolName={name}
+        detail={detail}
+        errorText={presentation.errorText}
+        maxHeight={maxDetailHeight}
+        showLoadingSkeleton={presentation.isLoadingDetails}
+      />
+    ),
     [colors, name, detail, presentation.errorText, presentation.isLoadingDetails, maxDetailHeight],
   );
 
-  if (presentation.isPlan && detail.type === "plan") return <PlanCard colors={colors} text={detail.text} outcome={presentation.planOutcome} />;
+  if (presentation.isPlan && detail.type === "plan")
+    return <PlanCard colors={colors} text={detail.text} outcome={presentation.planOutcome} />;
 
   return (
     <>
@@ -247,9 +448,24 @@ const ToolCallRow = memo(function ToolCallRow({ colors, compact, cwd, name, stat
         isError={status === "failed"}
       />
       {sheet ? (
-        <Modal title={presentation.displayName} icon={<Icon name={presentation.icon} size={20} color={colors.foreground} />} open onOpenChange={(open) => !open && setSheet(false)}>
-          <Modal.Content style={{ backgroundColor: colors.surface2 }} contentContainerStyle={{ padding: 0, gap: 0, flexGrow: 1 }}>
-            <ToolCallDetailsContent colors={colors} toolName={name} detail={detail} errorText={presentation.errorText} fillAvailableHeight showLoadingSkeleton={presentation.isLoadingDetails} />
+        <Modal
+          title={presentation.displayName}
+          icon={<Icon name={presentation.icon} size={20} color={colors.foreground} />}
+          open
+          onOpenChange={(open) => !open && setSheet(false)}
+        >
+          <Modal.Content
+            style={{ backgroundColor: colors.surface2 }}
+            contentContainerStyle={{ padding: 0, gap: 0, flexGrow: 1 }}
+          >
+            <ToolCallDetailsContent
+              colors={colors}
+              toolName={name}
+              detail={detail}
+              errorText={presentation.errorText}
+              fillAvailableHeight
+              showLoadingSkeleton={presentation.isLoadingDetails}
+            />
           </Modal.Content>
         </Modal>
       ) : null}
@@ -258,21 +474,61 @@ const ToolCallRow = memo(function ToolCallRow({ colors, compact, cwd, name, stat
 });
 
 /** Reasoning renders as Paseo's "Thinking" tool call, paced like assistant text. */
-const ThoughtRow = memo(function ThoughtRow({ colors, compact, text, loading }: { colors: Colors; compact: boolean; text: string; loading: boolean }) {
+const ThoughtRow = memo(function ThoughtRow({
+  colors,
+  compact,
+  text,
+  loading,
+}: {
+  colors: Colors;
+  compact: boolean;
+  text: string;
+  loading: boolean;
+}) {
   const revealed = useRevealedText(text, loading ? "streaming" : "complete");
-  const detail = useMemo<ToolCallDetail>(() => ({ type: "unknown", input: revealed, output: null }), [revealed]);
-  return <ToolCallRow colors={colors} compact={compact} name="thinking" status={loading ? "running" : "completed"} error={null} detail={detail} />;
+  const detail = useMemo<ToolCallDetail>(
+    () => ({ type: "unknown", input: revealed, output: null }),
+    [revealed],
+  );
+  return (
+    <ToolCallRow
+      colors={colors}
+      compact={compact}
+      name="thinking"
+      status={loading ? "running" : "completed"}
+      error={null}
+      detail={detail}
+    />
+  );
 });
 
 // ---------------------------------------------------------------- tasks
 
-const ACTIVITY_ICONS: Record<TaskActivity["type"], string> = { created: "SquareCheck", added: "Plus", started: "CircleDot", completed: "Check" };
-const ACTIVITY_LABELS: Record<Exclude<TaskActivity["type"], "created">, string> = { added: "Added", started: "Started", completed: "Completed" };
+const ACTIVITY_ICONS: Record<TaskActivity["type"], string> = {
+  created: "SquareCheck",
+  added: "Plus",
+  started: "CircleDot",
+  completed: "Check",
+};
+const ACTIVITY_LABELS: Record<Exclude<TaskActivity["type"], "created">, string> = {
+  added: "Added",
+  started: "Started",
+  completed: "Completed",
+};
 
 /** Paseo's TodoListCard: one badge per change to the task list, expanding to the list. */
-const TodoListCard = memo(function TodoListCard({ colors, items, activity }: { colors: Colors; items: TaskEntry[]; activity: TaskActivity }) {
+const TodoListCard = memo(function TodoListCard({
+  colors,
+  items,
+  activity,
+}: {
+  colors: Colors;
+  items: TaskEntry[];
+  activity: TaskActivity;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const label = activity.type === "created" ? `Created ${activity.count} tasks` : ACTIVITY_LABELS[activity.type];
+  const label =
+    activity.type === "created" ? `Created ${activity.count} tasks` : ACTIVITY_LABELS[activity.type];
   const secondary = activity.type === "created" ? undefined : activity.task;
   const renderDetails = useCallback(
     () => (
@@ -281,14 +537,26 @@ const TodoListCard = memo(function TodoListCard({ colors, items, activity }: { c
           {items.length === 0 ? (
             <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>No tasks yet.</Text>
           ) : (
-            items.map((task, index) => <TaskListRow key={task.id ?? `${index}:${task.text}`} colors={colors} task={task} />)
+            items.map((task, index) => (
+              <TaskListRow key={task.id ?? `${index}:${task.text}`} colors={colors} task={task} />
+            ))
           )}
         </View>
       </View>
     ),
     [colors, items],
   );
-  return <ExpandableBadge colors={colors} label={label} secondaryLabel={secondary} icon={ACTIVITY_ICONS[activity.type]} isExpanded={expanded} onToggle={() => setExpanded((value) => !value)} renderDetails={renderDetails} />;
+  return (
+    <ExpandableBadge
+      colors={colors}
+      label={label}
+      secondaryLabel={secondary}
+      icon={ACTIVITY_ICONS[activity.type]}
+      isExpanded={expanded}
+      onToggle={() => setExpanded((value) => !value)}
+      renderDetails={renderDetails}
+    />
+  );
 });
 
 /** Paseo's TaskListRow: Circle / CircleDot / CircleCheck 16, finished tasks struck through. */
@@ -299,7 +567,11 @@ function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
   const text = running && task.activeForm ? task.activeForm : task.text;
   return (
     <View accessibilityLabel={text} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-      <Icon name={completed ? "CircleCheck" : running ? "CircleDot" : "Circle"} size={16} color={running ? tokens.statusDotRunning : tokens.foregroundExtraMuted} />
+      <Icon
+        name={completed ? "CircleCheck" : running ? "CircleDot" : "Circle"}
+        size={16}
+        color={running ? tokens.statusDotRunning : tokens.foregroundExtraMuted}
+      />
       <Text
         numberOfLines={1}
         style={{
@@ -307,7 +579,11 @@ function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
           flexShrink: 1,
           minWidth: 0,
           fontSize: ui(14),
-          color: completed ? tokens.foregroundExtraMuted : running ? colors.foreground : colors.foregroundMuted,
+          color: completed
+            ? tokens.foregroundExtraMuted
+            : running
+              ? colors.foreground
+              : colors.foregroundMuted,
           ...(completed ? { textDecorationLine: "line-through" as const } : {}),
         }}
       >
@@ -325,7 +601,15 @@ const NOTIFICATION_STYLES = {
   error: { background: "rgba(239, 68, 68, 0.1)", icon: "CircleX", tint: "" },
 } as const;
 
-const Notification = memo(function Notification({ colors, level, message }: { colors: Colors; level: "info" | "warning" | "error"; message: string }) {
+const Notification = memo(function Notification({
+  colors,
+  level,
+  message,
+}: {
+  colors: Colors;
+  level: "info" | "warning" | "error";
+  message: string;
+}) {
   const style = NOTIFICATION_STYLES[level];
   return (
     <View style={{ borderRadius: 6, overflow: "hidden", backgroundColor: style.background }}>
@@ -345,7 +629,11 @@ const Notification = memo(function Notification({ colors, level, message }: { co
   );
 });
 
-function compactionLabel(status: "loading" | "completed", trigger?: "auto" | "manual", preTokens?: number): string {
+function compactionLabel(
+  status: "loading" | "completed",
+  trigger?: "auto" | "manual",
+  preTokens?: number,
+): string {
   if (status === "loading") return "Compacting...";
   if (trigger === "auto") return "Context automatically compacted";
   if (trigger === "manual") return "Context manually compacted";
@@ -353,13 +641,37 @@ function compactionLabel(status: "loading" | "completed", trigger?: "auto" | "ma
   return "Context compacted";
 }
 
-const CompactionMarker = memo(function CompactionMarker({ colors, status, trigger, preTokens }: { colors: Colors; status: "loading" | "completed"; trigger?: "auto" | "manual"; preTokens?: number }) {
+const CompactionMarker = memo(function CompactionMarker({
+  colors,
+  status,
+  trigger,
+  preTokens,
+}: {
+  colors: Colors;
+  status: "loading" | "completed";
+  trigger?: "auto" | "manual";
+  preTokens?: number;
+}) {
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16, gap: 8 }}>
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        gap: 8,
+      }}
+    >
       <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        {status === "loading" ? <Spinner color="#a1a1aa" /> : <Icon name="Scissors" size={12} color="#a1a1aa" />}
-        <Text style={{ fontSize: METADATA_SIZE, color: colors.foregroundMuted }}>{compactionLabel(status, trigger, preTokens)}</Text>
+        {status === "loading" ? (
+          <Spinner color="#a1a1aa" />
+        ) : (
+          <Icon name="Scissors" size={12} color="#a1a1aa" />
+        )}
+        <Text style={{ fontSize: METADATA_SIZE, color: colors.foregroundMuted }}>
+          {compactionLabel(status, trigger, preTokens)}
+        </Text>
       </View>
       <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
     </View>
@@ -371,20 +683,47 @@ const CompactionMarker = memo(function CompactionMarker({ colors, status, trigge
 /** agent-stream/turn-footer.tsx TurnFooterRow + slot: 13 below the turn, 24 high, 32 below. */
 function TurnFooterRow({ children }: { children: ReactNode }) {
   return (
-    <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, alignSelf: "center", paddingHorizontal: 8, marginTop: 13 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", alignSelf: "flex-start", minHeight: 24, paddingBottom: 32 }}>{children}</View>
+    <View
+      style={{
+        width: "100%",
+        maxWidth: CONTENT_MAX_WIDTH,
+        alignSelf: "center",
+        paddingHorizontal: 8,
+        marginTop: 13,
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          alignSelf: "flex-start",
+          minHeight: 24,
+          paddingBottom: 32,
+        }}
+      >
+        {children}
+      </View>
     </View>
   );
 }
 
 /** Paseo's AssistantTurnFooter: copy, then "Worked for 2m 12s", swapping to the end time on hover or tap. */
-export const CompletedTurnFooter = memo(function CompletedTurnFooter({ colors, footer, voice }: { colors: Colors; footer: TurnFooterInfo; voice?: string | null }) {
+export const CompletedTurnFooter = memo(function CompletedTurnFooter({
+  colors,
+  footer,
+  voice,
+}: {
+  colors: Colors;
+  footer: TurnFooterInfo;
+  voice?: string | null;
+}) {
   const [hovered, setHovered] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
   const durationLabel = footer.durationMs !== null ? `Worked for ${formatDuration(footer.durationMs)}` : "";
-  const timestampLabel = footer.completedAt !== null ? formatMessageTimestamp(new Date(footer.completedAt)) : "";
+  const timestampLabel =
+    footer.completedAt !== null ? formatMessageTimestamp(new Date(footer.completedAt)) : "";
   const primary = durationLabel || timestampLabel;
   const canSwap = Boolean(durationLabel && timestampLabel);
   const showTimestamp = canSwap && (isWeb ? hovered : revealed);
@@ -403,7 +742,9 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({ colors, f
     <TurnFooterRow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <CopyButton colors={colors} getContent={getContent} style={{ alignSelf: "center", marginLeft: -4 }} />
-        {canSpeak && voice !== undefined && footer.copy ? <SpeakButton colors={colors} text={footer.copy} voice={voice} /> : null}
+        {canSpeak && voice !== undefined && footer.copy ? (
+          <SpeakButton colors={colors} text={footer.copy} voice={voice} />
+        ) : null}
         {primary ? (
           <Pressable
             onPress={press}
@@ -417,7 +758,9 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({ colors, f
               <Text aria-hidden style={[labelStyle, { opacity: 0 }]}>
                 {primary.length >= timestampLabel.length ? primary : timestampLabel}
               </Text>
-              <Text style={[labelStyle, { position: "absolute", top: 0, left: 0 }]}>{showTimestamp ? timestampLabel : primary}</Text>
+              <Text style={[labelStyle, { position: "absolute", top: 0, left: 0 }]}>
+                {showTimestamp ? timestampLabel : primary}
+              </Text>
             </View>
           </Pressable>
         ) : null}
@@ -427,11 +770,25 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({ colors, f
 });
 
 /** turn-footer.tsx WorkingIndicator: a 14pt loader and the live elapsed time of the running turn. */
-export function WorkingIndicator({ colors, startedAt }: { colors: Colors; startedAt: string | null | undefined }) {
+export function WorkingIndicator({
+  colors,
+  startedAt,
+}: {
+  colors: Colors;
+  startedAt: string | null | undefined;
+}) {
   const started = startedAt ? Date.parse(startedAt) : NaN;
   return (
     <TurnFooterRow>
-      <View style={{ height: 24, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 12 }}>
+      <View
+        style={{
+          height: 24,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "flex-start",
+          gap: 12,
+        }}
+      >
         <View style={{ marginLeft: -2 }}>
           <Spinner color={colors.foreground} size={14} />
         </View>
@@ -448,5 +805,9 @@ function LiveElapsed({ colors, startedAt }: { colors: Colors; startedAt: number 
     const handle = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(handle);
   }, [startedAt]);
-  return <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE, fontVariant: ["tabular-nums"] }}>{formatDuration(Math.max(0, now - startedAt))}</Text>;
+  return (
+    <Text style={{ color: colors.foregroundMuted, fontSize: METADATA_SIZE, fontVariant: ["tabular-nums"] }}>
+      {formatDuration(Math.max(0, now - startedAt))}
+    </Text>
+  );
 }

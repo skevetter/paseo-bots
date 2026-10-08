@@ -24,7 +24,16 @@ import { ui } from "../typography";
 import type { ChatState } from "../useChat";
 import { PermissionCard } from "./Permission";
 import { FindBar } from "./FindBar";
-import { buildRows, findRows, layoutStream, retainLayout, type StreamEntry, type StreamLayout, type StreamLayoutItem, type StreamRow } from "./stream/model";
+import {
+  buildRows,
+  findRows,
+  layoutStream,
+  retainLayout,
+  type StreamEntry,
+  type StreamLayout,
+  type StreamLayoutItem,
+  type StreamRow,
+} from "./stream/model";
 import { CompletedTurnFooter, RowContent, RowFrame, WorkingIndicator, type RowContext } from "./stream/rows";
 import { SecondaryButton } from "./stream/ui";
 import { tooltip } from "../ui/Tooltip";
@@ -65,17 +74,36 @@ function isTurnRunning(chat: ChatState): boolean {
   return chat.agent?.status === "running" || chat.agent?.status === "initializing";
 }
 
-export function ChatStream({ colors, chat, api, agentId, compact, platform, typeVersion, onOpenChat, botId, voice, findOpen = false, onCloseFind }: ChatStreamProps) {
+export function ChatStream({
+  colors,
+  chat,
+  api,
+  agentId,
+  compact,
+  platform,
+  typeVersion,
+  onOpenChat,
+  botId,
+  voice,
+  findOpen = false,
+  onCloseFind,
+}: ChatStreamProps) {
   const running = isTurnRunning(chat);
   const inverted = platform !== "web";
   const list = useRef<NativeFlatList<StreamLayoutItem>>(null);
   const previousLayout = useRef<StreamLayout | null>(null);
   const layout = useMemo(() => {
-    const next = retainLayout(previousLayout.current, layoutStream(buildRows(chat.entries as unknown as StreamEntry[], running), running));
+    const next = retainLayout(
+      previousLayout.current,
+      layoutStream(buildRows(chat.entries as unknown as StreamEntry[], running), running),
+    );
     previousLayout.current = next;
     return next;
   }, [chat.entries, running]);
-  const data = useMemo(() => (inverted ? [...layout.items].reverse() : layout.items), [layout.items, inverted]);
+  const data = useMemo(
+    () => (inverted ? [...layout.items].reverse() : layout.items),
+    [layout.items, inverted],
+  );
   const permissions = chat.agent?.pendingPermissions ?? [];
   const cwd = chat.agent?.cwd;
 
@@ -112,8 +140,14 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
 
   const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    metrics.current = { offset: contentOffset.y, content: contentSize.height, viewport: layoutMeasurement.height };
-    const distance = inverted ? contentOffset.y : contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    metrics.current = {
+      offset: contentOffset.y,
+      content: contentSize.height,
+      viewport: layoutMeasurement.height,
+    };
+    const distance = inverted
+      ? contentOffset.y
+      : contentSize.height - (contentOffset.y + layoutMeasurement.height);
     updateNearBottom(distance <= (inverted ? NATIVE_NEAR_BOTTOM : WEB_NEAR_BOTTOM));
     maybeLoadOlder();
   };
@@ -154,7 +188,8 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
   useEffect(() => {
     const last = layout.items[layout.items.length - 1]?.row;
     const key = last?.key ?? null;
-    if (key && key !== lastKey.current && last?.kind === "user" && lastKey.current !== null) scrollToBottom(false);
+    if (key && key !== lastKey.current && last?.kind === "user" && lastKey.current !== null)
+      scrollToBottom(false);
     lastKey.current = key;
   }, [layout.items, scrollToBottom]);
 
@@ -174,7 +209,11 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
     if (!item) return;
     setFound(item.row.key);
     // A first jump near the row; on the web the row then centres itself once it renders.
-    list.current?.scrollToIndex({ index: inverted ? layout.items.length - 1 - itemIndex : itemIndex, animated: inverted, viewPosition: 0.3 });
+    list.current?.scrollToIndex({
+      index: inverted ? layout.items.length - 1 - itemIndex : itemIndex,
+      animated: inverted,
+      viewPosition: 0.3,
+    });
   };
 
   // A new search starts at the newest match.
@@ -240,22 +279,43 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
   const latestCopy = layout.auxiliaryFooter?.copy ?? "";
   const wasRunning = useRef(running);
   useEffect(() => {
-    if (wasRunning.current && !running && voice?.readReplies && latestCopy) speak(latestCopy, latestCopy, voice.name);
+    if (wasRunning.current && !running && voice?.readReplies && latestCopy)
+      speak(latestCopy, latestCopy, voice.name);
     wasRunning.current = running;
   }, [running, voice, latestCopy]);
   useEffect(() => () => stopSpeaking(), []);
 
-  const renderItem = useCallback(({ item }: ListRenderItemInfo<StreamLayoutItem>) => <StreamItem item={item} context={context} typeVersion={typeVersion} />, [context, typeVersion]);
+  const renderItem = useCallback(
+    ({ item }: ListRenderItemInfo<StreamLayoutItem>) => (
+      <StreamItem item={item} context={context} typeVersion={typeVersion} />
+    ),
+    [context, typeVersion],
+  );
 
   const auxiliary = (
     <View>
-      {running ? <WorkingIndicator colors={colors} startedAt={chat.agent?.activeTurn?.startedAt} /> : layout.auxiliaryFooter ? <CompletedTurnFooter colors={colors} footer={layout.auxiliaryFooter} voice={context.voice} /> : null}
+      {running ? (
+        <WorkingIndicator colors={colors} startedAt={chat.agent?.activeTurn?.startedAt} />
+      ) : layout.auxiliaryFooter ? (
+        <CompletedTurnFooter colors={colors} footer={layout.auxiliaryFooter} voice={context.voice} />
+      ) : null}
       {permissions.length > 0 ? (
-        <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, alignSelf: "center", paddingHorizontal: 8 }}>
+        <View
+          style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH, alignSelf: "center", paddingHorizontal: 8 }}
+        >
           <View style={{ gap: 12 }}>
             <View style={{ gap: 8 }}>
               {permissions.map((permission) => (
-                <PermissionCard key={permission.id} colors={colors} permission={permission} api={api} agentId={agentId} compact={compact} botId={botId} cwd={cwd} />
+                <PermissionCard
+                  key={permission.id}
+                  colors={colors}
+                  permission={permission}
+                  api={api}
+                  agentId={agentId}
+                  compact={compact}
+                  botId={botId}
+                  cwd={cwd}
+                />
               ))}
             </View>
           </View>
@@ -295,12 +355,18 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
         ListHeaderComponent={inverted ? auxiliary : olderSpinner}
         ListFooterComponent={inverted ? olderSpinner : auxiliary}
         style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1, paddingHorizontal: compact ? 12 : 16, ...(inverted ? { paddingVertical: 0 } : { paddingTop: 16, paddingBottom: 16 }) }}
+        contentContainerStyle={{
+          flexGrow: 1,
+          paddingHorizontal: compact ? 12 : 16,
+          ...(inverted ? { paddingVertical: 0 } : { paddingTop: 16, paddingBottom: 16 }),
+        }}
         onScroll={onScroll}
         scrollEventThrottle={16}
         onContentSizeChange={onContentSizeChange}
         onLayout={onLayout}
-        maintainVisibleContentPosition={platform === "ios" ? { minIndexForVisible: 0, autoscrollToTopThreshold: 0 } : undefined}
+        maintainVisibleContentPosition={
+          platform === "ios" ? { minIndexForVisible: 0, autoscrollToTopThreshold: 0 } : undefined
+        }
         initialNumToRender={12}
         windowSize={10}
         removeClippedSubviews={false}
@@ -313,11 +379,29 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
         keyboardDismissMode={platform === "ios" ? "interactive" : "on-drag"}
         showsVerticalScrollIndicator
       />
-      <ScrollToBottomButton colors={colors} visible={!nearBottom && data.length > 0} onPress={() => scrollToBottom(true)} />
-      {chat.error && !chat.loading ? <SyncErrorCallout colors={colors} retrying={chat.retrying} onRetry={chat.retry} /> : null}
+      <ScrollToBottomButton
+        colors={colors}
+        visible={!nearBottom && data.length > 0}
+        onPress={() => scrollToBottom(true)}
+      />
+      {chat.error && !chat.loading ? (
+        <SyncErrorCallout colors={colors} retrying={chat.retrying} onRetry={chat.retry} />
+      ) : null}
       {chat.agent?.archivedAt ? <ArchivedCallout colors={colors} compact={compact} /> : null}
       {chat.loading ? (
-        <View style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.surface0, alignItems: "center", justifyContent: "center", zIndex: 40 }}>
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            backgroundColor: colors.surface0,
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 40,
+          }}
+        >
           <ActivityIndicator size="large" color={colors.foregroundMuted} />
         </View>
       ) : null}
@@ -326,20 +410,42 @@ export function ChatStream({ colors, chat, api, agentId, compact, platform, type
 }
 
 /** A row renders again only when its layout item (or the type scale) changes. */
-const StreamItem = memo(function StreamItem({ item, context, typeVersion }: { item: StreamLayoutItem; context: RowContext; typeVersion: number }) {
+const StreamItem = memo(function StreamItem({
+  item,
+  context,
+  typeVersion,
+}: {
+  item: StreamLayoutItem;
+  context: RowContext;
+  typeVersion: number;
+}) {
   return (
     <>
       {/* Rows read Paseo's font sizes while rendering; a size change remounts them. */}
-      <RowFrame key={typeVersion} gapBelow={item.gapBelow} highlight={context.highlightKey === item.row.key ? context.colors.surface2 : undefined}>
+      <RowFrame
+        key={typeVersion}
+        gapBelow={item.gapBelow}
+        highlight={context.highlightKey === item.row.key ? context.colors.surface2 : undefined}
+      >
         <RowContent row={item.row} context={context} compactBottom={item.compactBottom} />
       </RowFrame>
-      {item.footer ? <CompletedTurnFooter colors={context.colors} footer={item.footer} voice={context.voice} /> : null}
+      {item.footer ? (
+        <CompletedTurnFooter colors={context.colors} footer={item.footer} voice={context.voice} />
+      ) : null}
     </>
   );
 });
 
 /** view.tsx scroll-to-bottom: 48 round surface2 button with ChevronDown 24, fading in and out. */
-function ScrollToBottomButton({ colors, visible, onPress }: { colors: Colors; visible: boolean; onPress(): void }) {
+function ScrollToBottomButton({
+  colors,
+  visible,
+  onPress,
+}: {
+  colors: Colors;
+  visible: boolean;
+  onPress(): void;
+}) {
   const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
   const [mounted, setMounted] = useState(visible);
   useEffect(() => {
@@ -349,14 +455,21 @@ function ScrollToBottomButton({ colors, visible, onPress }: { colors: Colors; vi
       if (!visible) setMounted(false);
       return;
     }
-    const animation = Animated.timing(opacity, { toValue: visible ? 1 : 0, duration: 200, useNativeDriver: Platform.OS !== "web" });
+    const animation = Animated.timing(opacity, {
+      toValue: visible ? 1 : 0,
+      duration: 200,
+      useNativeDriver: Platform.OS !== "web",
+    });
     animation.start(({ finished }) => finished && !visible && setMounted(false));
     return () => animation.stop();
   }, [visible, opacity]);
   if (!mounted) return null;
   const tokens = nativeTokens(colors);
   return (
-    <View pointerEvents="box-none" style={{ position: "absolute", left: 0, right: 0, bottom: 16, alignItems: "center" }}>
+    <View
+      pointerEvents="box-none"
+      style={{ position: "absolute", left: 0, right: 0, bottom: 16, alignItems: "center" }}
+    >
       <Animated.View style={{ opacity }}>
         <Pressable
           accessibilityRole="button"
@@ -385,7 +498,15 @@ function ScrollToBottomButton({ colors, visible, onPress }: { colors: Colors; vi
 }
 
 /** agent-panel.tsx TimelineSyncErrorCallout. */
-function SyncErrorCallout({ colors, retrying, onRetry }: { colors: Colors; retrying: boolean; onRetry(): void }) {
+function SyncErrorCallout({
+  colors,
+  retrying,
+  onRetry,
+}: {
+  colors: Colors;
+  retrying: boolean;
+  onRetry(): void;
+}) {
   return (
     <View style={{ width: "100%", alignItems: "center", paddingHorizontal: 16, paddingTop: 8 }}>
       <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH }}>
@@ -403,8 +524,15 @@ function SyncErrorCallout({ colors, retrying, onRetry }: { colors: Colors; retry
             paddingHorizontal: 16,
           }}
         >
-          <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>Couldn't refresh agent history.</Text>
-          <SecondaryButton colors={colors} label={retrying ? "Retrying…" : "Retry"} disabled={retrying} onPress={onRetry} />
+          <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>
+            Couldn't refresh agent history.
+          </Text>
+          <SecondaryButton
+            colors={colors}
+            label={retrying ? "Retrying…" : "Retry"}
+            disabled={retrying}
+            onPress={onRetry}
+          />
         </View>
       </View>
     </View>

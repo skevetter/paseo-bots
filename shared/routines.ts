@@ -103,20 +103,36 @@ export function formatLocalDateTime(date: Date): string {
 export function parseLocalDateTime(text: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})$/.exec(text.trim());
   if (!match) return null;
-  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [number, number, number, number, number];
+  const [year, month, day, hour, minute] = match.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
   const date = new Date(year, month - 1, day, hour, minute);
-  const valid = date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day && date.getHours() === hour && date.getMinutes() === minute;
+  const valid =
+    date.getFullYear() === year &&
+    date.getMonth() === month - 1 &&
+    date.getDate() === day &&
+    date.getHours() === hour &&
+    date.getMinutes() === minute;
   return valid ? date : null;
 }
 
-export type RoutineDecision = { action: "run"; due: Date } | { action: "skip-missed"; due: Date } | { action: "wait" };
+export type RoutineDecision =
+  | { action: "run"; due: Date }
+  | { action: "skip-missed"; due: Date }
+  | { action: "wait" };
 
 export function decide(routine: Routine, lastRunAt: string | null, now: Date): RoutineDecision {
   if (!routine.enabled) return { action: "wait" };
   const since = new Date(lastRunAt ?? routine.createdAt);
   const due = latestDue(routine.schedule, since, now);
   if (!due) return { action: "wait" };
-  return now.getTime() - due.getTime() <= CATCH_UP_MS ? { action: "run", due } : { action: "skip-missed", due };
+  return now.getTime() - due.getTime() <= CATCH_UP_MS
+    ? { action: "run", due }
+    : { action: "skip-missed", due };
 }
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -130,11 +146,17 @@ export function describeSchedule(schedule: RoutineSchedule): string {
     case "once":
       return `Once at ${new Date(schedule.at).toLocaleString()}`;
     case "interval":
-      return schedule.minutes % 60 === 0 ? `Every ${schedule.minutes / 60}h` : `Every ${schedule.minutes} min`;
+      return schedule.minutes % 60 === 0
+        ? `Every ${schedule.minutes / 60}h`
+        : `Every ${schedule.minutes} min`;
     case "daily": {
       const days = [...schedule.weekdays].sort();
       const which =
-        days.length === 7 ? "Every day" : days.join(",") === "1,2,3,4,5" ? "Weekdays" : days.map((day) => WEEKDAY_NAMES[day]).join(", ");
+        days.length === 7
+          ? "Every day"
+          : days.join(",") === "1,2,3,4,5"
+            ? "Weekdays"
+            : days.map((day) => WEEKDAY_NAMES[day]).join(", ");
       return `${which} at ${schedule.time}`;
     }
   }
@@ -180,7 +202,11 @@ function parseCronField(source: string, bounds: (typeof CRON_FIELDS)[number]): S
     if (stepParts.length > 2) throw new Error(`Invalid cron ${bounds.name} step`);
     const [base = "", stepSource] = stepParts;
     const step = stepSource === undefined ? 1 : Number.parseInt(stepSource, 10);
-    if (!Number.isInteger(step) || step <= 0 || (stepSource !== undefined && String(step) !== stepSource.trim())) {
+    if (
+      !Number.isInteger(step) ||
+      step <= 0 ||
+      (stepSource !== undefined && String(step) !== stepSource.trim())
+    ) {
       throw new Error(`Invalid cron ${bounds.name} step`);
     }
     let start: number;
@@ -192,7 +218,8 @@ function parseCronField(source: string, bounds: (typeof CRON_FIELDS)[number]): S
     } else if (range) {
       start = Number.parseInt(range[1]!, 10);
       end = Number.parseInt(range[2]!, 10);
-      if (start > end || start < bounds.min || end > bounds.max) throw new Error(`Invalid cron ${bounds.name} range`);
+      if (start > end || start < bounds.min || end > bounds.max)
+        throw new Error(`Invalid cron ${bounds.name} range`);
     } else {
       if (!/^\d+$/.test(base)) throw new Error(`Invalid cron ${bounds.name} value`);
       start = Number.parseInt(base, 10);
@@ -208,7 +235,9 @@ function parseCronField(source: string, bounds: (typeof CRON_FIELDS)[number]): S
 function parseCron(expression: string): ParsedCron {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error("Cron expressions must have 5 fields");
-  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts.map((part, index) => parseCronField(part, CRON_FIELDS[index]!));
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = parts.map((part, index) =>
+    parseCronField(part, CRON_FIELDS[index]!),
+  );
   return { minute: minute!, hour: hour!, dayOfMonth: dayOfMonth!, month: month!, dayOfWeek: dayOfWeek! };
 }
 
@@ -228,7 +257,10 @@ export function validateCron(expression: string): string | null {
     parseCron(trimmed);
     return null;
   } catch (error) {
-    return (error instanceof Error ? error.message : "Invalid cron expression").replace(/^Invalid cron /, "Invalid ");
+    return (error instanceof Error ? error.message : "Invalid cron expression").replace(
+      /^Invalid cron /,
+      "Invalid ",
+    );
   }
 }
 
@@ -240,7 +272,11 @@ function sorted(values: ReadonlySet<number>, descending: boolean): number[] {
 }
 
 function dayMatches(cron: ParsedCron, day: Date): boolean {
-  return cron.month.has(day.getMonth() + 1) && cron.dayOfMonth.has(day.getDate()) && cron.dayOfWeek.has(day.getDay());
+  return (
+    cron.month.has(day.getMonth() + 1) &&
+    cron.dayOfMonth.has(day.getDate()) &&
+    cron.dayOfWeek.has(day.getDay())
+  );
 }
 
 /** The first matching minute strictly after `after`, or null within four years. */
@@ -264,7 +300,10 @@ function nextCronTime(cron: ParsedCron, after: Date): Date | null {
 function previousCronTime(cron: ParsedCron, atOrBefore: Date, notBefore: Date): Date | null {
   const hours = sorted(cron.hour, true);
   const minutes = sorted(cron.minute, true);
-  const span = Math.min(CRON_SEARCH_DAYS, Math.max(0, Math.ceil((atOrBefore.getTime() - notBefore.getTime()) / 86_400_000) + 1));
+  const span = Math.min(
+    CRON_SEARCH_DAYS,
+    Math.max(0, Math.ceil((atOrBefore.getTime() - notBefore.getTime()) / 86_400_000) + 1),
+  );
   for (let offset = 0; offset <= span; offset++) {
     const day = new Date(atOrBefore.getFullYear(), atOrBefore.getMonth(), atOrBefore.getDate() - offset);
     if (!dayMatches(cron, day)) continue;
@@ -296,7 +335,8 @@ export function describeCron(expression: string): string | null {
   const dateWildcard = dayOfMonth === "*" && month === "*";
   if (minute === "*" && hour === "*" && dateWildcard && dayOfWeek === "*") return "Every minute";
   const everyMinutes = /^\*\/(\d+)$/.exec(minute);
-  if (everyMinutes && hour === "*" && dateWildcard && dayOfWeek === "*") return `Every ${everyMinutes[1]} minutes`;
+  if (everyMinutes && hour === "*" && dateWildcard && dayOfWeek === "*")
+    return `Every ${everyMinutes[1]} minutes`;
   if (!/^\d+$/.test(minute) || !dateWildcard) return null;
   const minuteNumber = Number.parseInt(minute, 10);
   if (hour === "*") {
@@ -304,14 +344,20 @@ export function describeCron(expression: string): string | null {
     return minuteNumber === 0 ? "Every hour" : `Every hour at :${pad2(minuteNumber)}`;
   }
   const everyHours = /^\*\/(\d+)$/.exec(hour);
-  if (everyHours && dayOfWeek === "*") return minuteNumber === 0 ? `Every ${everyHours[1]} hours` : `Every ${everyHours[1]} hours at :${pad2(minuteNumber)}`;
+  if (everyHours && dayOfWeek === "*")
+    return minuteNumber === 0
+      ? `Every ${everyHours[1]} hours`
+      : `Every ${everyHours[1]} hours at :${pad2(minuteNumber)}`;
   if (!/^\d+$/.test(hour)) return null;
   const time = `${pad2(Number.parseInt(hour, 10))}:${pad2(minuteNumber)}`;
   let days: string | null = null;
   if (dayOfWeek === "*") days = "Daily";
   else if (dayOfWeek === "1-5") days = "Weekdays";
   else if (dayOfWeek === "0,6" || dayOfWeek === "6,0") days = "Weekends";
-  else if (/^\d$/.test(dayOfWeek)) days = CRON_DAY_NAMES[Number.parseInt(dayOfWeek, 10)] ? `${CRON_DAY_NAMES[Number.parseInt(dayOfWeek, 10)]}s` : null;
+  else if (/^\d$/.test(dayOfWeek))
+    days = CRON_DAY_NAMES[Number.parseInt(dayOfWeek, 10)]
+      ? `${CRON_DAY_NAMES[Number.parseInt(dayOfWeek, 10)]}s`
+      : null;
   return days ? `${days} at ${time}` : null;
 }
 
@@ -349,9 +395,23 @@ export const ScheduleInput = z.object({
   type: z.enum(["once", "daily", "cron", "interval", "webhook"]),
   at: z.string().max(40).optional().describe('For "once": local date and time, "YYYY-MM-DD HH:MM".'),
   time: z.string().max(5).optional().describe('For "daily": local time, "HH:MM".'),
-  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional().describe('For "daily": the days to run, 0 = Sunday to 6 = Saturday. Every day when left out.'),
-  expression: z.string().max(100).optional().describe('For "cron": five fields (minute hour day-of-month month day-of-week) in local time.'),
-  every_minutes: z.number().int().min(5).max(1440).optional().describe('For "interval": minutes between runs, 5 to 1440.'),
+  weekdays: z
+    .array(z.number().int().min(0).max(6))
+    .max(7)
+    .optional()
+    .describe('For "daily": the days to run, 0 = Sunday to 6 = Saturday. Every day when left out.'),
+  expression: z
+    .string()
+    .max(100)
+    .optional()
+    .describe('For "cron": five fields (minute hour day-of-month month day-of-week) in local time.'),
+  every_minutes: z
+    .number()
+    .int()
+    .min(5)
+    .max(1440)
+    .optional()
+    .describe('For "interval": minutes between runs, 5 to 1440.'),
 });
 
 /** The routine schedule a tool call describes; throws a message the bot can act on. */
@@ -359,12 +419,14 @@ export function scheduleFrom(input: z.infer<typeof ScheduleInput>, now: Date): R
   switch (input.type) {
     case "once": {
       const at = input.at ? (parseLocalDateTime(input.at) ?? new Date(input.at)) : null;
-      if (!at || Number.isNaN(at.getTime())) throw new Error('A "once" routine needs "at" as "YYYY-MM-DD HH:MM".');
+      if (!at || Number.isNaN(at.getTime()))
+        throw new Error('A "once" routine needs "at" as "YYYY-MM-DD HH:MM".');
       if (at <= now) throw new Error(`${input.at} has already passed. Pick a time in the future.`);
       return { kind: "once", at: at.toISOString() };
     }
     case "daily": {
-      if (!input.time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) throw new Error('A "daily" routine needs "time" as "HH:MM".');
+      if (!input.time || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time))
+        throw new Error('A "daily" routine needs "time" as "HH:MM".');
       const weekdays = [...new Set(input.weekdays ?? [0, 1, 2, 3, 4, 5, 6])].sort();
       if (weekdays.length === 0) throw new Error("Give at least one weekday.");
       return { kind: "daily", time: input.time, weekdays };

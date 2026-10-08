@@ -1,5 +1,12 @@
 import type { WireAttachment } from "./attachments";
-import { BOT_LABEL, buildAgentConfig, defaultModelId, type Bot, type Library, type PluginServers } from "./bot";
+import {
+  BOT_LABEL,
+  buildAgentConfig,
+  defaultModelId,
+  type Bot,
+  type Library,
+  type PluginServers,
+} from "./bot";
 
 /** Label on chats started by a routine, carrying the routine id. */
 export const ROUTINE_LABEL = "paseo-bots.routine";
@@ -56,9 +63,16 @@ export interface ChatApi {
     list(): Promise<{ entries: ChatWorkspace[] }>;
     ref(workspace: string | ChatWorkspace): WorkspaceHandle;
     open(path: string): Promise<WorkspaceHandle>;
-    create(options: { title: string; source: { kind: "directory"; path: string; projectId?: string } }): Promise<WorkspaceHandle>;
+    create(options: {
+      title: string;
+      source: { kind: "directory"; path: string; projectId?: string };
+    }): Promise<WorkspaceHandle>;
   };
-  readonly providers: { snapshot(): Promise<{ entries: { provider: string; models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[] }[] }> };
+  readonly providers: {
+    snapshot(): Promise<{
+      entries: { provider: string; models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[] }[];
+    }>;
+  };
 }
 
 /**
@@ -103,7 +117,10 @@ async function ensureBotWorkspace(api: ChatApi, bot: Bot, placement: BotPlacemen
 export async function syncBotWorkspaceTitle(api: ChatApi, bot: Bot, placement: BotPlacement): Promise<void> {
   if (placement.projectRoot === null) return;
   const { entries } = await api.workspaces.list();
-  const mine = entries.find((workspace) => normalize(workspace.workspaceDirectory ?? workspace.projectRootPath) === normalize(placement.path));
+  const mine = entries.find(
+    (workspace) =>
+      normalize(workspace.workspaceDirectory ?? workspace.projectRootPath) === normalize(placement.path),
+  );
   if (mine && mine.title !== bot.name) await api.workspaces.ref(mine).setTitle(bot.name);
 }
 

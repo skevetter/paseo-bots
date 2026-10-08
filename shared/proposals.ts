@@ -21,10 +21,19 @@ const ProposalBase = z.object({
 const SkillProposalSchema = z.object({ name: z.string(), description: z.string(), text: z.string() });
 
 /** A new routine for the bot; its runs report back to the chat it was proposed in. */
-const RoutineProposalSchema = z.object({ name: z.string(), prompt: z.string(), schedule: RoutineScheduleSchema, resultsChatId: z.string().nullable() });
+const RoutineProposalSchema = z.object({
+  name: z.string(),
+  prompt: z.string(),
+  schedule: RoutineScheduleSchema,
+  resultsChatId: z.string().nullable(),
+});
 
 /** Changes to the setup, applied together (shared/changes.ts); `provider` is the host's pick for new bots the defaults leave open. */
-const ChangesProposalSchema = z.object({ summary: z.string(), changes: z.array(ChangeSchema), provider: z.string().default("") });
+const ChangesProposalSchema = z.object({
+  summary: z.string(),
+  changes: z.array(ChangeSchema),
+  provider: z.string().default(""),
+});
 
 export const ProposalSchema = z.discriminatedUnion("kind", [
   ProposalBase.extend({ kind: z.literal("skill"), data: SkillProposalSchema }),
@@ -49,7 +58,12 @@ function proposalIdIn(output: unknown): string | null {
 const PROPOSING_TOOLS: readonly string[] = ["propose_skill", "propose_routine", "propose_changes"];
 
 /** The proposal behind a finished propose_* tool call, if the call is one. */
-export function proposalIdOf(call: { name: string; status: string; detail: unknown; metadata?: unknown }): string | null {
+export function proposalIdOf(call: {
+  name: string;
+  status: string;
+  detail: unknown;
+  metadata?: unknown;
+}): string | null {
   const tool = botToolName(toolCallName(call));
   if (call.status !== "completed" || !tool || !PROPOSING_TOOLS.includes(tool)) return null;
   const detail = call.detail as { output?: unknown } | null;

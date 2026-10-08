@@ -39,8 +39,19 @@ const IMAGE_URL = /^(https?:\/\/\S+|data:image\/\S+)$/i;
 const APP_SLUG = /^[a-z0-9_-]{1,60}$/i;
 const TOOL_GRANT = /^[A-Za-z0-9_-]{1,64}\/\S{1,200}$/;
 
-const Colour = z.number().int().min(0).max(PALETTE_COUNT - 1).nullable().optional();
-const ImageUrl = z.string().max(2000).nullable().optional().describe("An https:// picture shown instead of the pixel art; null removes it.");
+const Colour = z
+  .number()
+  .int()
+  .min(0)
+  .max(PALETTE_COUNT - 1)
+  .nullable()
+  .optional();
+const ImageUrl = z
+  .string()
+  .max(2000)
+  .nullable()
+  .optional()
+  .describe("An https:// picture shown instead of the pixel art; null removes it.");
 
 const AvatarInput = z.object({
   new_face: z.boolean().optional().describe("Draw a different pixel-art face."),
@@ -57,7 +68,11 @@ const LogoInput = z.object({
 
 const PlaybookInput = z.object({
   name: z.string().min(1).max(80),
-  triggers: z.array(z.string().min(1).max(60)).min(1).max(20).describe("Words or phrases that bring the playbook into a chat when its first message has one."),
+  triggers: z
+    .array(z.string().min(1).max(60))
+    .min(1)
+    .max(20)
+    .describe("Words or phrases that bring the playbook into a chat when its first message has one."),
   instructions: z.string().min(1).max(20_000),
 });
 
@@ -67,20 +82,63 @@ const AppInput = z.object({
     .union([z.enum(["all", "read"]), z.array(z.string().min(1).max(200)).min(1).max(200)])
     .optional()
     .describe('Which of its tools: "all" (the default), "read" for the read-only ones, or exact tool names.'),
-  account: z.string().max(200).nullable().optional().describe("The one account it must use, by its name; null or left out lets it pick."),
+  account: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .describe("The one account it must use, by its name; null or left out lets it pick."),
 });
 
 const BotFields = {
   title: z.string().max(200).optional().describe("One line: what the bot does."),
-  description: z.string().max(4000).optional().describe("Who the bot is; shown in the bot list and given to its agent."),
-  instructions: z.string().max(24_000).optional().describe("Standing instructions (its Soul). Replaces the current ones."),
-  provider: z.string().min(1).max(60).optional().describe("Agent provider id from get_setup, like claude or codex."),
-  model: z.string().max(200).nullable().optional().describe("Model id from get_setup; null for the provider's default."),
-  mode: z.string().max(100).nullable().optional().describe("Approval mode id from get_setup; null for the provider's default."),
-  thinking: z.string().max(100).nullable().optional().describe("Thinking option id from get_setup; null for the default."),
-  contact_bots: z.enum(["ask", "allow", "off"]).optional().describe("Asking other bots for help: after the user approves each request (ask), freely (allow) or never (off)."),
+  description: z
+    .string()
+    .max(4000)
+    .optional()
+    .describe("Who the bot is; shown in the bot list and given to its agent."),
+  instructions: z
+    .string()
+    .max(24_000)
+    .optional()
+    .describe("Standing instructions (its Soul). Replaces the current ones."),
+  provider: z
+    .string()
+    .min(1)
+    .max(60)
+    .optional()
+    .describe("Agent provider id from get_setup, like claude or codex."),
+  model: z
+    .string()
+    .max(200)
+    .nullable()
+    .optional()
+    .describe("Model id from get_setup; null for the provider's default."),
+  mode: z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .describe("Approval mode id from get_setup; null for the provider's default."),
+  thinking: z
+    .string()
+    .max(100)
+    .nullable()
+    .optional()
+    .describe("Thinking option id from get_setup; null for the default."),
+  contact_bots: z
+    .enum(["ask", "allow", "off"])
+    .optional()
+    .describe(
+      "Asking other bots for help: after the user approves each request (ask), freely (allow) or never (off).",
+    ),
   avatar: AvatarInput.optional(),
-  working_folder: z.string().max(1000).nullable().optional().describe("Absolute path of its working folder; null for its own folder in the Bots project."),
+  working_folder: z
+    .string()
+    .max(1000)
+    .nullable()
+    .optional()
+    .describe("Absolute path of its working folder; null for its own folder in the Bots project."),
   pinned: z.boolean().optional(),
 };
 
@@ -89,7 +147,12 @@ const ROLE_IDS = BOT_TEMPLATES.map((template) => template.id) as [string, ...str
 const CreateBot = z.object({
   type: z.literal("create_bot"),
   name: z.string().min(1).max(100),
-  role: z.enum(ROLE_IDS).optional().describe(`Start from a role (${BOT_TEMPLATES.map((template) => `${template.id}: ${template.title}`).join(", ")}); the other fields override it.`),
+  role: z
+    .enum(ROLE_IDS)
+    .optional()
+    .describe(
+      `Start from a role (${BOT_TEMPLATES.map((template) => `${template.id}: ${template.title}`).join(", ")}); the other fields override it.`,
+    ),
   ...BotFields,
   skills: Ids("Library skill ids to turn on.").optional(),
   mcp_servers: Ids("Library MCP servers to turn on, by name.").optional(),
@@ -107,11 +170,19 @@ const UpdateBot = z.object({
   remove_skills: Ids("Skill ids to turn off.").optional(),
   add_mcp_servers: Ids("Library MCP servers to turn on, by name.").optional(),
   remove_mcp_servers: Ids("MCP servers to turn off, by name.").optional(),
-  add_apps: z.array(AppInput).max(50).optional().describe("Connected apps it may use, or new limits on ones it has."),
+  add_apps: z
+    .array(AppInput)
+    .max(50)
+    .optional()
+    .describe("Connected apps it may use, or new limits on ones it has."),
   remove_apps: Ids("App slugs it may no longer use.").optional(),
   allow_tools: Ids('MCP tools it may use without asking, as "server/tool".').optional(),
   disallow_tools: Ids('Tools to take off that list, as "server/tool".').optional(),
-  add_playbooks: z.array(PlaybookInput).max(20).optional().describe("Playbooks to add; one with the name of an existing playbook replaces it."),
+  add_playbooks: z
+    .array(PlaybookInput)
+    .max(20)
+    .optional()
+    .describe("Playbooks to add; one with the name of an existing playbook replaces it."),
   remove_playbooks: Ids("Playbooks to remove, by name.").optional(),
 });
 
@@ -121,7 +192,11 @@ const AddRoutine = z.object({
   type: z.literal("add_routine"),
   bot: Ref("The bot that runs it"),
   name: z.string().min(1).max(80),
-  instructions: z.string().min(1).max(20_000).describe("What to do on each run, written so it works without this chat."),
+  instructions: z
+    .string()
+    .min(1)
+    .max(20_000)
+    .describe("What to do on each run, written so it works without this chat."),
   schedule: ScheduleInput,
 });
 
@@ -135,14 +210,26 @@ const UpdateRoutine = z.object({
   enabled: z.boolean().optional().describe("false pauses it."),
 });
 
-const DeleteRoutine = z.object({ type: z.literal("delete_routine"), bot: Ref("The bot"), routine: Ref("The routine") });
+const DeleteRoutine = z.object({
+  type: z.literal("delete_routine"),
+  bot: Ref("The bot"),
+  routine: Ref("The routine"),
+});
 
 const CreateTeam = z.object({
   type: z.literal("create_team"),
   name: z.string().min(1).max(60),
   lead: Ref("Its Chief of Staff, the user's main contact who hands work to the others").optional(),
-  members: z.array(Ref("A member")).max(50).optional().describe("The team's bots. A bot is on one team at a time; adding it moves it here."),
-  instructions: z.string().max(20_000).optional().describe("Shared instructions added to every member's prompt."),
+  members: z
+    .array(Ref("A member"))
+    .max(50)
+    .optional()
+    .describe("The team's bots. A bot is on one team at a time; adding it moves it here."),
+  instructions: z
+    .string()
+    .max(20_000)
+    .optional()
+    .describe("Shared instructions added to every member's prompt."),
   logo: LogoInput.optional(),
 });
 
@@ -177,8 +264,15 @@ const AddMcpServer = z.object({
   headers: z.record(z.string(), z.string().max(4000)).optional(),
 });
 
-const SetMcpServer = z.object({ type: z.literal("set_mcp_server"), server: Ref("The library MCP server"), enabled: z.boolean() });
-const RemoveMcpServer = z.object({ type: z.literal("remove_mcp_server"), server: Ref("The library MCP server") });
+const SetMcpServer = z.object({
+  type: z.literal("set_mcp_server"),
+  server: Ref("The library MCP server"),
+  enabled: z.boolean(),
+});
+const RemoveMcpServer = z.object({
+  type: z.literal("remove_mcp_server"),
+  server: Ref("The library MCP server"),
+});
 
 const SetDefaults = z.object({
   type: z.literal("set_defaults"),
@@ -238,7 +332,13 @@ interface ProviderEntry {
   provider: string;
   enabled: boolean;
   status: string;
-  models?: readonly { id: string; label: string; isDefault?: boolean; isSelectable?: boolean; thinkingOptions?: readonly { id: string }[] }[];
+  models?: readonly {
+    id: string;
+    label: string;
+    isDefault?: boolean;
+    isSelectable?: boolean;
+    thinkingOptions?: readonly { id: string }[];
+  }[];
   modes?: readonly { id: string; label: string }[];
   defaultModeId?: string | null;
 }
@@ -249,7 +349,14 @@ export function providerInfo(entries: readonly ProviderEntry[]): ProviderInfo[] 
     .filter((entry) => entry.enabled)
     .map((entry) => ({
       id: entry.provider,
-      models: (entry.models ?? []).filter((model) => model.isSelectable !== false).map((model) => ({ id: model.id, label: model.label, isDefault: !!model.isDefault, thinking: (model.thinkingOptions ?? []).map((option) => option.id) })),
+      models: (entry.models ?? [])
+        .filter((model) => model.isSelectable !== false)
+        .map((model) => ({
+          id: model.id,
+          label: model.label,
+          isDefault: !!model.isDefault,
+          thinking: (model.thinkingOptions ?? []).map((option) => option.id),
+        })),
       modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
       defaultModeId: entry.defaultModeId ?? null,
     }));
@@ -271,7 +378,13 @@ export interface ApplyContext {
   accounts?: readonly AppAccountInfo[] | null;
 }
 
-function byRef<T>(items: readonly T[], ref: string, id: (item: T) => string, name: (item: T) => string, what: string): T {
+function byRef<T>(
+  items: readonly T[],
+  ref: string,
+  id: (item: T) => string,
+  name: (item: T) => string,
+  what: string,
+): T {
   const wanted = ref.trim();
   const exact = items.find((item) => id(item) === wanted);
   if (exact) return exact;
@@ -280,32 +393,76 @@ function byRef<T>(items: readonly T[], ref: string, id: (item: T) => string, nam
   if (named.length === 1) return named[0]!;
   if (named.length > 1) throw new Error(`${named.length} ${what}s are called "${wanted}". Use the id.`);
   const known = items.map(name).filter(Boolean);
-  throw new Error(`There's no ${what} called "${wanted}".${known.length ? ` There are: ${known.slice(0, 30).join(", ")}.` : ""}`);
+  throw new Error(
+    `There's no ${what} called "${wanted}".${known.length ? ` There are: ${known.slice(0, 30).join(", ")}.` : ""}`,
+  );
 }
 
-const findBot = (values: BotSettingsValues, ref: string) => byRef(values.bots, ref, (bot) => bot.id, (bot) => bot.name, "bot");
-const findTeam = (values: BotSettingsValues, ref: string) => byRef(values.groups ?? [], ref, (group) => group.id, (group) => group.name, "team");
-const findSkill = (library: Library, ref: string) => byRef(library.skills, ref, (skill) => skill.id, (skill) => skill.id, "skill");
-const findServer = (library: Library, ref: string) => byRef(library.mcpServers, ref, (server) => server.id, (server) => server.name, "MCP server");
+const findBot = (values: BotSettingsValues, ref: string) =>
+  byRef(
+    values.bots,
+    ref,
+    (bot) => bot.id,
+    (bot) => bot.name,
+    "bot",
+  );
+const findTeam = (values: BotSettingsValues, ref: string) =>
+  byRef(
+    values.groups ?? [],
+    ref,
+    (group) => group.id,
+    (group) => group.name,
+    "team",
+  );
+const findSkill = (library: Library, ref: string) =>
+  byRef(
+    library.skills,
+    ref,
+    (skill) => skill.id,
+    (skill) => skill.id,
+    "skill",
+  );
+const findServer = (library: Library, ref: string) =>
+  byRef(
+    library.mcpServers,
+    ref,
+    (server) => server.id,
+    (server) => server.name,
+    "MCP server",
+  );
 
-function checkAgent(context: ApplyContext, fields: { provider: string; model: string | null; modeId: string | null; thinkingOptionId: string | null }): void {
+function checkAgent(
+  context: ApplyContext,
+  fields: { provider: string; model: string | null; modeId: string | null; thinkingOptionId: string | null },
+): void {
   const providers = context.providers;
   if (!providers || !fields.provider) return;
   const provider = providers.find((entry) => entry.id === fields.provider);
-  if (!provider) throw new Error(`There's no provider "${fields.provider}". Use one of: ${providers.map((entry) => entry.id).join(", ")}.`);
+  if (!provider)
+    throw new Error(
+      `There's no provider "${fields.provider}". Use one of: ${providers.map((entry) => entry.id).join(", ")}.`,
+    );
   const model = fields.model ? provider.models.find((entry) => entry.id === fields.model) : null;
-  if (fields.model && !model) throw new Error(`${provider.id} has no model "${fields.model}". Use one of: ${provider.models.map((entry) => entry.id).join(", ")}.`);
+  if (fields.model && !model)
+    throw new Error(
+      `${provider.id} has no model "${fields.model}". Use one of: ${provider.models.map((entry) => entry.id).join(", ")}.`,
+    );
   if (fields.modeId && !provider.modes.some((mode) => mode.id === fields.modeId)) {
-    throw new Error(`${provider.id} has no mode "${fields.modeId}". Use one of: ${provider.modes.map((mode) => mode.id).join(", ") || "none"}.`);
+    throw new Error(
+      `${provider.id} has no mode "${fields.modeId}". Use one of: ${provider.modes.map((mode) => mode.id).join(", ") || "none"}.`,
+    );
   }
   const thinking = (model ?? provider.models.find((entry) => entry.isDefault))?.thinking ?? [];
   if (fields.thinkingOptionId && !thinking.includes(fields.thinkingOptionId)) {
-    throw new Error(`That model has no thinking option "${fields.thinkingOptionId}". Use one of: ${thinking.join(", ") || "none"}.`);
+    throw new Error(
+      `That model has no thinking option "${fields.thinkingOptionId}". Use one of: ${thinking.join(", ") || "none"}.`,
+    );
   }
 }
 
 function imageUrl(value: string | null): string | null {
-  if (value !== null && !IMAGE_URL.test(value.trim())) throw new Error("A picture needs an https:// or data:image URL.");
+  if (value !== null && !IMAGE_URL.test(value.trim()))
+    throw new Error("A picture needs an https:// or data:image URL.");
   return value?.trim() ?? null;
 }
 
@@ -321,7 +478,8 @@ function withAvatar(avatar: BotAvatar, input: z.infer<typeof AvatarInput> | unde
     seed: input.new_face ? randomSeed() : avatar.seed,
     palette: input.colour !== undefined ? input.colour : avatar.palette,
     shape: input.shape ?? avatar.shape,
-    imageUrl: input.image_url !== undefined ? imageUrl(input.image_url) : input.new_face ? null : avatar.imageUrl,
+    imageUrl:
+      input.image_url !== undefined ? imageUrl(input.image_url) : input.new_face ? null : avatar.imageUrl,
   };
 }
 
@@ -335,9 +493,16 @@ function withAgent(bot: Bot, fields: BotFieldValues, context: ApplyContext): Bot
     provider,
     model: fields.model !== undefined ? fields.model : switched ? null : bot.model,
     modeId: fields.mode !== undefined ? fields.mode : switched ? defaultMode : bot.modeId,
-    thinkingOptionId: fields.thinking !== undefined ? fields.thinking : switched ? null : bot.thinkingOptionId,
+    thinkingOptionId:
+      fields.thinking !== undefined ? fields.thinking : switched ? null : bot.thinkingOptionId,
   };
-  if (fields.provider !== undefined || fields.model !== undefined || fields.mode !== undefined || fields.thinking !== undefined) checkAgent(context, next);
+  if (
+    fields.provider !== undefined ||
+    fields.model !== undefined ||
+    fields.mode !== undefined ||
+    fields.thinking !== undefined
+  )
+    checkAgent(context, next);
   return next;
 }
 
@@ -349,14 +514,21 @@ function withFields(bot: Bot, fields: BotFieldValues, context: ApplyContext): Bo
   if (fields.contact_bots !== undefined) next.contactBots = fields.contact_bots;
   if (fields.working_folder !== undefined) {
     const folder = fields.working_folder?.trim() || null;
-    if (folder && !folder.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(folder)) throw new Error("A working folder needs an absolute path.");
+    if (folder && !folder.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(folder))
+      throw new Error("A working folder needs an absolute path.");
     next.cwd = folder;
   }
   if (fields.pinned !== undefined) next.pinned = fields.pinned;
   return next;
 }
 
-function withLibraryItems(bot: Bot, library: Library, kind: "skill" | "mcp", add: readonly string[] = [], remove: readonly string[] = []): Bot {
+function withLibraryItems(
+  bot: Bot,
+  library: Library,
+  kind: "skill" | "mcp",
+  add: readonly string[] = [],
+  remove: readonly string[] = [],
+): Bot {
   let next = bot;
   const id = (ref: string) => (kind === "skill" ? findSkill(library, ref).id : findServer(library, ref).id);
   for (const ref of add) next = setBotUses(next, kind, id(ref), true);
@@ -364,7 +536,12 @@ function withLibraryItems(bot: Bot, library: Library, kind: "skill" | "mcp", add
   return next;
 }
 
-function withApps(bot: Bot, add: readonly AppInputValue[] = [], remove: readonly string[] = [], context: ApplyContext): Bot {
+function withApps(
+  bot: Bot,
+  add: readonly AppInputValue[] = [],
+  remove: readonly string[] = [],
+  context: ApplyContext,
+): Bot {
   const apps = [...bot.apps];
   const appRules = { ...bot.appRules };
   for (const entry of add) {
@@ -392,8 +569,15 @@ function accountId(slug: string, ref: string, context: ApplyContext): string {
   if (!accounts) return ref;
   const mine = accounts.filter((account) => account.slug === slug);
   const key = ref.trim().toLowerCase();
-  const found = mine.find((account) => account.id === ref.trim()) ?? mine.find((account) => account.names.some((name) => name.toLowerCase() === key));
-  if (!found) throw new Error(mine.length ? `${slug} has no account called "${ref}". Its accounts: ${mine.flatMap((account) => account.names.slice(0, 1)).join(", ")}.` : `${slug} isn't connected yet.`);
+  const found =
+    mine.find((account) => account.id === ref.trim()) ??
+    mine.find((account) => account.names.some((name) => name.toLowerCase() === key));
+  if (!found)
+    throw new Error(
+      mine.length
+        ? `${slug} has no account called "${ref}". Its accounts: ${mine.flatMap((account) => account.names.slice(0, 1)).join(", ")}.`
+        : `${slug} isn't connected yet.`,
+    );
   return found.id;
 }
 
@@ -407,17 +591,29 @@ function withGrants(bot: Bot, allow: readonly string[] = [], disallow: readonly 
   return { ...bot, alwaysAllow: [...grants] };
 }
 
-function withPlaybooks(bot: Bot, add: readonly z.infer<typeof PlaybookInput>[] = [], remove: readonly string[] = []): Bot {
+function withPlaybooks(
+  bot: Bot,
+  add: readonly z.infer<typeof PlaybookInput>[] = [],
+  remove: readonly string[] = [],
+): Bot {
   let playbooks = [...bot.playbooks];
   const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
   for (const ref of remove) {
-    if (!playbooks.some((playbook) => same(playbook.name, ref))) throw new Error(`${bot.name} has no playbook called "${ref}".`);
+    if (!playbooks.some((playbook) => same(playbook.name, ref)))
+      throw new Error(`${bot.name} has no playbook called "${ref}".`);
     playbooks = playbooks.filter((playbook) => !same(playbook.name, ref));
   }
   for (const input of add) {
     const existing = playbooks.find((playbook) => same(playbook.name, input.name));
-    const playbook = { id: existing?.id ?? newPlaybookId(), name: input.name.trim(), triggers: [...new Set(input.triggers.map((trigger) => trigger.trim()).filter(Boolean))], instructions: input.instructions.trim() };
-    playbooks = existing ? playbooks.map((entry) => (entry === existing ? playbook : entry)) : [...playbooks, playbook];
+    const playbook = {
+      id: existing?.id ?? newPlaybookId(),
+      name: input.name.trim(),
+      triggers: [...new Set(input.triggers.map((trigger) => trigger.trim()).filter(Boolean))],
+      instructions: input.instructions.trim(),
+    };
+    playbooks = existing
+      ? playbooks.map((entry) => (entry === existing ? playbook : entry))
+      : [...playbooks, playbook];
   }
   return { ...bot, playbooks };
 }
@@ -427,7 +623,9 @@ function withBot(values: BotSettingsValues, bot: Bot, context: ApplyContext): Bo
   const updated = { ...bot, updatedAt: context.now };
   return {
     ...values,
-    bots: previous ? values.bots.map((entry) => (entry.id === bot.id ? updated : entry)) : [...values.bots, updated],
+    bots: previous
+      ? values.bots.map((entry) => (entry.id === bot.id ? updated : entry))
+      : [...values.bots, updated],
     // Edits can be undone from the bot's History, as the user's own edits can.
     history: previous ? pushHistory(values.history, previous, new Date(context.now)) : values.history,
   };
@@ -435,7 +633,8 @@ function withBot(values: BotSettingsValues, bot: Bot, context: ApplyContext): Bo
 
 function uniqueBotName(values: BotSettingsValues, name: string, except?: string): string {
   const trimmed = oneLine(name);
-  if (values.bots.some((bot) => bot.id !== except && bot.name.trim().toLowerCase() === trimmed.toLowerCase())) throw new Error(`There's already a bot called "${trimmed}".`);
+  if (values.bots.some((bot) => bot.id !== except && bot.name.trim().toLowerCase() === trimmed.toLowerCase()))
+    throw new Error(`There's already a bot called "${trimmed}".`);
   return trimmed;
 }
 
@@ -446,7 +645,8 @@ function withLogo(logo: TeamLogo, input: z.infer<typeof LogoInput> | undefined):
   return {
     seed: input.new_logo ? randomSeed() : logo.seed,
     palette: input.colour !== undefined ? input.colour : logo.palette,
-    imageUrl: input.image_url !== undefined ? imageUrl(input.image_url) : input.new_logo ? null : logo.imageUrl,
+    imageUrl:
+      input.image_url !== undefined ? imageUrl(input.image_url) : input.new_logo ? null : logo.imageUrl,
   };
 }
 
@@ -501,17 +701,36 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
         bots: values.bots.filter((entry) => entry.id !== bot.id),
         history: values.history.filter((entry) => entry.botId !== bot.id),
         groups: withoutBot(groups, bot.id, context.now),
-        ui: ui && { ...ui, collapsed: ui.collapsed.filter((id) => id !== bot.id), pinnedChats: ui.pinnedChats.filter((pin) => pin.botId !== bot.id), chatOrder },
+        ui: ui && {
+          ...ui,
+          collapsed: ui.collapsed.filter((id) => id !== bot.id),
+          pinnedChats: ui.pinnedChats.filter((pin) => pin.botId !== bot.id),
+          chatOrder,
+        },
       };
     }
     case "add_routine": {
       const bot = findBot(values, change.bot);
-      const routine = { id: newRoutineId(), name: change.name.trim(), prompt: change.instructions.trim(), enabled: true, schedule: scheduleFrom(change.schedule, new Date(context.now)), resultsChatId: null, createdAt: context.now };
+      const routine = {
+        id: newRoutineId(),
+        name: change.name.trim(),
+        prompt: change.instructions.trim(),
+        enabled: true,
+        schedule: scheduleFrom(change.schedule, new Date(context.now)),
+        resultsChatId: null,
+        createdAt: context.now,
+      };
       return withBot(values, { ...bot, routines: [...bot.routines, routine] }, context);
     }
     case "update_routine": {
       const bot = findBot(values, change.bot);
-      const routine = byRef(bot.routines, change.routine, (entry) => entry.id, (entry) => entry.name, "routine");
+      const routine = byRef(
+        bot.routines,
+        change.routine,
+        (entry) => entry.id,
+        (entry) => entry.name,
+        "routine",
+      );
       const updated = {
         ...routine,
         name: change.name?.trim() ?? routine.name,
@@ -519,25 +738,61 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
         schedule: change.schedule ? scheduleFrom(change.schedule, new Date(context.now)) : routine.schedule,
         enabled: change.enabled ?? routine.enabled,
       };
-      return withBot(values, { ...bot, routines: bot.routines.map((entry) => (entry.id === routine.id ? updated : entry)) }, context);
+      return withBot(
+        values,
+        { ...bot, routines: bot.routines.map((entry) => (entry.id === routine.id ? updated : entry)) },
+        context,
+      );
     }
     case "delete_routine": {
       const bot = findBot(values, change.bot);
-      const routine = byRef(bot.routines, change.routine, (entry) => entry.id, (entry) => entry.name, "routine");
-      return withBot(values, { ...bot, routines: bot.routines.filter((entry) => entry.id !== routine.id) }, context);
+      const routine = byRef(
+        bot.routines,
+        change.routine,
+        (entry) => entry.id,
+        (entry) => entry.name,
+        "routine",
+      );
+      return withBot(
+        values,
+        { ...bot, routines: bot.routines.filter((entry) => entry.id !== routine.id) },
+        context,
+      );
     }
     case "create_team": {
       const lead = change.lead ? findBot(values, change.lead) : null;
-      const members = [...new Set([...(lead ? [lead.id] : []), ...(change.members ?? []).map((ref) => findBot(values, ref).id)])];
+      const members = [
+        ...new Set([
+          ...(lead ? [lead.id] : []),
+          ...(change.members ?? []).map((ref) => findBot(values, ref).id),
+        ]),
+      ];
       const logo = withLogo({ seed: randomSeed(), palette: null, imageUrl: null }, change.logo);
-      const draft = { name: oneLine(change.name), logo, leadId: lead?.id ?? null, memberIds: members, instructions: change.instructions?.trim() ?? "" };
+      const draft = {
+        name: oneLine(change.name),
+        logo,
+        leadId: lead?.id ?? null,
+        memberIds: members,
+        instructions: change.instructions?.trim() ?? "",
+      };
       return { ...values, groups: saveTeam(groups, null, draft, newGroupId(), context.now) };
     }
     case "update_team": {
       const group = findTeam(values, change.team);
       const removed = new Set((change.remove_members ?? []).map((ref) => findBot(values, ref).id));
-      const lead = change.lead === undefined ? group.leadId : change.lead === null ? null : findBot(values, change.lead).id;
-      const members = [...new Set([...teamMembers(group), ...(change.add_members ?? []).map((ref) => findBot(values, ref).id), ...(lead ? [lead] : [])])].filter((id) => !removed.has(id) || id === lead);
+      const lead =
+        change.lead === undefined
+          ? group.leadId
+          : change.lead === null
+            ? null
+            : findBot(values, change.lead).id;
+      const members = [
+        ...new Set([
+          ...teamMembers(group),
+          ...(change.add_members ?? []).map((ref) => findBot(values, ref).id),
+          ...(lead ? [lead] : []),
+        ]),
+      ].filter((id) => !removed.has(id) || id === lead);
       const draft = {
         name: change.name !== undefined ? oneLine(change.name) : group.name,
         logo: withLogo(teamLogoOf(group), change.logo),
@@ -553,29 +808,66 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
     }
     case "set_skill": {
       const skill = findSkill(library, change.skill);
-      if (change.enabled && skill.reviewedSha === null) throw new Error(`${skill.id} needs a review before it can be on. The user reviews it in Skills & Tools.`);
-      return { ...values, library: { ...library, skills: library.skills.map((entry) => (entry.id === skill.id ? { ...entry, enabled: change.enabled, updatedAt: context.now } : entry)) } };
+      if (change.enabled && skill.reviewedSha === null)
+        throw new Error(
+          `${skill.id} needs a review before it can be on. The user reviews it in Skills & Tools.`,
+        );
+      return {
+        ...values,
+        library: {
+          ...library,
+          skills: library.skills.map((entry) =>
+            entry.id === skill.id ? { ...entry, enabled: change.enabled, updatedAt: context.now } : entry,
+          ),
+        },
+      };
     }
     case "add_mcp_server": {
       const name = change.name.trim();
-      if (RESERVED_MCP_NAMES.includes(name)) throw new Error(`"${name}" is taken by Paseo or this plugin. Pick another name.`);
-      if (library.mcpServers.some((server) => server.name === name)) throw new Error(`There's already an MCP server called "${name}".`);
-      if (!change.command === !change.url) throw new Error("Give either a command (a local server) or a URL (a remote one).");
+      if (RESERVED_MCP_NAMES.includes(name))
+        throw new Error(`"${name}" is taken by Paseo or this plugin. Pick another name.`);
+      if (library.mcpServers.some((server) => server.name === name))
+        throw new Error(`There's already an MCP server called "${name}".`);
+      if (!change.command === !change.url)
+        throw new Error("Give either a command (a local server) or a URL (a remote one).");
       const config: McpServerConfig = change.command
         ? { type: "stdio", command: change.command.trim(), args: change.args ?? [], env: change.env ?? {} }
         : { type: change.transport ?? "http", url: change.url!.trim(), headers: change.headers ?? {} };
       const added = addMcpServers(library, [{ name, enabled: true, config }], { now: context.now });
       const id = added.ids[0]!;
-      return { ...values, library: { ...added.library, mcpServers: added.library.mcpServers.map((server) => (server.id === id ? { ...server, description: change.description?.trim() ?? "" } : server)) } };
+      return {
+        ...values,
+        library: {
+          ...added.library,
+          mcpServers: added.library.mcpServers.map((server) =>
+            server.id === id ? { ...server, description: change.description?.trim() ?? "" } : server,
+          ),
+        },
+      };
     }
     case "set_mcp_server": {
       const server = findServer(library, change.server);
-      if (change.enabled && !mcpServerTested(server)) throw new Error(`${server.name} hasn't passed a connection test. The user tests it in Skills & Tools, which turns it on.`);
-      return { ...values, library: { ...library, mcpServers: library.mcpServers.map((entry) => (entry.id === server.id ? { ...entry, enabled: change.enabled, updatedAt: context.now } : entry)) } };
+      if (change.enabled && !mcpServerTested(server))
+        throw new Error(
+          `${server.name} hasn't passed a connection test. The user tests it in Skills & Tools, which turns it on.`,
+        );
+      return {
+        ...values,
+        library: {
+          ...library,
+          mcpServers: library.mcpServers.map((entry) =>
+            entry.id === server.id ? { ...entry, enabled: change.enabled, updatedAt: context.now } : entry,
+          ),
+        },
+      };
     }
     case "remove_mcp_server": {
       const server = findServer(library, change.server);
-      return { ...values, library: { ...library, mcpServers: library.mcpServers.filter((entry) => entry.id !== server.id) }, bots: forgetItem(values.bots, "mcp", server.id) };
+      return {
+        ...values,
+        library: { ...library, mcpServers: library.mcpServers.filter((entry) => entry.id !== server.id) },
+        bots: forgetItem(values.bots, "mcp", server.id),
+      };
     }
     case "set_defaults": {
       const current = values.defaults ?? DEFAULT_BOT_DEFAULTS;
@@ -585,10 +877,16 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
         provider,
         model: change.model !== undefined ? change.model : switched ? null : current.model,
         modeId: change.mode !== undefined ? change.mode : switched ? null : current.modeId,
-        thinkingOptionId: change.thinking !== undefined ? change.thinking : switched ? null : current.thinkingOptionId,
+        thinkingOptionId:
+          change.thinking !== undefined ? change.thinking : switched ? null : current.thinkingOptionId,
         contactBots: change.contact_bots ?? current.contactBots,
       };
-      checkAgent(context, { provider: defaults.provider, model: defaults.model, modeId: defaults.modeId, thinkingOptionId: defaults.thinkingOptionId });
+      checkAgent(context, {
+        provider: defaults.provider,
+        model: defaults.model,
+        modeId: defaults.modeId,
+        thinkingOptionId: defaults.thinkingOptionId,
+      });
       return { ...values, defaults };
     }
     case "save_preset": {
@@ -597,19 +895,31 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
     }
     case "delete_preset": {
       const presets = values.presets ?? [];
-      const preset = byRef(presets, change.preset, (entry) => entry.id, (entry) => entry.name, "preset");
+      const preset = byRef(
+        presets,
+        change.preset,
+        (entry) => entry.id,
+        (entry) => entry.name,
+        "preset",
+      );
       return { ...values, presets: presets.filter((entry) => entry.id !== preset.id) };
     }
   }
 }
 
 /** The settings with every change applied in order; throws naming the first change that doesn't fit. */
-export function applyChanges(values: BotSettingsValues, changes: readonly Change[], context: ApplyContext): BotSettingsValues {
+export function applyChanges(
+  values: BotSettingsValues,
+  changes: readonly Change[],
+  context: ApplyContext,
+): BotSettingsValues {
   return changes.reduce((current, change, index) => {
     try {
       return applyChange(current, change, context);
     } catch (error) {
-      throw new Error(`Change ${index + 1} (${change.type}): ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Change ${index + 1} (${change.type}): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }, values);
 }
@@ -617,7 +927,11 @@ export function applyChanges(values: BotSettingsValues, changes: readonly Change
 /** Swaps app account names, which only the host can look up, for their ids, so the app applies the changes as they are. */
 export function resolveChanges(changes: readonly Change[], context: ApplyContext): Change[] {
   const resolveApps = (apps: readonly AppInputValue[] | undefined) =>
-    apps?.map((entry) => (entry.account ? { ...entry, account: accountId(entry.app.trim().toLowerCase(), entry.account, context) } : entry));
+    apps?.map((entry) =>
+      entry.account
+        ? { ...entry, account: accountId(entry.app.trim().toLowerCase(), entry.account, context) }
+        : entry,
+    );
   return changes.map((change) => {
     if (change.type === "create_bot") return { ...change, apps: resolveApps(change.apps) };
     if (change.type === "update_bot") return { ...change, add_apps: resolveApps(change.add_apps) };
@@ -630,7 +944,12 @@ export function resolveChanges(changes: readonly Change[], context: ApplyContext
 const list = (items: readonly string[]) => items.join(", ");
 
 function appText(entry: AppInputValue): string {
-  const tools = !entry.tools || entry.tools === "all" ? "" : entry.tools === "read" ? " (read-only tools)" : ` (${list(entry.tools)})`;
+  const tools =
+    !entry.tools || entry.tools === "all"
+      ? ""
+      : entry.tools === "read"
+        ? " (read-only tools)"
+        : ` (${list(entry.tools)})`;
   return `${entry.app}${tools}${entry.account ? " with one account" : ""}`;
 }
 
@@ -638,8 +957,10 @@ function agentText(fields: BotFieldValues): string[] {
   const parts: string[] = [];
   if (fields.provider !== undefined) parts.push(`provider ${fields.provider}`);
   if (fields.model !== undefined) parts.push(fields.model ? `model ${fields.model}` : "the default model");
-  if (fields.mode !== undefined) parts.push(fields.mode ? `approval mode ${fields.mode}` : "the default approval mode");
-  if (fields.thinking !== undefined) parts.push(fields.thinking ? `thinking ${fields.thinking}` : "default thinking");
+  if (fields.mode !== undefined)
+    parts.push(fields.mode ? `approval mode ${fields.mode}` : "the default approval mode");
+  if (fields.thinking !== undefined)
+    parts.push(fields.thinking ? `thinking ${fields.thinking}` : "default thinking");
   return parts;
 }
 
@@ -649,9 +970,24 @@ function fieldsText(fields: BotFieldValues): string[] {
   if (fields.description !== undefined) parts.push("a new blurb");
   if (fields.instructions !== undefined) parts.push("new instructions");
   parts.push(...agentText(fields));
-  if (fields.contact_bots !== undefined) parts.push({ ask: "asks before contacting other bots", allow: "contacts other bots freely", off: "doesn't contact other bots" }[fields.contact_bots]);
-  if (fields.avatar) parts.push(fields.avatar.image_url ? "a picture" : fields.avatar.image_url === null ? "the pixel face back" : "a different face");
-  if (fields.working_folder !== undefined) parts.push(fields.working_folder ? `working folder ${fields.working_folder}` : "its own working folder");
+  if (fields.contact_bots !== undefined)
+    parts.push(
+      {
+        ask: "asks before contacting other bots",
+        allow: "contacts other bots freely",
+        off: "doesn't contact other bots",
+      }[fields.contact_bots],
+    );
+  if (fields.avatar)
+    parts.push(
+      fields.avatar.image_url
+        ? "a picture"
+        : fields.avatar.image_url === null
+          ? "the pixel face back"
+          : "a different face",
+    );
+  if (fields.working_folder !== undefined)
+    parts.push(fields.working_folder ? `working folder ${fields.working_folder}` : "its own working folder");
   if (fields.pinned !== undefined) parts.push(fields.pinned ? "pinned" : "unpinned");
   return parts;
 }
@@ -669,12 +1005,18 @@ export function describeChange(change: Change): string {
   switch (change.type) {
     case "create_bot": {
       const parts = [
-        ...(change.role ? [`starts as ${BOT_TEMPLATES.find((template) => template.id === change.role)?.title ?? change.role}`] : []),
+        ...(change.role
+          ? [
+              `starts as ${BOT_TEMPLATES.find((template) => template.id === change.role)?.title ?? change.role}`,
+            ]
+          : []),
         ...fieldsText(change),
         ...(change.skills?.length ? [`skills ${list(change.skills)}`] : []),
         ...(change.mcp_servers?.length ? [`MCP servers ${list(change.mcp_servers)}`] : []),
         ...(change.apps?.length ? [`apps ${list(change.apps.map(appText))}`] : []),
-        ...(change.playbooks?.length ? [`playbooks ${list(change.playbooks.map((playbook) => playbook.name))}`] : []),
+        ...(change.playbooks?.length
+          ? [`playbooks ${list(change.playbooks.map((playbook) => playbook.name))}`]
+          : []),
       ];
       return `**New bot ${oneLine(change.name)}**${parts.length ? `: ${parts.join("; ")}` : ""}`;
     }
@@ -686,12 +1028,16 @@ export function describeChange(change: Change): string {
         ...(change.add_skills?.length ? [`turns on skills ${list(change.add_skills)}`] : []),
         ...(change.remove_skills?.length ? [`turns off skills ${list(change.remove_skills)}`] : []),
         ...(change.add_mcp_servers?.length ? [`turns on MCP servers ${list(change.add_mcp_servers)}`] : []),
-        ...(change.remove_mcp_servers?.length ? [`turns off MCP servers ${list(change.remove_mcp_servers)}`] : []),
+        ...(change.remove_mcp_servers?.length
+          ? [`turns off MCP servers ${list(change.remove_mcp_servers)}`]
+          : []),
         ...(change.add_apps?.length ? [`may use ${list(change.add_apps.map(appText))}`] : []),
         ...(change.remove_apps?.length ? [`no longer uses ${list(change.remove_apps)}`] : []),
         ...(change.allow_tools?.length ? [`uses ${list(change.allow_tools)} without asking`] : []),
         ...(change.disallow_tools?.length ? [`asks again before ${list(change.disallow_tools)}`] : []),
-        ...(change.add_playbooks?.length ? [`playbooks ${list(change.add_playbooks.map((playbook) => playbook.name))}`] : []),
+        ...(change.add_playbooks?.length
+          ? [`playbooks ${list(change.add_playbooks.map((playbook) => playbook.name))}`]
+          : []),
         ...(change.remove_playbooks?.length ? [`removes playbooks ${list(change.remove_playbooks)}`] : []),
       ];
       return `**${change.bot}**: ${parts.join("; ") || "no changes"}`;
@@ -742,7 +1088,10 @@ export function describeChange(change: Change): string {
     case "remove_mcp_server":
       return `**Remove MCP server ${change.server}** from Skills & Tools and every bot`;
     case "set_defaults": {
-      const parts = [...agentText(change), ...(change.contact_bots ? [`contact other bots: ${change.contact_bots}`] : [])];
+      const parts = [
+        ...agentText(change),
+        ...(change.contact_bots ? [`contact other bots: ${change.contact_bots}`] : []),
+      ];
       return `**New bots start with** ${parts.join("; ") || "the same defaults"}`;
     }
     case "save_preset":
@@ -757,13 +1106,20 @@ export function changeWarnings(changes: readonly Change[]): string[] {
   const warnings: string[] = [];
   for (const change of changes) {
     const who = change.type === "create_bot" ? change.name : "bot" in change ? change.bot : "";
-    if ((change.type === "create_bot" || change.type === "update_bot") && change.mode) warnings.push(`${who} runs in approval mode "${change.mode}".`);
-    if ((change.type === "create_bot" || change.type === "update_bot") && change.contact_bots === "allow") warnings.push(`${who} may ask other bots without asking you.`);
-    if (change.type === "update_bot" && change.allow_tools?.length) warnings.push(`${who} may use ${list(change.allow_tools)} without asking you.`);
-    const apps = change.type === "create_bot" ? change.apps : change.type === "update_bot" ? change.add_apps : undefined;
-    if (apps?.length) warnings.push(`${who} may use ${list(apps.map((entry) => entry.app))} with your connected accounts.`);
-    if ((change.type === "create_bot" || change.type === "update_bot") && change.working_folder) warnings.push(`${who} works in ${change.working_folder}.`);
-    if (change.type === "add_mcp_server" && change.command) warnings.push(`The ${change.name} MCP server runs a program on this computer once it's on.`);
+    if ((change.type === "create_bot" || change.type === "update_bot") && change.mode)
+      warnings.push(`${who} runs in approval mode "${change.mode}".`);
+    if ((change.type === "create_bot" || change.type === "update_bot") && change.contact_bots === "allow")
+      warnings.push(`${who} may ask other bots without asking you.`);
+    if (change.type === "update_bot" && change.allow_tools?.length)
+      warnings.push(`${who} may use ${list(change.allow_tools)} without asking you.`);
+    const apps =
+      change.type === "create_bot" ? change.apps : change.type === "update_bot" ? change.add_apps : undefined;
+    if (apps?.length)
+      warnings.push(`${who} may use ${list(apps.map((entry) => entry.app))} with your connected accounts.`);
+    if ((change.type === "create_bot" || change.type === "update_bot") && change.working_folder)
+      warnings.push(`${who} works in ${change.working_folder}.`);
+    if (change.type === "add_mcp_server" && change.command)
+      warnings.push(`The ${change.name} MCP server runs a program on this computer once it's on.`);
     if (change.type === "delete_bot") warnings.push(`Deletes the bot ${change.bot}.`);
     if (change.type === "delete_team") warnings.push(`Deletes the team ${change.team}.`);
     if (change.type === "remove_mcp_server") warnings.push(`Removes the MCP server ${change.server}.`);
@@ -775,10 +1131,15 @@ export function changeWarnings(changes: readonly Change[]): string[] {
 
 function botLine(bot: Bot, values: BotSettingsValues): string {
   const library = values.library ?? EMPTY_LIBRARY;
-  const team = (values.groups ?? []).find((group) => group.leadId === bot.id || group.memberIds.includes(bot.id));
-  const name = (ids: readonly string[], items: readonly { id: string; name?: string }[]) => ids.map((id) => items.find((item) => item.id === id)?.name ?? id);
+  const team = (values.groups ?? []).find(
+    (group) => group.leadId === bot.id || group.memberIds.includes(bot.id),
+  );
+  const name = (ids: readonly string[], items: readonly { id: string; name?: string }[]) =>
+    ids.map((id) => items.find((item) => item.id === id)?.name ?? id);
   const parts = [
-    [bot.provider || "no provider", bot.model ?? "default model", bot.modeId ? `mode ${bot.modeId}` : null].filter(Boolean).join(" · "),
+    [bot.provider || "no provider", bot.model ?? "default model", bot.modeId ? `mode ${bot.modeId}` : null]
+      .filter(Boolean)
+      .join(" · "),
     team ? `team ${team.name}${team.leadId === bot.id ? " (Chief of Staff)" : ""}` : null,
     bot.skillIds.length ? `skills ${list(bot.skillIds)}` : null,
     bot.mcpServerIds.length ? `MCP servers ${list(name(bot.mcpServerIds, library.mcpServers))}` : null,
@@ -791,7 +1152,11 @@ function botLine(bot: Bot, values: BotSettingsValues): string {
 }
 
 /** get_setup's overview: bots, teams, the library, defaults, presets and providers. */
-export function setupOverview(values: BotSettingsValues, providers: readonly ProviderInfo[] | null, apps: readonly AppAccountInfo[] | null): string {
+export function setupOverview(
+  values: BotSettingsValues,
+  providers: readonly ProviderInfo[] | null,
+  apps: readonly AppAccountInfo[] | null,
+): string {
   const library = values.library ?? EMPTY_LIBRARY;
   const groups = values.groups ?? [];
   const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
@@ -801,14 +1166,18 @@ export function setupOverview(values: BotSettingsValues, providers: readonly Pro
     `Teams (${groups.length}):\n${
       groups
         .map((group) => {
-          const members = teamMembers(group).filter((id) => id !== group.leadId).map((id) => byId.get(id) ?? id);
+          const members = teamMembers(group)
+            .filter((id) => id !== group.leadId)
+            .map((id) => byId.get(id) ?? id);
           return `- ${group.name} (id ${group.id}): Chief of Staff ${group.leadId ? (byId.get(group.leadId) ?? group.leadId) : "none"}; members ${list(members) || "none"}${group.instructions.trim() ? "; has shared instructions" : ""}.`;
         })
         .join("\n") || "- none"
     }`,
     `Library skills (${library.skills.length}):\n${library.skills.map((skill) => `- ${skill.id}: ${skill.description || "no description"} [${skill.reviewedSha === null ? "needs review" : skill.enabled ? "on" : "off"}]`).join("\n") || "- none"}`,
     `Library MCP servers (${library.mcpServers.length}):\n${library.mcpServers.map((server) => `- ${server.name}${server.description ? `: ${server.description}` : ""} [${server.enabled ? "on" : mcpServerTested(server) ? "off" : "off, untested"}]`).join("\n") || "- none"}`,
-    apps ? `Connected apps:\n${[...new Set(apps.map((account) => account.slug))].map((slug) => `- ${slug}: accounts ${list(apps.filter((account) => account.slug === slug).map((account) => account.names[0] ?? account.id))}`).join("\n") || "- none"}` : "Connected apps: not set up.",
+    apps
+      ? `Connected apps:\n${[...new Set(apps.map((account) => account.slug))].map((slug) => `- ${slug}: accounts ${list(apps.filter((account) => account.slug === slug).map((account) => account.names[0] ?? account.id))}`).join("\n") || "- none"}`
+      : "Connected apps: not set up.",
     `New bots start with: provider ${defaults.provider || "any ready one"}, ${defaults.model ?? "default model"}, contact other bots: ${defaults.contactBots}.`,
     `Presets: ${list((values.presets ?? []).map((preset) => preset.name)) || "none"}.`,
     providers
@@ -833,14 +1202,40 @@ export function botDetails(values: BotSettingsValues, ref: string): string {
     botLine(bot, values),
     block("Blurb", bot.description),
     block("Instructions (Soul)", bot.soul),
-    block("Playbooks", bot.playbooks.map((playbook) => `- ${playbook.name} (triggers: ${list(playbook.triggers)}):\n${playbook.instructions}`).join("\n\n")),
-    block("Routines", bot.routines.map((routine) => `- ${routine.name} (id ${routine.id}, ${routine.enabled ? describeSchedule(routine.schedule) : "paused"}):\n${routine.prompt}`).join("\n\n")),
-    block("MCP servers", bot.mcpServerIds.map((id) => library.mcpServers.find((server) => server.id === id)?.name ?? id).join(", ")),
+    block(
+      "Playbooks",
+      bot.playbooks
+        .map(
+          (playbook) =>
+            `- ${playbook.name} (triggers: ${list(playbook.triggers)}):\n${playbook.instructions}`,
+        )
+        .join("\n\n"),
+    ),
+    block(
+      "Routines",
+      bot.routines
+        .map(
+          (routine) =>
+            `- ${routine.name} (id ${routine.id}, ${routine.enabled ? describeSchedule(routine.schedule) : "paused"}):\n${routine.prompt}`,
+        )
+        .join("\n\n"),
+    ),
+    block(
+      "MCP servers",
+      bot.mcpServerIds
+        .map((id) => library.mcpServers.find((server) => server.id === id)?.name ?? id)
+        .join(", "),
+    ),
     block("Tools allowed without asking", bot.alwaysAllow.join(", ")),
-    block("Connected apps", bot.apps.map((slug) => {
-      const rule = bot.appRules[slug];
-      return `${slug}${rule ? ` (tools: ${Array.isArray(rule.tools) ? list(rule.tools) : rule.tools}${rule.account ? "; one account" : ""})` : ""}`;
-    }).join(", ")),
+    block(
+      "Connected apps",
+      bot.apps
+        .map((slug) => {
+          const rule = bot.appRules[slug];
+          return `${slug}${rule ? ` (tools: ${Array.isArray(rule.tools) ? list(rule.tools) : rule.tools}${rule.account ? "; one account" : ""})` : ""}`;
+        })
+        .join(", "),
+    ),
     block("Working folder", bot.cwd ?? "its own folder in the Bots project"),
   ].join("\n\n");
 }

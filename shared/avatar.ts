@@ -7,7 +7,18 @@
 // from the top-left (rim light, specular highlight, two shadow tones), a belly or
 // muzzle patch, and a face and optional accessory layered on top.
 
-import { darkBackground, hslToHex, luminance, PALETTES, pick, rng, shiftHue, toRuns, type Palette, type PixelRun } from "./pixel";
+import {
+  darkBackground,
+  hslToHex,
+  luminance,
+  PALETTES,
+  pick,
+  rng,
+  shiftHue,
+  toRuns,
+  type Palette,
+  type PixelRun,
+} from "./pixel";
 
 export const SPRITE_SIZE = 24;
 const CENTER = SPRITE_SIZE / 2;
@@ -376,7 +387,9 @@ type Cell = { kind: "empty" } | { kind: "body" } | { kind: "accent" } | { kind: 
 
 function draw(traits: Traits): PixelAvatar {
   const body: BodyDef = BODIES[traits.sprite];
-  const grid: Cell[][] = Array.from({ length: SPRITE_SIZE }, () => Array.from({ length: SPRITE_SIZE }, (): Cell => ({ kind: "empty" })));
+  const grid: Cell[][] = Array.from({ length: SPRITE_SIZE }, () =>
+    Array.from({ length: SPRITE_SIZE }, (): Cell => ({ kind: "empty" })),
+  );
   const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < SPRITE_SIZE && y < SPRITE_SIZE;
   const kindAt = (x: number, y: number) => (inside(x, y) ? grid[y]![x]!.kind : "empty");
   const solid = (x: number, y: number) => kindAt(x, y) !== "empty";
@@ -409,7 +422,8 @@ function draw(traits: Traits): PixelAvatar {
     art.forEach((line, dy) =>
       line.split("").forEach((char, dx) => {
         const color = paints[char];
-        if (color && inside(originX + dx, originY + dy)) grid[originY + dy]![originX + dx] = { kind: "paint", color };
+        if (color && inside(originX + dx, originY + dy))
+          grid[originY + dy]![originX + dx] = { kind: "paint", color };
       }),
     );
   }
@@ -430,7 +444,8 @@ function draw(traits: Traits): PixelAvatar {
     line.map((cell, x) => {
       if (cell.kind === "empty") return null;
       if (cell.kind === "paint") return cell.color;
-      if (cell.kind === "accent") return !solid(x, y + 1) || !solid(x + 1, y) ? traits.accentShade : traits.accent;
+      if (cell.kind === "accent")
+        return !solid(x, y + 1) || !solid(x + 1, y) ? traits.accentShade : traits.accent;
       const bottom = !solid(x, y + 1);
       if (bottom && y >= midY) return palette.deep;
       if (bottom || !solid(x + 1, y) || (y >= midY && !solid(x, y + 2))) return palette.shade;
@@ -454,7 +469,8 @@ function draw(traits: Traits): PixelAvatar {
       [hx + 1, y + 1],
       [hx, y + 2],
     ] as const) {
-      if (kindAt(sx, sy) === "body" && solid(sx, sy - 1) && solid(sx - 1, sy)) colors[sy]![sx] = palette.highlight;
+      if (kindAt(sx, sy) === "body" && solid(sx, sy - 1) && solid(sx - 1, sy))
+        colors[sy]![sx] = palette.highlight;
     }
     break;
   }
@@ -475,11 +491,21 @@ function draw(traits: Traits): PixelAvatar {
   const eyeWidth = rightArt[0]!.length;
   const leftX = body.eyeX;
   const rightX = SPRITE_SIZE - body.eyeX - eyeWidth;
-  paintFace(leftArt, leftX + eyeWidth - leftArt[0]!.length, body.eyeY + rightArt.length - leftArt.length, eyeMap);
+  paintFace(
+    leftArt,
+    leftX + eyeWidth - leftArt[0]!.length,
+    body.eyeY + rightArt.length - leftArt.length,
+    eyeMap,
+  );
   paintFace(rightArt, rightX, body.eyeY, eyeMap);
 
   const mouth = MOUTHS[traits.mouth];
-  paintFace(mouth, Math.floor(CENTER - mouth[0]!.length / 2), body.mouthY, { m: FIXED.mouth, t: FIXED.tongue, k: FIXED.orange, K: FIXED.orangeShade });
+  paintFace(mouth, Math.floor(CENTER - mouth[0]!.length / 2), body.mouthY, {
+    m: FIXED.mouth,
+    t: FIXED.tongue,
+    k: FIXED.orange,
+    K: FIXED.orangeShade,
+  });
 
   if (traits.blush) {
     paintFace(["cc"], leftX - 1, body.blushY, { c: FIXED.blush });
@@ -489,7 +515,8 @@ function draw(traits: Traits): PixelAvatar {
   // Outline: every empty pixel touching the shape.
   grid.forEach((line, y) =>
     line.forEach((cell, x) => {
-      if (cell.kind === "empty" && (solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1))) colors[y]![x] = palette.outline;
+      if (cell.kind === "empty" && (solid(x + 1, y) || solid(x - 1, y) || solid(x, y + 1) || solid(x, y - 1)))
+        colors[y]![x] = palette.outline;
     }),
   );
 
@@ -503,7 +530,10 @@ function traitsFor(sprite: SpriteName, palette: Palette, accentHue: number, next
       ? { accent: FIXED.orange, accentShade: FIXED.orangeShade }
       : body.accent === "pink"
         ? { accent: FIXED.pink, accentShade: FIXED.pinkShade }
-        : { accent: hslToHex(accentHue, 85, 72), accentShade: hslToHex(shiftHue(accentHue, 250, 14), 80, 58) };
+        : {
+            accent: hslToHex(accentHue, 85, 72),
+            accentShade: hslToHex(shiftHue(accentHue, 250, 14), 80, 58),
+          };
   const eyes = pick(next, body.eyes ?? DEFAULT_EYES);
   const mouth = pick(next, body.mouths ?? DEFAULT_MOUTHS);
   const blush = next() < 0.75;
@@ -522,7 +552,11 @@ function withTheme(avatar: PixelAvatar, palette: Palette, options: AvatarOptions
   return options.dark ? { ...avatar, background: darkBackground(palette) } : avatar;
 }
 
-export function pixelAvatar(seed: string, palette: number | null = null, options: AvatarOptions = {}): PixelAvatar {
+export function pixelAvatar(
+  seed: string,
+  palette: number | null = null,
+  options: AvatarOptions = {},
+): PixelAvatar {
   const next = rng(seed);
   const sprite = pick(next, SPRITE_NAMES);
   const seeded = pick(next, PALETTES);
@@ -532,23 +566,36 @@ export function pixelAvatar(seed: string, palette: number | null = null, options
 }
 
 /** A specific creature and palette, e.g. the splash lineup. The face follows from the arguments. */
-export function spriteAvatar(sprite: SpriteName, palette: number, accent: number = 0, options: AvatarOptions = {}): PixelAvatar {
+export function spriteAvatar(
+  sprite: SpriteName,
+  palette: number,
+  accent: number = 0,
+  options: AvatarOptions = {},
+): PixelAvatar {
   const colors = PALETTES[palette % PALETTES.length]!;
   const next = rng(`${sprite}:${palette}:${accent}`);
-  return withTheme(draw(traitsFor(sprite, colors, ACCENT_HUES[accent % ACCENT_HUES.length]!, next)), colors, options);
+  return withTheme(
+    draw(traitsFor(sprite, colors, ACCENT_HUES[accent % ACCENT_HUES.length]!, next)),
+    colors,
+    options,
+  );
 }
 
 /** The same avatar in grays: each colour becomes its luminance. */
 export function grayscaleAvatar(avatar: PixelAvatar): PixelAvatar {
   const gray = (hex: string) => {
-    const level = Math.round(luminance(hex) * 255).toString(16).padStart(2, "0");
+    const level = Math.round(luminance(hex) * 255)
+      .toString(16)
+      .padStart(2, "0");
     return `#${level}${level}${level}`;
   };
   return {
     ...avatar,
     background: gray(avatar.background),
     body: gray(avatar.body),
-    rows: avatar.rows.map((runs) => runs.map((run) => (run.color ? { ...run, color: gray(run.color) } : run))),
+    rows: avatar.rows.map((runs) =>
+      runs.map((run) => (run.color ? { ...run, color: gray(run.color) } : run)),
+    ),
   };
 }
 

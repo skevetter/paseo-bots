@@ -10,16 +10,25 @@ const APP_SETTINGS_KEY = "@paseo:app-settings";
 const native = Platform.OS !== "web";
 
 // This plugin typechecks without the DOM library. Declare only what this module uses.
-declare const localStorage: { getItem(key: string): string | null; setItem(key: string, value: string): void } | undefined;
+declare const localStorage:
+  | { getItem(key: string): string | null; setItem(key: string, value: string): void }
+  | undefined;
 
 type AsyncStorageModule = {
-  multiGet(keys: string[], callback: (errors: unknown, result: [string, string | null][] | null) => void): void;
+  multiGet(
+    keys: string[],
+    callback: (errors: unknown, result: [string, string | null][] | null) => void,
+  ): void;
   multiSet?(pairs: [string, string][], callback: (errors: unknown) => void): void;
 };
 
 function asyncStorage(): AsyncStorageModule | null {
   try {
-    return (TurboModuleRegistry.get("RNCAsyncStorage") as AsyncStorageModule | null) ?? (NativeModules.RNCAsyncStorage as AsyncStorageModule | undefined) ?? null;
+    return (
+      (TurboModuleRegistry.get("RNCAsyncStorage") as AsyncStorageModule | null) ??
+      (NativeModules.RNCAsyncStorage as AsyncStorageModule | undefined) ??
+      null
+    );
   } catch {
     return null;
   }
@@ -70,7 +79,9 @@ export function writeItem(key: string, value: string): Promise<void> {
 
 // ---------------------------------------------------------------- send behaviour
 
-let sendBehavior: SendBehavior = native ? DEFAULT_SEND_BEHAVIOR : parseSendBehavior(readItemSync(APP_SETTINGS_KEY));
+let sendBehavior: SendBehavior = native
+  ? DEFAULT_SEND_BEHAVIOR
+  : parseSendBehavior(readItemSync(APP_SETTINGS_KEY));
 
 /** Re-reads Paseo's `sendBehavior` setting. */
 async function readSendBehavior(): Promise<SendBehavior> {

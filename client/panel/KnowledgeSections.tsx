@@ -11,18 +11,31 @@ import { useBotHost } from "../data";
 import { confirmDialog, errorText } from "../native";
 import type { PanelProps } from "./BotPanel";
 import { LibraryPicker } from "./LibraryPicker";
-import { Alert, Button, CardNote, DrillRow, FormTextArea, InputField, SectionLink, SectionMeta, SheetActions, TextAreaField } from "./controls";
+import {
+  Alert,
+  Button,
+  CardNote,
+  DrillRow,
+  FormTextArea,
+  InputField,
+  SectionLink,
+  SectionMeta,
+  SheetActions,
+  TextAreaField,
+} from "./controls";
 import { ChangesSheet, LogSheet, useDailyLog, useMemoryJournal } from "./MemoryActivity";
 
 type Colors = PanelProps["colors"];
 
 const kb = (bytes: number) => (bytes / 1000).toFixed(1);
 
-
 function LocalOnly({ colors, what }: { colors: Colors; what: string }) {
   return (
     <View style={{ marginBottom: 24 }}>
-      <Alert colors={colors} description={`${what} live on the host that stores this bot, so they only apply while the bot runs there.`} />
+      <Alert
+        colors={colors}
+        description={`${what} live on the host that stores this bot, so they only apply while the bot runs there.`}
+      />
     </View>
   );
 }
@@ -35,9 +48,17 @@ export function SoulSection({ colors, bot, onPatch }: PanelProps) {
   const bytes = utf8Bytes(bot.soul);
   return (
     <>
-      <SettingsSection title="Instructions" info="Comes right after the bot's identity in the system prompt and outranks memory and skills.">
+      <SettingsSection
+        title="Instructions"
+        info="Comes right after the bot's identity in the system prompt and outranks memory and skills."
+      >
         <SettingsCard>
-          <SettingsAction label="Standing instructions" hint="How the bot behaves in every chat" actionLabel="Edit" onPress={() => setEditing(true)} />
+          <SettingsAction
+            label="Standing instructions"
+            hint="How the bot behaves in every chat"
+            actionLabel="Edit"
+            onPress={() => setEditing(true)}
+          />
           <SettingsRow
             label="Size"
             hint={bytes ? `${kb(bytes)} of ${SOUL_MAX_BYTES / 1000} KB` : "Empty"}
@@ -60,7 +81,17 @@ export function SoulSection({ colors, bot, onPatch }: PanelProps) {
   );
 }
 
-function SoulSheet({ colors, saved, onClose, onSave }: { colors: Colors; saved: string; onClose(): void; onSave(soul: string): void }) {
+function SoulSheet({
+  colors,
+  saved,
+  onClose,
+  onSave,
+}: {
+  colors: Colors;
+  saved: string;
+  onClose(): void;
+  onSave(soul: string): void;
+}) {
   const [draft, setDraft] = useState(saved);
   const bytes = utf8Bytes(draft);
   const changed = draft !== saved;
@@ -77,11 +108,27 @@ function SoulSheet({ colors, saved, onClose, onSave }: { colors: Colors; saved: 
         />
         <SheetActions
           leading={
-            <SectionMeta colors={colors} text={`${kb(bytes)} / ${SOUL_MAX_BYTES / 1000} KB`} tone={bytes > SOUL_MAX_BYTES ? "danger" : bytes > SOUL_MAX_BYTES * 0.8 ? "warning" : undefined} />
+            <SectionMeta
+              colors={colors}
+              text={`${kb(bytes)} / ${SOUL_MAX_BYTES / 1000} KB`}
+              tone={bytes > SOUL_MAX_BYTES ? "danger" : bytes > SOUL_MAX_BYTES * 0.8 ? "warning" : undefined}
+            />
           }
         >
-          <Button colors={colors} variant="ghost" label="Reset" disabled={!changed} onPress={() => setDraft(saved)} />
-          <Button colors={colors} variant="default" label="Save" disabled={!changed} onPress={() => onSave(draft)} />
+          <Button
+            colors={colors}
+            variant="ghost"
+            label="Reset"
+            disabled={!changed}
+            onPress={() => setDraft(saved)}
+          />
+          <Button
+            colors={colors}
+            variant="default"
+            label="Save"
+            disabled={!changed}
+            onPress={() => onSave(draft)}
+          />
         </SheetActions>
       </Modal.Content>
     </Modal>
@@ -95,7 +142,12 @@ export function SkillsSection(props: PanelProps) {
   return (
     <>
       {!host.isLocal ? <LocalOnly colors={props.colors} what="Skills" /> : null}
-      <LibraryPicker {...props} kind="skill" title="Skills" info="Switched-on skills are listed in the bot's prompt and read when a task needs them. Add and edit skills in Skills & Tools." />
+      <LibraryPicker
+        {...props}
+        kind="skill"
+        title="Skills"
+        info="Switched-on skills are listed in the bot's prompt and read when a task needs them. Add and edit skills in Skills & Tools."
+      />
     </>
   );
 }
@@ -113,11 +165,18 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
   const toast = useToast();
   const [open, setOpen] = useState<string | null>(null);
   const [sheet, setSheet] = useState<"topic" | "changes" | "log" | null>(null);
-  const files = useQuery({ queryKey: ["paseo-bots", "memory", bot.id], queryFn: () => list({ botId: bot.id }), refetchInterval: 20_000 });
+  const files = useQuery({
+    queryKey: ["paseo-bots", "memory", bot.id],
+    queryFn: () => list({ botId: bot.id }),
+    refetchInterval: 20_000,
+  });
   const journal = useMemoryJournal(bot.id);
   const log = useDailyLog(bot.id);
   const refresh = () =>
-    Promise.all([queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory", bot.id] }), queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory-journal", bot.id] })]);
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory", bot.id] }),
+      queryClient.invalidateQueries({ queryKey: ["paseo-bots", "memory-journal", bot.id] }),
+    ]);
 
   const data = files.data;
   const over = data ? data.injectedLines > MEMORY_LINES || data.injectedBytes > MEMORY_BYTES : false;
@@ -138,7 +197,13 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
               key={file.name}
               colors={colors}
               label={file.topic ? `memory/${file.name}` : file.name}
-              hint={!data ? "Loading..." : file.topic ? `${file.lines} lines · ${kb(file.bytes)} KB` : `${data.injectedLines} of ${MEMORY_LINES} lines · ${kb(data.injectedBytes)} of ${MEMORY_BYTES / 1000} KB loaded into every chat`}
+              hint={
+                !data
+                  ? "Loading..."
+                  : file.topic
+                    ? `${file.lines} lines · ${kb(file.bytes)} KB`
+                    : `${data.injectedLines} of ${MEMORY_LINES} lines · ${kb(data.injectedBytes)} of ${MEMORY_BYTES / 1000} KB loaded into every chat`
+              }
               error={!file.topic && over ? "Over the budget, so the end is left out" : null}
               hintLines={2}
               onPress={() => setOpen(file.name)}
@@ -149,15 +214,39 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
               label="Folder"
               hint={data.folder.replace(/^\/(?:Users|home)\/[^/]+/, "~")}
               actionLabel="Copy"
-              onPress={() => void copyText(data.folder).then(() => toast.show("Path copied", { variant: "success" }))}
+              onPress={() =>
+                void copyText(data.folder).then(() => toast.show("Path copied", { variant: "success" }))
+              }
             />
           ) : null}
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="Activity">
         <SettingsCard>
-          <DrillRow colors={colors} label="Changes" hint={journal.isLoading ? "Loading..." : changes ? `${changes} ${changes === 1 ? "change" : "changes"}, with undo` : "No changes yet"} onPress={() => setSheet("changes")} />
-          <DrillRow colors={colors} label="Daily log" hint={log.isLoading ? "Loading..." : days ? `${days} ${days === 1 ? "day" : "days"}` : "No entries yet"} onPress={() => setSheet("log")} />
+          <DrillRow
+            colors={colors}
+            label="Changes"
+            hint={
+              journal.isLoading
+                ? "Loading..."
+                : changes
+                  ? `${changes} ${changes === 1 ? "change" : "changes"}, with undo`
+                  : "No changes yet"
+            }
+            onPress={() => setSheet("changes")}
+          />
+          <DrillRow
+            colors={colors}
+            label="Daily log"
+            hint={
+              log.isLoading
+                ? "Loading..."
+                : days
+                  ? `${days} ${days === 1 ? "day" : "days"}`
+                  : "No entries yet"
+            }
+            onPress={() => setSheet("log")}
+          />
         </SettingsCard>
       </SettingsSection>
       {sheet === "topic" ? (
@@ -172,15 +261,40 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
           }}
         />
       ) : null}
-      {sheet === "changes" ? <ChangesSheet colors={colors} bot={bot} onUndone={() => void refresh()} onClose={() => setSheet(null)} /> : null}
+      {sheet === "changes" ? (
+        <ChangesSheet
+          colors={colors}
+          bot={bot}
+          onUndone={() => void refresh()}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
       {sheet === "log" ? <LogSheet colors={colors} bot={bot} onClose={() => setSheet(null)} /> : null}
-      {open ? <MemorySheet colors={colors} botId={bot.id} name={open} onChanged={() => void refresh()} onClose={() => setOpen(null)} /> : null}
+      {open ? (
+        <MemorySheet
+          colors={colors}
+          botId={bot.id}
+          name={open}
+          onChanged={() => void refresh()}
+          onClose={() => setOpen(null)}
+        />
+      ) : null}
     </>
   );
 }
 
 /** A new topic file: its name, then it opens to write in. */
-function TopicSheet({ colors, botId, onClose, onCreated }: { colors: Colors; botId: string; onClose(): void; onCreated(name: string): void }) {
+function TopicSheet({
+  colors,
+  botId,
+  onClose,
+  onCreated,
+}: {
+  colors: Colors;
+  botId: string;
+  onClose(): void;
+  onCreated(name: string): void;
+}) {
   const write = useRpc(memoryWriteRpc);
   const toast = useToast();
   const [topic, setTopic] = useState("");
@@ -194,11 +308,25 @@ function TopicSheet({ colors, botId, onClose, onCreated }: { colors: Colors; bot
     <Modal title="New topic file" open onOpenChange={(value) => !value && onClose()}>
       <Modal.Content>
         <SettingsCard>
-          <InputField colors={colors} label="Name" hint="Letters, numbers, spaces, dots and dashes" error={error} initialValue="" placeholder="projects" onChangeText={setTopic} />
+          <InputField
+            colors={colors}
+            label="Name"
+            hint="Letters, numbers, spaces, dots and dashes"
+            error={error}
+            initialValue=""
+            placeholder="projects"
+            onChangeText={setTopic}
+          />
         </SettingsCard>
         <SheetActions>
           <Button colors={colors} variant="ghost" label="Cancel" onPress={onClose} />
-          <Button colors={colors} variant="default" label="Create" disabled={!name || !!error} onPress={create} />
+          <Button
+            colors={colors}
+            variant="default"
+            label="Create"
+            disabled={!name || !!error}
+            onPress={create}
+          />
         </SheetActions>
       </Modal.Content>
     </Modal>
@@ -206,7 +334,19 @@ function TopicSheet({ colors, botId, onClose, onCreated }: { colors: Colors; bot
 }
 
 /** One memory file in a sheet. Closing with unsaved edits asks before discarding them. */
-function MemorySheet({ colors, botId, name, onChanged, onClose }: { colors: Colors; botId: string; name: string; onChanged(): void; onClose(): void }) {
+function MemorySheet({
+  colors,
+  botId,
+  name,
+  onChanged,
+  onClose,
+}: {
+  colors: Colors;
+  botId: string;
+  name: string;
+  onChanged(): void;
+  onClose(): void;
+}) {
   const read = useRpc(memoryReadRpc);
   const write = useRpc(memoryWriteRpc);
   const remove = useRpc(memoryDeleteRpc);
@@ -235,7 +375,16 @@ function MemorySheet({ colors, botId, name, onChanged, onClose }: { colors: Colo
   }, [botId, name, read]);
 
   const close = async () => {
-    if (dirty && !(await confirmDialog({ title: "Discard changes", message: `Discard your changes to ${label}?`, confirmLabel: "Discard", destructive: true }))) return;
+    if (
+      dirty &&
+      !(await confirmDialog({
+        title: "Discard changes",
+        message: `Discard your changes to ${label}?`,
+        confirmLabel: "Discard",
+        destructive: true,
+      }))
+    )
+      return;
     onClose();
   };
 
@@ -261,7 +410,12 @@ function MemorySheet({ colors, botId, name, onChanged, onClose }: { colors: Colo
   };
 
   const destroy = async () => {
-    const confirmed = await confirmDialog({ title: "Delete topic file", message: `Delete ${label}? This cannot be undone.`, confirmLabel: "Delete", destructive: true });
+    const confirmed = await confirmDialog({
+      title: "Delete topic file",
+      message: `Delete ${label}? This cannot be undone.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
     if (!confirmed) return;
     await remove({ botId, name });
     onChanged();
@@ -278,11 +432,43 @@ function MemorySheet({ colors, botId, name, onChanged, onClose }: { colors: Colo
             </View>
           </SettingsCard>
         ) : (
-          <FormTextArea colors={colors} monospace accessibilityLabel={`${label} contents`} value={text} onChangeText={setText} minHeight={320} placeholder={"- Prefers short replies\n- Works Mon-Fri, CET"} />
+          <FormTextArea
+            colors={colors}
+            monospace
+            accessibilityLabel={`${label} contents`}
+            value={text}
+            onChangeText={setText}
+            minHeight={320}
+            placeholder={"- Prefers short replies\n- Works Mon-Fri, CET"}
+          />
         )}
-        <SheetActions leading={topic ? <Button colors={colors} variant="ghost" label="Delete" icon="Trash2" onPress={() => void destroy()} /> : null}>
-          <Button colors={colors} variant="ghost" label="Reset" disabled={!dirty || saving} onPress={() => setText(saved)} />
-          <Button colors={colors} variant="default" label={saving ? "Saving..." : "Save"} disabled={!dirty || saving} onPress={() => void save()} />
+        <SheetActions
+          leading={
+            topic ? (
+              <Button
+                colors={colors}
+                variant="ghost"
+                label="Delete"
+                icon="Trash2"
+                onPress={() => void destroy()}
+              />
+            ) : null
+          }
+        >
+          <Button
+            colors={colors}
+            variant="ghost"
+            label="Reset"
+            disabled={!dirty || saving}
+            onPress={() => setText(saved)}
+          />
+          <Button
+            colors={colors}
+            variant="default"
+            label={saving ? "Saving..." : "Save"}
+            disabled={!dirty || saving}
+            onPress={() => void save()}
+          />
         </SheetActions>
       </Modal.Content>
     </Modal>
@@ -295,11 +481,23 @@ function MemorySheet({ colors, botId, name, onChanged, onClose }: { colors: Colo
 export function PlaybooksSection({ colors, bot, onPatch }: PanelProps) {
   const [editing, setEditing] = useState<Playbook | "new" | null>(null);
   const save = (playbook: Playbook) => {
-    onPatch({ playbooks: bot.playbooks.some((entry) => entry.id === playbook.id) ? bot.playbooks.map((entry) => (entry.id === playbook.id ? playbook : entry)) : [...bot.playbooks, playbook] });
+    onPatch({
+      playbooks: bot.playbooks.some((entry) => entry.id === playbook.id)
+        ? bot.playbooks.map((entry) => (entry.id === playbook.id ? playbook : entry))
+        : [...bot.playbooks, playbook],
+    });
     setEditing(null);
   };
   const remove = async (playbook: Playbook) => {
-    if (!(await confirmDialog({ title: "Delete playbook", message: `Delete "${playbook.name}"? This cannot be undone.`, confirmLabel: "Delete", destructive: true }))) return;
+    if (
+      !(await confirmDialog({
+        title: "Delete playbook",
+        message: `Delete "${playbook.name}"? This cannot be undone.`,
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    )
+      return;
     onPatch({ playbooks: bot.playbooks.filter((entry) => entry.id !== playbook.id) });
     setEditing(null);
   };
@@ -317,41 +515,105 @@ export function PlaybooksSection({ colors, bot, onPatch }: PanelProps) {
               key={playbook.id}
               colors={colors}
               label={playbook.name || "Untitled playbook"}
-              hint={playbook.triggers.length ? `When a chat mentions ${playbook.triggers.join(", ")}` : "No trigger words, so no chat gets it"}
+              hint={
+                playbook.triggers.length
+                  ? `When a chat mentions ${playbook.triggers.join(", ")}`
+                  : "No trigger words, so no chat gets it"
+              }
               onPress={() => setEditing(playbook)}
             />
           ))}
         </SettingsCard>
       </SettingsSection>
-      {editing ? <PlaybookSheet colors={colors} playbook={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSave={save} onDelete={editing === "new" ? undefined : () => void remove(editing)} /> : null}
+      {editing ? (
+        <PlaybookSheet
+          colors={colors}
+          playbook={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSave={save}
+          onDelete={editing === "new" ? undefined : () => void remove(editing)}
+        />
+      ) : null}
     </>
   );
 }
 
-function PlaybookSheet({ colors, playbook, onClose, onSave, onDelete }: { colors: Colors; playbook: Playbook | null; onClose(): void; onSave(playbook: Playbook): void; onDelete?: () => void }) {
+function PlaybookSheet({
+  colors,
+  playbook,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  colors: Colors;
+  playbook: Playbook | null;
+  onClose(): void;
+  onSave(playbook: Playbook): void;
+  onDelete?: () => void;
+}) {
   const [name, setName] = useState(playbook?.name ?? "");
   const [triggers, setTriggers] = useState(playbook?.triggers.join(", ") ?? "");
   const [instructions, setInstructions] = useState(playbook?.instructions ?? "");
   const parsed = parseTriggers(triggers);
   const canSave = !!name.trim() && parsed.length > 0 && !!instructions.trim();
   return (
-    <Modal title={playbook ? "Edit playbook" : "New playbook"} open onOpenChange={(open) => !open && onClose()}>
+    <Modal
+      title={playbook ? "Edit playbook" : "New playbook"}
+      open
+      onOpenChange={(open) => !open && onClose()}
+    >
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <View style={{ marginBottom: 24 }}>
           <SettingsCard>
-            <InputField colors={colors} label="Name" initialValue={name} placeholder="Month-end close" onChangeText={setName} />
-            <InputField colors={colors} label="Trigger words" hint="Comma-separated words or phrases" initialValue={triggers} placeholder="month end, close the books" onChangeText={setTriggers} />
-            <TextAreaField colors={colors} label="Steps" hint="Markdown. The bot follows these when a chat matches." value={instructions} onChangeText={setInstructions} minHeight={240} placeholder={"1. Export last month's transactions.\n2. Reconcile them against the bank statement.\n3. ..."} />
+            <InputField
+              colors={colors}
+              label="Name"
+              initialValue={name}
+              placeholder="Month-end close"
+              onChangeText={setName}
+            />
+            <InputField
+              colors={colors}
+              label="Trigger words"
+              hint="Comma-separated words or phrases"
+              initialValue={triggers}
+              placeholder="month end, close the books"
+              onChangeText={setTriggers}
+            />
+            <TextAreaField
+              colors={colors}
+              label="Steps"
+              hint="Markdown. The bot follows these when a chat matches."
+              value={instructions}
+              onChangeText={setInstructions}
+              minHeight={240}
+              placeholder={
+                "1. Export last month's transactions.\n2. Reconcile them against the bank statement.\n3. ..."
+              }
+            />
           </SettingsCard>
         </View>
-        <SheetActions leading={onDelete ? <Button colors={colors} variant="ghost" label="Delete" icon="Trash2" onPress={onDelete} /> : null}>
+        <SheetActions
+          leading={
+            onDelete ? (
+              <Button colors={colors} variant="ghost" label="Delete" icon="Trash2" onPress={onDelete} />
+            ) : null
+          }
+        >
           <Button colors={colors} variant="ghost" label="Cancel" onPress={onClose} />
           <Button
             colors={colors}
             variant="default"
             label="Save"
             disabled={!canSave}
-            onPress={() => onSave({ id: playbook?.id ?? newPlaybookId(), name: name.trim().slice(0, 80), triggers: parsed, instructions })}
+            onPress={() =>
+              onSave({
+                id: playbook?.id ?? newPlaybookId(),
+                name: name.trim().slice(0, 80),
+                triggers: parsed,
+                instructions,
+              })
+            }
           />
         </SheetActions>
       </Modal.Content>

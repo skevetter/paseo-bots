@@ -30,7 +30,7 @@ export function CommandMenu({
   onSelect(command: SlashCommand): void;
 }) {
   const tokens = nativeTokens(colors);
-  const empty = loading ? "Loading..." : error ?? "No results found.";
+  const empty = loading ? "Loading..." : (error ?? "No results found.");
   return (
     <View
       accessibilityRole="menu"
@@ -58,7 +58,11 @@ export function CommandMenu({
           <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>{empty}</Text>
         </View>
       ) : (
-        <ScrollView keyboardShouldPersistTaps="always" style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ paddingVertical: 4 }}>
+        <ScrollView
+          keyboardShouldPersistTaps="always"
+          style={{ flexGrow: 0, flexShrink: 1 }}
+          contentContainerStyle={{ paddingVertical: 4 }}
+        >
           {commands.map((command, index) => (
             <Pressable
               key={`${command.kind ?? "command"}:${command.name}`}
@@ -76,9 +80,14 @@ export function CommandMenu({
                 backgroundColor: index === activeIndex ? colors.surface2 : "transparent",
               }}
             >
-              <Text numberOfLines={1} style={{ flexShrink: 0, maxWidth: "50%", color: colors.foreground, fontSize: ui(14) }}>
+              <Text
+                numberOfLines={1}
+                style={{ flexShrink: 0, maxWidth: "50%", color: colors.foreground, fontSize: ui(14) }}
+              >
                 {`/${command.name}`}
-                {command.argumentHint ? <Text style={{ color: colors.foregroundMuted }}>{` ${command.argumentHint}`}</Text> : null}
+                {command.argumentHint ? (
+                  <Text style={{ color: colors.foregroundMuted }}>{` ${command.argumentHint}`}</Text>
+                ) : null}
               </Text>
               <Text numberOfLines={1} style={{ flex: 1, color: colors.foregroundMuted, fontSize: ui(12) }}>
                 {command.description}

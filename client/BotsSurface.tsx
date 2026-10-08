@@ -8,13 +8,33 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, BackHandler, type LayoutRectangle, Platform, Text, View } from "react-native";
 import { randomSeed } from "../shared/avatar";
-import { applyDefaults, DEFAULT_BOT_DEFAULTS, DEFAULT_BOT_LIST_UI, EMPTY_LIBRARY, newBotId, newGroupId, presetFromBot, pushHistory, type Bot, type BotGroup, type BotListUi, type Library } from "../shared/bot";
+import {
+  applyDefaults,
+  DEFAULT_BOT_DEFAULTS,
+  DEFAULT_BOT_LIST_UI,
+  EMPTY_LIBRARY,
+  newBotId,
+  newGroupId,
+  presetFromBot,
+  pushHistory,
+  type Bot,
+  type BotGroup,
+  type BotListUi,
+  type Library,
+} from "../shared/bot";
 import { saveTeam, tabOf, teamTabs, withoutBot } from "../shared/groups";
 import { addImportedBots } from "../shared/library";
 import { displayTitle, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
 import { moveKey } from "../shared/sidebar";
 import { chatTranscript } from "../shared/transcript";
-import { ensureBotHomeRpc, mountRpc, exportBotRpc, importBotRpc, importTeamRpc, systemPromptRpc } from "../shared/rpc";
+import {
+  ensureBotHomeRpc,
+  mountRpc,
+  exportBotRpc,
+  importBotRpc,
+  importTeamRpc,
+  systemPromptRpc,
+} from "../shared/rpc";
 import { botFromPreset, newBot } from "../shared/templates";
 import { AvatarTheme } from "./Avatar";
 import { botMenuEntries, chatMenuEntries, ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
@@ -62,7 +82,6 @@ export function BotsSurface(props: PluginScreenProps) {
   );
 }
 
-
 function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginScreenProps) {
   const { colors } = theme;
   const { settings, latest, commit } = useBotSettings();
@@ -77,7 +96,10 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
   const importTeam = useRpc(importTeamRpc);
 
   const [selection, setSelection] = useState<Selection | null>(null);
-  const [panel, setPanel] = useState<{ open: boolean; section: SectionId | null }>({ open: false, section: null });
+  const [panel, setPanel] = useState<{ open: boolean; section: SectionId | null }>({
+    open: false,
+    section: null,
+  });
   const [panelVersion, setPanelVersion] = useState(0);
   const [creating, setCreating] = useState(false);
   /** The team map replaces the chat pane while open. */
@@ -133,8 +155,14 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
 
   const patchBot = (botId: string, patch: Partial<Bot>) => {
     setDrafts((current) => {
-      const base = current[botId] ?? (latest.current.status === "ready" ? latest.current.values.bots.find((bot) => bot.id === botId) : undefined);
-      return base ? { ...current, [botId]: { ...base, ...patch, updatedAt: new Date().toISOString() } } : current;
+      const base =
+        current[botId] ??
+        (latest.current.status === "ready"
+          ? latest.current.values.bots.find((bot) => bot.id === botId)
+          : undefined);
+      return base
+        ? { ...current, [botId]: { ...base, ...patch, updatedAt: new Date().toISOString() } }
+        : current;
     });
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
@@ -144,7 +172,9 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
   useEffect(() => () => void flush(), []);
 
   const currentUi = (): BotListUi =>
-    uiRef.current ?? (latest.current.status === "ready" ? latest.current.values.ui : undefined) ?? DEFAULT_BOT_LIST_UI;
+    uiRef.current ??
+    (latest.current.status === "ready" ? latest.current.values.ui : undefined) ??
+    DEFAULT_BOT_LIST_UI;
 
   const updateUi = (mutate: (current: BotListUi) => BotListUi) => {
     const next = mutate(currentUi());
@@ -155,13 +185,17 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
 
   /** Applies a patch to the saved bot and to any unsaved draft of it, so autosave can't undo it. */
   const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
-    setDrafts((current) => (current[botId] ? { ...current, [botId]: { ...current[botId], ...patch } } : current));
+    setDrafts((current) =>
+      current[botId] ? { ...current, [botId]: { ...current[botId], ...patch } } : current,
+    );
     return commit((values) => {
       const previous = values.bots.find((entry) => entry.id === botId);
       if (!previous) return values;
       return {
         ...values,
-        bots: values.bots.map((entry) => (entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry)),
+        bots: values.bots.map((entry) =>
+          entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry,
+        ),
         history: recordHistory ? pushHistory(values.history, previous) : values.history,
       };
     });
@@ -225,15 +259,31 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
 
   if (settings.status !== "ready") {
     return (
-      <View style={{ flex: 1, padding: 24, gap: 12, backgroundColor: colors.surface0, justifyContent: settings.status === "loading" ? "center" : "flex-start", alignItems: settings.status === "loading" ? "center" : "stretch" }}>
+      <View
+        style={{
+          flex: 1,
+          padding: 24,
+          gap: 12,
+          backgroundColor: colors.surface0,
+          justifyContent: settings.status === "loading" ? "center" : "flex-start",
+          alignItems: settings.status === "loading" ? "center" : "stretch",
+        }}
+      >
         {settings.status === "loading" ? (
           <ActivityIndicator size="large" color={colors.foregroundMuted} accessibilityLabel="Loading bots" />
         ) : (
-          <Text style={{ fontSize: ui(14), color: colors.statusDanger }}>Couldn't read bots: {settings.error}</Text>
+          <Text style={{ fontSize: ui(14), color: colors.statusDanger }}>
+            Couldn't read bots: {settings.error}
+          </Text>
         )}
         {settings.status === "invalid" ? (
           <SettingsCard>
-            <SettingsAction label="Reset bots" hint="Replaces the unreadable bot list with an empty one." actionLabel="Reset" onPress={() => void settings.reset()} />
+            <SettingsAction
+              label="Reset bots"
+              hint="Replaces the unreadable bot list with an empty one."
+              actionLabel="Reset"
+              onPress={() => void settings.reset()}
+            />
           </SettingsCard>
         ) : null}
       </View>
@@ -269,7 +319,11 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
     setTeamMap(false);
     const tab = openTab && tabOf(next.botId, groups) !== openTab.id ? tabOf(next.botId, groups) : null;
     if (tab || currentUi().collapsed.includes(next.botId)) {
-      updateUi((current) => ({ ...current, tab: tab ?? current.tab, collapsed: current.collapsed.filter((id) => id !== next.botId) }));
+      updateUi((current) => ({
+        ...current,
+        tab: tab ?? current.tab,
+        collapsed: current.collapsed.filter((id) => id !== next.botId),
+      }));
     }
   };
 
@@ -339,14 +393,19 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
     const index = shown.findIndex((entry) => entry.id === bot.id);
     const neighbour = shown[index + delta];
     if (index === -1 || !neighbour) return undefined;
-    const swap = (ids: readonly string[]) => ids.map((id) => (id === bot.id ? neighbour.id : id === neighbour.id ? bot.id : id));
+    const swap = (ids: readonly string[]) =>
+      ids.map((id) => (id === bot.id ? neighbour.id : id === neighbour.id ? bot.id : id));
     const group = openTab?.group;
     if (group) {
       if (bot.id === group.leadId || neighbour.id === group.leadId) return undefined;
       return () =>
         void commit((values) => ({
           ...values,
-          groups: (values.groups ?? []).map((entry) => (entry.id === group.id ? { ...entry, memberIds: swap(entry.memberIds), updatedAt: new Date().toISOString() } : entry)),
+          groups: (values.groups ?? []).map((entry) =>
+            entry.id === group.id
+              ? { ...entry, memberIds: swap(entry.memberIds), updatedAt: new Date().toISOString() }
+              : entry,
+          ),
         }));
     }
     if (neighbour.pinned !== bot.pinned) return undefined;
@@ -374,19 +433,35 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
       title: "Bot actions",
       entries: botMenuEntries({
         bot,
-        onOpenInPaseo: openWorkspace && workspaceId && botHost.online ? () => openWorkspace({ workspaceId, serverId: botHost.key }) : undefined,
+        onOpenInPaseo:
+          openWorkspace && workspaceId && botHost.online
+            ? () => openWorkspace({ workspaceId, serverId: botHost.key })
+            : undefined,
         onOpenSettings: () => openPanel(bot, "identity"),
         onTogglePin: () => void updateBot(bot.id, { pinned: !bot.pinned }),
         onMoveUp: moveBot(bot, -1),
         onMoveDown: moveBot(bot, 1),
         onRename: () => setRenaming(bot),
-        onDuplicate: () => duplicate(bot).catch((error: unknown) => toast.error(`Couldn't duplicate: ${errorText(error)}`)),
+        onDuplicate: () =>
+          duplicate(bot).catch((error: unknown) => toast.error(`Couldn't duplicate: ${errorText(error)}`)),
         onExport: () => setExporting(bot),
         onCopyId: () => copy(bot.id, "Bot ID copied"),
         onSaveAsPreset: () =>
           void flush()
-            .then(() => commit((values) => ({ ...values, presets: [...(values.presets ?? []), presetFromBot(values.bots.find((entry) => entry.id === bot.id) ?? bot)] })))
-            .then((saved) => saved && toast.show(`Saved ${bot.name} as a preset. It's under New bot.`, { variant: "success" })),
+            .then(() =>
+              commit((values) => ({
+                ...values,
+                presets: [
+                  ...(values.presets ?? []),
+                  presetFromBot(values.bots.find((entry) => entry.id === bot.id) ?? bot),
+                ],
+              })),
+            )
+            .then(
+              (saved) =>
+                saved &&
+                toast.show(`Saved ${bot.name} as a preset. It's under New bot.`, { variant: "success" }),
+            ),
         onToggleArchive: () => void updateBot(bot.id, { archived: !bot.archived }),
         onDelete: async () => {
           const confirmed = await confirmDialog({
@@ -403,9 +478,18 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
   };
 
   const deleteTeam = async (group: BotGroup) => {
-    const confirmed = await confirmDialog({ title: "Delete team?", message: `Delete the "${group.name}" team? Its bots stay, without a team.`, confirmLabel: "Delete", cancelLabel: "Cancel", destructive: true });
+    const confirmed = await confirmDialog({
+      title: "Delete team?",
+      message: `Delete the "${group.name}" team? Its bots stay, without a team.`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      destructive: true,
+    });
     if (!confirmed) return false;
-    await commit((values) => ({ ...values, groups: (values.groups ?? []).filter((entry) => entry.id !== group.id) }));
+    await commit((values) => ({
+      ...values,
+      groups: (values.groups ?? []).filter((entry) => entry.id !== group.id),
+    }));
     return true;
   };
 
@@ -423,13 +507,24 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
       ],
     });
 
-  const openChatMenu = (bot: Bot, chat: PaseoAgent, anchor: LayoutRectangle, source: MenuSource, context: ChatMenuContext) => {
+  const openChatMenu = (
+    bot: Bot,
+    chat: PaseoAgent,
+    anchor: LayoutRectangle,
+    source: MenuSource,
+    context: ChatMenuContext,
+  ) => {
     const botHost = resolveHost(bot.hostId);
     const move = (delta: -1 | 1) => {
       const order = moveKey(context.siblings, chat.id, delta);
-      return order ? () => updateUi((current) => ({ ...current, chatOrder: { ...current.chatOrder, [bot.id]: order } })) : undefined;
+      return order
+        ? () => updateUi((current) => ({ ...current, chatOrder: { ...current.chatOrder, [bot.id]: order } }))
+        : undefined;
     };
-    const unpin = (current: BotListUi) => ({ ...current, pinnedChats: current.pinnedChats.filter((pin) => pin.chatId !== chat.id) });
+    const unpin = (current: BotListUi) => ({
+      ...current,
+      pinnedChats: current.pinnedChats.filter((pin) => pin.chatId !== chat.id),
+    });
     const openAgent = navigation?.openAgent;
     menu.open({
       anchor,
@@ -447,7 +542,14 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
           }
           try {
             const entries = await fullTimeline(botHost.api, chat.id);
-            await copyText(chatTranscript({ title: displayTitle(chat.title), botName: bot.name, entries, exportedAt: new Date() }));
+            await copyText(
+              chatTranscript({
+                title: displayTitle(chat.title),
+                botName: bot.name,
+                entries,
+                exportedAt: new Date(),
+              }),
+            );
             toast.show("Transcript copied", { variant: "success" });
           } catch (error) {
             toast.error(`Couldn't copy the transcript: ${errorText(error)}`);
@@ -455,10 +557,15 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
         },
         onTogglePin: () =>
           updateUi((current) =>
-            context.pinned ? unpin(current) : { ...current, pinnedChats: [...current.pinnedChats, { botId: bot.id, chatId: chat.id }] },
+            context.pinned
+              ? unpin(current)
+              : { ...current, pinnedChats: [...current.pinnedChats, { botId: bot.id, chatId: chat.id }] },
           ),
         move: context.pinned || listUi.chatSort !== "manual" ? null : { up: move(-1), down: move(1) },
-        onOpenInPaseo: openAgent && botHost.online ? () => openAgent({ agentId: chat.id, serverId: botHost.key }) : undefined,
+        onOpenInPaseo:
+          openAgent && botHost.online
+            ? () => openAgent({ agentId: chat.id, serverId: botHost.key })
+            : undefined,
         onArchive: async () => {
           if (!botHost.api) {
             toast.error("Host is not connected");
@@ -492,7 +599,11 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
         {
           label: "Chat order",
           trailing: listUi.chatSort === "manual" ? "Manual" : "Last activity",
-          onSelect: () => updateUi((current) => ({ ...current, chatSort: current.chatSort === "manual" ? "activity" : "manual" })),
+          onSelect: () =>
+            updateUi((current) => ({
+              ...current,
+              chatSort: current.chatSort === "manual" ? "activity" : "manual",
+            })),
         },
       ],
     });
@@ -501,7 +612,13 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
   /** The chat header's bot menu has no anchor of its own; hang it from the pane's top-right corner. */
   const openBotMenuFromPane = (bot: Bot) =>
     void measureAnchor(paneRef).then((rect) =>
-      openBotMenu(bot, rect ? { x: rect.x + rect.width - 44, y: rect.y, width: 36, height: 36 } : { x: 0, y: 0, width: 0, height: 0 }, "kebab"),
+      openBotMenu(
+        bot,
+        rect
+          ? { x: rect.x + rect.width - 44, y: rect.y, width: 36, height: 36 }
+          : { x: 0, y: 0, width: 0, height: 0 },
+        "kebab",
+      ),
     );
 
   const sidebar = (
@@ -519,10 +636,14 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
       onToggle={(botId) =>
         updateUi((current) => ({
           ...current,
-          collapsed: current.collapsed.includes(botId) ? current.collapsed.filter((id) => id !== botId) : [...current.collapsed, botId],
+          collapsed: current.collapsed.includes(botId)
+            ? current.collapsed.filter((id) => id !== botId)
+            : [...current.collapsed, botId],
         }))
       }
-      onTogglePinnedSection={() => updateUi((current) => ({ ...current, pinnedCollapsed: !current.pinnedCollapsed }))}
+      onTogglePinnedSection={() =>
+        updateUi((current) => ({ ...current, pinnedCollapsed: !current.pinnedCollapsed }))
+      }
       onShowArchived={() => updateUi((current) => ({ ...current, showArchived: true }))}
       onSelect={select}
       onNewBot={() => setCreating(true)}
@@ -535,7 +656,14 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
   );
 
   const tabProps = openTab
-    ? { colors, tabs, openTab, onTab: (tab: string) => updateUi((current) => ({ ...current, tab })), onTeamMenu: openTeamMenu, onNewTeam: () => setEditingTeam("new" as const) }
+    ? {
+        colors,
+        tabs,
+        openTab,
+        onTab: (tab: string) => updateUi((current) => ({ ...current, tab })),
+        onTeamMenu: openTeamMenu,
+        onNewTeam: () => setEditingTeam("new" as const),
+      }
     : null;
 
   const pane = teamMap ? (
@@ -555,25 +683,27 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
       }}
     />
   ) : selectedBot && selection ? (
-      <SelectedChat
-        key={`${selectedBot.id}:${selection.chatId ?? "new"}`}
-        colors={colors}
-        bot={selectedBot}
-        library={library}
-        selection={selection}
-        localHost={localHost}
-        panelOpen={panel.open}
-        layout={layout}
-        keyboardOpen={keyboardHeight > 0}
-        typeVersion={typeVersion}
-        onBack={layout.compact ? () => setSelection(null) : undefined}
-        onBotMenu={(anchor) => (anchor ? openBotMenu(selectedBot, anchor, "kebab") : openBotMenuFromPane(selectedBot))}
-        onTogglePanel={() => setPanel({ open: !panel.open, section: panel.section })}
-        onStarted={(chatId) => setSelection({ botId: selectedBot.id, chatId })}
-      />
-    ) : (
-      <Splash colors={colors} />
-    );
+    <SelectedChat
+      key={`${selectedBot.id}:${selection.chatId ?? "new"}`}
+      colors={colors}
+      bot={selectedBot}
+      library={library}
+      selection={selection}
+      localHost={localHost}
+      panelOpen={panel.open}
+      layout={layout}
+      keyboardOpen={keyboardHeight > 0}
+      typeVersion={typeVersion}
+      onBack={layout.compact ? () => setSelection(null) : undefined}
+      onBotMenu={(anchor) =>
+        anchor ? openBotMenu(selectedBot, anchor, "kebab") : openBotMenuFromPane(selectedBot)
+      }
+      onTogglePanel={() => setPanel({ open: !panel.open, section: panel.section })}
+      onStarted={(chatId) => setSelection({ botId: selectedBot.id, chatId })}
+    />
+  ) : (
+    <Splash colors={colors} />
+  );
 
   const settingsPanel =
     selectedBot && panel.open ? (
@@ -621,106 +751,148 @@ function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginS
 
   // On desktop Skills & Tools takes over the screen, like Paseo's settings.
   if (libraryScreen && !layout.compact) {
-    return <View style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}>{libraryScreen}</View>;
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}>
+        {libraryScreen}
+      </View>
+    );
   }
 
   return (
     <>
-    {/* The host gives plugin surfaces no keyboard handling; lift everything above the keyboard. */}
-    <View
-      style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}
-      onLayout={(event) => setSurfaceWidth(event.nativeEvent.layout.width)}
-    >
-      {layout.compact ? (
-        <View ref={paneRef} collapsable={false} style={{ flex: 1 }}>
-          {tabProps ? <TeamTabSwitcher {...tabProps} /> : null}
-          {sidebar}
-          {selection || teamMap ? <SlideOver onClose={() => (teamMap ? setTeamMap(false) : setSelection(null))}>{pane}</SlideOver> : null}
-          {settingsPanel ? (
-            <SlideOver onClose={() => setPanel({ open: false, section: null })} onBack={() => (panel.section ? goBack() : false)}>
-              {settingsPanel}
-            </SlideOver>
-          ) : null}
-          {libraryScreen ? <SlideOver onClose={() => setLibraryView(null)}>{libraryScreen}</SlideOver> : null}
-        </View>
-      ) : (
-        <>
-          {tabProps ? <TeamTabsRow {...tabProps} /> : null}
-          <View style={{ flex: 1, flexDirection: "row" }}>
-            <View style={{ width: columns.list, borderRightWidth: 1, borderRightColor: colors.border, backgroundColor: nativeTokens(colors).surfaceSidebar }}>
-              {sidebar}
-              <ResizeHandle side="right" width={columns.list} onResize={(width) => setDragWidths((current) => ({ ...current, list: width }))} onCommit={(width) => commitWidth("listWidth", width)} />
-            </View>
-            <View ref={paneRef} collapsable={false} style={{ flex: 1, minWidth: 0 }}>{pane}</View>
-            {settingsPanel && columns.panel !== null ? (
-              <View style={{ width: columns.panel, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+      {/* The host gives plugin surfaces no keyboard handling; lift everything above the keyboard. */}
+      <View
+        style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}
+        onLayout={(event) => setSurfaceWidth(event.nativeEvent.layout.width)}
+      >
+        {layout.compact ? (
+          <View ref={paneRef} collapsable={false} style={{ flex: 1 }}>
+            {tabProps ? <TeamTabSwitcher {...tabProps} /> : null}
+            {sidebar}
+            {selection || teamMap ? (
+              <SlideOver onClose={() => (teamMap ? setTeamMap(false) : setSelection(null))}>{pane}</SlideOver>
+            ) : null}
+            {settingsPanel ? (
+              <SlideOver
+                onClose={() => setPanel({ open: false, section: null })}
+                onBack={() => (panel.section ? goBack() : false)}
+              >
                 {settingsPanel}
-                <ResizeHandle side="left" width={columns.panel} onResize={(width) => setDragWidths((current) => ({ ...current, panel: width }))} onCommit={(width) => commitWidth("panelWidth", width)} />
-              </View>
+              </SlideOver>
+            ) : null}
+            {libraryScreen ? (
+              <SlideOver onClose={() => setLibraryView(null)}>{libraryScreen}</SlideOver>
             ) : null}
           </View>
-        </>
-      )}
+        ) : (
+          <>
+            {tabProps ? <TeamTabsRow {...tabProps} /> : null}
+            <View style={{ flex: 1, flexDirection: "row" }}>
+              <View
+                style={{
+                  width: columns.list,
+                  borderRightWidth: 1,
+                  borderRightColor: colors.border,
+                  backgroundColor: nativeTokens(colors).surfaceSidebar,
+                }}
+              >
+                {sidebar}
+                <ResizeHandle
+                  side="right"
+                  width={columns.list}
+                  onResize={(width) => setDragWidths((current) => ({ ...current, list: width }))}
+                  onCommit={(width) => commitWidth("listWidth", width)}
+                />
+              </View>
+              <View ref={paneRef} collapsable={false} style={{ flex: 1, minWidth: 0 }}>
+                {pane}
+              </View>
+              {settingsPanel && columns.panel !== null ? (
+                <View style={{ width: columns.panel, borderLeftWidth: 1, borderLeftColor: colors.border }}>
+                  {settingsPanel}
+                  <ResizeHandle
+                    side="left"
+                    width={columns.panel}
+                    onResize={(width) => setDragWidths((current) => ({ ...current, panel: width }))}
+                    onCommit={(width) => commitWidth("panelWidth", width)}
+                  />
+                </View>
+              ) : null}
+            </View>
+          </>
+        )}
 
-      {editingTeam ? (
-        <TeamSheet
-          colors={colors}
-          group={editingTeam === "new" ? null : editingTeam}
-          groups={groups}
-          bots={allBots}
-          onClose={() => setEditingTeam(null)}
-          onSave={(draft) => {
-            const id = editingTeam === "new" ? null : editingTeam.id;
-            const teamId = id ?? newGroupId();
-            setEditingTeam(null);
-            // A new team opens in its tab.
-            void commit((values) => ({ ...values, groups: saveTeam(values.groups ?? [], id, draft, teamId, new Date().toISOString()) })).then((saved) => saved && !id && updateUi((current) => ({ ...current, tab: teamId })));
-          }}
-          onDelete={editingTeam === "new" ? undefined : () => void deleteTeam(editingTeam).then((deleted) => deleted && setEditingTeam(null))}
-        />
-      ) : null}
-      {creating ? (
-        <NewBotDialog
-          colors={colors}
-          onClose={() => setCreating(false)}
-          presets={settings.status === "ready" ? (settings.values.presets ?? []) : []}
-          onCreate={(start) => {
-            setCreating(false);
-            const bot = start?.preset ? botFromPreset(defaultProvider(), start.preset) : newBot(defaultProvider(), start?.template);
-            const defaults = (settings.status === "ready" ? settings.values.defaults : undefined) ?? DEFAULT_BOT_DEFAULTS;
-            void addBot(applyDefaults(bot, defaults, defaultProvider()), start ? "overview" : "identity");
-          }}
-          onImport={async (json) => {
-            const { bots, teams } = await importTeam({ json });
-            setCreating(false);
-            const saved = await commit((values) => addImportedBots(values, bots, teams));
-            const first = bots[0]?.bot;
-            if (saved && first) {
-              select({ botId: first.id, chatId: null });
-              setPanel({ open: true, section: "overview" });
-              if (bots.length > 1) toast.show(`Added ${bots.length} bots`, { variant: "success" });
+        {editingTeam ? (
+          <TeamSheet
+            colors={colors}
+            group={editingTeam === "new" ? null : editingTeam}
+            groups={groups}
+            bots={allBots}
+            onClose={() => setEditingTeam(null)}
+            onSave={(draft) => {
+              const id = editingTeam === "new" ? null : editingTeam.id;
+              const teamId = id ?? newGroupId();
+              setEditingTeam(null);
+              // A new team opens in its tab.
+              void commit((values) => ({
+                ...values,
+                groups: saveTeam(values.groups ?? [], id, draft, teamId, new Date().toISOString()),
+              })).then((saved) => saved && !id && updateUi((current) => ({ ...current, tab: teamId })));
+            }}
+            onDelete={
+              editingTeam === "new"
+                ? undefined
+                : () => void deleteTeam(editingTeam).then((deleted) => deleted && setEditingTeam(null))
             }
-          }}
-        />
-      ) : null}
+          />
+        ) : null}
+        {creating ? (
+          <NewBotDialog
+            colors={colors}
+            onClose={() => setCreating(false)}
+            presets={settings.status === "ready" ? (settings.values.presets ?? []) : []}
+            onCreate={(start) => {
+              setCreating(false);
+              const bot = start?.preset
+                ? botFromPreset(defaultProvider(), start.preset)
+                : newBot(defaultProvider(), start?.template);
+              const defaults =
+                (settings.status === "ready" ? settings.values.defaults : undefined) ?? DEFAULT_BOT_DEFAULTS;
+              void addBot(applyDefaults(bot, defaults, defaultProvider()), start ? "overview" : "identity");
+            }}
+            onImport={async (json) => {
+              const { bots, teams } = await importTeam({ json });
+              setCreating(false);
+              const saved = await commit((values) => addImportedBots(values, bots, teams));
+              const first = bots[0]?.bot;
+              if (saved && first) {
+                select({ botId: first.id, chatId: null });
+                setPanel({ open: true, section: "overview" });
+                if (bots.length > 1) toast.show(`Added ${bots.length} bots`, { variant: "success" });
+              }
+            }}
+          />
+        ) : null}
 
-      {renaming ? (
-        <RenameDialog
-          colors={colors}
-          title="Rename bot"
-          initialValue={renaming.name}
-          placeholder={renaming.name}
-          onClose={() => setRenaming(null)}
-          onSubmit={async (name) => {
-            if (!(await updateBot(renaming.id, { name }, true))) throw new Error("Unable to save");
-            // The identity section holds its own copy of the name.
-            if (panel.open && selection?.botId === renaming.id) setPanelVersion((version) => version + 1);
-          }}
-        />
-      ) : null}
+        {renaming ? (
+          <RenameDialog
+            colors={colors}
+            title="Rename bot"
+            initialValue={renaming.name}
+            placeholder={renaming.name}
+            onClose={() => setRenaming(null)}
+            onSubmit={async (name) => {
+              if (!(await updateBot(renaming.id, { name }, true))) throw new Error("Unable to save");
+              // The identity section holds its own copy of the name.
+              if (panel.open && selection?.botId === renaming.id) setPanelVersion((version) => version + 1);
+            }}
+          />
+        ) : null}
 
-      {exporting ? <ExportDialog colors={colors} bot={exporting} onClose={() => setExporting(null)} /> : null}
-    </View>
+        {exporting ? (
+          <ExportDialog colors={colors} bot={exporting} onClose={() => setExporting(null)} />
+        ) : null}
+      </View>
     </>
   );
 }
@@ -741,7 +913,21 @@ interface SelectedChatProps {
   onStarted(chatId: string): void;
 }
 
-function SelectedChat({ colors, bot, library, selection, localHost, panelOpen, layout, keyboardOpen, typeVersion, onBack, onBotMenu, onTogglePanel, onStarted }: SelectedChatProps) {
+function SelectedChat({
+  colors,
+  bot,
+  library,
+  selection,
+  localHost,
+  panelOpen,
+  layout,
+  keyboardOpen,
+  typeVersion,
+  onBack,
+  onBotMenu,
+  onTogglePanel,
+  onStarted,
+}: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
   const ensureHome = useRpc(ensureBotHomeRpc);
@@ -754,7 +940,9 @@ function SelectedChat({ colors, bot, library, selection, localHost, panelOpen, l
     if (!host.api) throw new Error(`${host.label} is offline.`);
     // The bot's folder holds its memory and skills even when it works elsewhere.
     const home = await ensureHome({ botId: bot.id });
-    const placement = bot.cwd ? { path: bot.cwd, projectRoot: null } : { path: home.path, projectRoot: home.root };
+    const placement = bot.cwd
+      ? { path: bot.cwd, projectRoot: null }
+      : { path: home.path, projectRoot: home.root };
     const { systemPrompt } = await compose({ bot, local: host.isLocal, message: message.text });
     // The plugin's tools and connected apps go through this host's relay, so only bots here get them.
     const agentId = newUuid();
@@ -793,7 +981,9 @@ function SelectedChat({ colors, bot, library, selection, localHost, panelOpen, l
   useEffect(() => {
     if (selection.chatId !== null || !selection.prompt || autoStarted.current || !host.api) return;
     autoStarted.current = true;
-    start({ text: selection.prompt, messageId: newMessageId(), images: [], attachments: [] }).catch((error: unknown) => toast.error(`Couldn't start: ${errorText(error)}`));
+    start({ text: selection.prompt, messageId: newMessageId(), images: [], attachments: [] }).catch(
+      (error: unknown) => toast.error(`Couldn't start: ${errorText(error)}`),
+    );
     // Runs once for the selection that carries the prompt.
   }, [host.api]);
 

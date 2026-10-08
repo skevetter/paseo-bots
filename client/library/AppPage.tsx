@@ -34,7 +34,16 @@ interface AppPageProps {
 }
 
 /** One connected app: its accounts (named to tell them apart) and which bots may use it. */
-export function AppPage({ colors, app, accounts, bots, showTitle, onToggleBot, onDisconnected, onConnect }: AppPageProps) {
+export function AppPage({
+  colors,
+  app,
+  accounts,
+  bots,
+  showTitle,
+  onToggleBot,
+  onDisconnected,
+  onConnect,
+}: AppPageProps) {
   const disconnect = useRpc(appsDisconnectRpc);
   const rename = useRpc(appsRenameRpc);
   const invalidate = useAppsInvalidate();
@@ -61,20 +70,52 @@ export function AppPage({ colors, app, accounts, bots, showTitle, onToggleBot, o
   return (
     <>
       {showTitle ? <PageTitle colors={colors} title={app.name} /> : null}
-      <SettingsSection title="Accounts" info="The sign-ins Composio keeps for this app on this host. Name them to tell them apart; bots pick an account by its name.">
+      <SettingsSection
+        title="Accounts"
+        info="The sign-ins Composio keeps for this app on this host. Name them to tell them apart; bots pick an account by its name."
+      >
         <SettingsCard>
           {accounts.map((account) => (
-            <SettingsRow key={account.id} label={accountLabel(account, app.name)} hint={[account.alias ? account.name : null, STATUS_TEXT[account.status]].filter(Boolean).join(" · ")}>
+            <SettingsRow
+              key={account.id}
+              label={accountLabel(account, app.name)}
+              hint={[account.alias ? account.name : null, STATUS_TEXT[account.status]]
+                .filter(Boolean)
+                .join(" · ")}
+            >
               <View style={{ flexDirection: "row", gap: 4 }}>
-                <Button colors={colors} variant="ghost" size="xs" label="Rename" onPress={() => setNaming(account)} />
-                <Button colors={colors} variant="ghost" size="xs" label="Disconnect" onPress={() => void remove(account)} />
+                <Button
+                  colors={colors}
+                  variant="ghost"
+                  size="xs"
+                  label="Rename"
+                  onPress={() => setNaming(account)}
+                />
+                <Button
+                  colors={colors}
+                  variant="ghost"
+                  size="xs"
+                  label="Disconnect"
+                  onPress={() => void remove(account)}
+                />
               </View>
             </SettingsRow>
           ))}
-          <SettingsAction label="Add another account" hint="Sign in with a second account, like a work and a personal one" actionLabel="Connect" onPress={() => setNaming("new")} />
+          <SettingsAction
+            label="Add another account"
+            hint="Sign in with a second account, like a work and a personal one"
+            actionLabel="Connect"
+            onPress={() => setNaming("new")}
+          />
         </SettingsCard>
       </SettingsSection>
-      <BotsCard colors={colors} bots={bots} noun="app" uses={(bot) => bot.apps.includes(app.slug)} onToggle={onToggleBot} />
+      <BotsCard
+        colors={colors}
+        bots={bots}
+        noun="app"
+        uses={(bot) => bot.apps.includes(app.slug)}
+        onToggle={onToggleBot}
+      />
       {naming ? (
         <RenameDialog
           colors={colors}

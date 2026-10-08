@@ -13,7 +13,9 @@ export function memoryFolder(botId: string): string {
 }
 
 export function memoryFilePath(botId: string, name: string): string {
-  return name === MAIN_MEMORY ? join(botDataPath(botId), MAIN_MEMORY) : join(botDataPath(botId), "memory", name);
+  return name === MAIN_MEMORY
+    ? join(botDataPath(botId), MAIN_MEMORY)
+    : join(botDataPath(botId), "memory", name);
 }
 
 async function readText(path: string): Promise<string> {
@@ -42,14 +44,24 @@ export async function injectedMemory(botId: string): Promise<string> {
 export async function listMemory(botId: string) {
   const files: { name: string; bytes: number; lines: number; topic: boolean }[] = [];
   const main = await readText(memoryFilePath(botId, MAIN_MEMORY));
-  files.push({ name: MAIN_MEMORY, bytes: Buffer.byteLength(main, "utf8"), lines: main ? main.split("\n").length : 0, topic: false });
+  files.push({
+    name: MAIN_MEMORY,
+    bytes: Buffer.byteLength(main, "utf8"),
+    lines: main ? main.split("\n").length : 0,
+    topic: false,
+  });
   try {
     for (const name of (await readdir(join(botDataPath(botId), "memory"))).sort()) {
       if (!name.endsWith(".md")) continue;
       const path = join(botDataPath(botId), "memory", name);
       if (!(await stat(path)).isFile()) continue;
       const text = await readText(path);
-      files.push({ name, bytes: Buffer.byteLength(text, "utf8"), lines: text.split("\n").length, topic: true });
+      files.push({
+        name,
+        bytes: Buffer.byteLength(text, "utf8"),
+        lines: text.split("\n").length,
+        topic: true,
+      });
     }
   } catch {
     // No topic files yet.
@@ -89,7 +101,9 @@ export async function appendDailyLog(botId: string, line: string, at = new Date(
 /** The log's days, newest first, with how many lines each has. */
 export async function listLogDays(botId: string) {
   const names = await readdir(logFolder(botId)).catch(() => [] as string[]);
-  const days = names.filter((name) => LOG_DAY.test(name.replace(/\.md$/, "")) && name.endsWith(".md")).map((name) => name.replace(/\.md$/, ""));
+  const days = names
+    .filter((name) => LOG_DAY.test(name.replace(/\.md$/, "")) && name.endsWith(".md"))
+    .map((name) => name.replace(/\.md$/, ""));
   const out: { day: string; lines: number }[] = [];
   for (const day of days.sort().reverse()) {
     const text = await readText(logPath(botId, day));
@@ -121,7 +135,9 @@ export async function recentLogEntries(botId: string, days: number, now = new Da
 export async function memoryTexts(botId: string): Promise<{ path: string; text: string }[]> {
   const files = [{ path: MAIN_MEMORY, text: await readText(memoryFilePath(botId, MAIN_MEMORY)) }];
   const topics = await readdir(join(botDataPath(botId), "memory")).catch(() => [] as string[]);
-  for (const name of topics.filter((entry) => entry.endsWith(".md")).sort()) files.push({ path: `memory/${name}`, text: await readText(memoryFilePath(botId, name)) });
-  for (const { day } of (await listLogDays(botId)).days) files.push({ path: `memory/log/${day}.md`, text: await readText(logPath(botId, day)) });
+  for (const name of topics.filter((entry) => entry.endsWith(".md")).sort())
+    files.push({ path: `memory/${name}`, text: await readText(memoryFilePath(botId, name)) });
+  for (const { day } of (await listLogDays(botId)).days)
+    files.push({ path: `memory/log/${day}.md`, text: await readText(logPath(botId, day)) });
   return files.filter((file) => file.text);
 }

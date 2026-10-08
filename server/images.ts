@@ -57,7 +57,10 @@ export async function removeImageKey() {
  * rounded crops, no text. The user's direction is quoted so it can't
  * override the rules.
  */
-export function avatarPrompt(bot: { name: string; title: string; description: string }, direction: string): string {
+export function avatarPrompt(
+  bot: { name: string; title: string; description: string },
+  direction: string,
+): string {
   return [
     "Create one polished square profile avatar for an AI agent.",
     "Show one centered, distinctive subject with a simple background and strong silhouette.",
@@ -72,7 +75,12 @@ export function avatarPrompt(bot: { name: string; title: string; description: st
 }
 
 /** Draws an avatar for a bot; the picture comes back as a WebP data URL for the app to scale down. */
-export async function generateAvatar(input: { name: string; title: string; description: string; direction: string }): Promise<{ image: string }> {
+export async function generateAvatar(input: {
+  name: string;
+  title: string;
+  description: string;
+  direction: string;
+}): Promise<{ image: string }> {
   const { openaiKey } = await readState();
   if (!openaiKey) throw new Error("Add an OpenAI key first.");
   let response: Response;
@@ -80,7 +88,13 @@ export async function generateAvatar(input: { name: string; title: string; descr
     response = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: { authorization: `Bearer ${openaiKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ model: MODEL, prompt: avatarPrompt(input, input.direction), size: "1024x1024", quality: "low", output_format: "webp" }),
+      body: JSON.stringify({
+        model: MODEL,
+        prompt: avatarPrompt(input, input.direction),
+        size: "1024x1024",
+        quality: "low",
+        output_format: "webp",
+      }),
       redirect: "error",
       signal: deadline(TIMEOUT_MS),
     });
@@ -97,7 +111,9 @@ export async function generateAvatar(input: { name: string; title: string; descr
       code = null;
     }
     if (response.status === 401) throw new Error("OpenAI didn't accept the key.");
-    throw new Error(`OpenAI couldn't draw it (${typeof code === "string" && code ? code : `HTTP ${response.status}`}).`);
+    throw new Error(
+      `OpenAI couldn't draw it (${typeof code === "string" && code ? code : `HTTP ${response.status}`}).`,
+    );
   }
   if (text.length > MAX_RESPONSE_CHARS) throw new Error("OpenAI's picture was too large.");
   let encoded: unknown;
@@ -106,6 +122,7 @@ export async function generateAvatar(input: { name: string; title: string; descr
   } catch {
     encoded = null;
   }
-  if (typeof encoded !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error("OpenAI returned no picture.");
+  if (typeof encoded !== "string" || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded))
+    throw new Error("OpenAI returned no picture.");
   return { image: `data:image/webp;base64,${encoded}` };
 }

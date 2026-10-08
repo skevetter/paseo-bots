@@ -35,7 +35,10 @@ export function makeBot(patch: Partial<Bot> = {}): Bot {
 }
 
 /** A host over in-memory settings; `values` can be mutated between calls. */
-export function fakeHost(bots: Bot[], library: Library = EMPTY_LIBRARY): BotsHost & { values(): Promise<BotSettingsValues> } {
+export function fakeHost(
+  bots: Bot[],
+  library: Library = EMPTY_LIBRARY,
+): BotsHost & { values(): Promise<BotSettingsValues> } {
   const values: BotSettingsValues = { bots, history: [], library };
   const settings = { read: async () => ({ status: "ready" as const, values, revision: "1" }) };
   return new BotsHost(settings as never) as BotsHost & { values(): Promise<BotSettingsValues> };

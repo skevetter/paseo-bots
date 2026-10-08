@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readdir, readFile, readlink, rename, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  readdir,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import type { LibrarySkill } from "../shared/bot";
 import { parseSkillFrontmatter, parseSkillSource, sanitizeSkillName } from "../shared/skills";
@@ -25,7 +36,9 @@ export function librarySkillPath(id: string): string {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const response = await fetch(url, { headers: { "User-Agent": "paseo-bots", Accept: "application/vnd.github+json" } });
+  const response = await fetch(url, {
+    headers: { "User-Agent": "paseo-bots", Accept: "application/vnd.github+json" },
+  });
   if (!response.ok) throw new Error(`${url} answered ${response.status}.`);
   return response.text();
 }
@@ -34,7 +47,11 @@ async function fetchJson<T>(url: string): Promise<T> {
   return JSON.parse(await fetchText(url)) as T;
 }
 
-async function saveSkill(files: Map<string, string>, source: string, fallbackName: string): Promise<ImportedSkill> {
+async function saveSkill(
+  files: Map<string, string>,
+  source: string,
+  fallbackName: string,
+): Promise<ImportedSkill> {
   const meta = parseSkillFrontmatter(files.get("SKILL.md") ?? "");
   const id = sanitizeSkillName(meta.name ?? fallbackName);
   const dir = librarySkillPath(id);
@@ -55,7 +72,11 @@ interface TreeEntry {
 }
 
 /** Fetches skills from "owner/repo", "owner/repo/path", a GitHub URL or a SKILL.md link into the library. */
-export async function importSkills({ source: input }: { source: string }): Promise<{ skills: ImportedSkill[] }> {
+export async function importSkills({
+  source: input,
+}: {
+  source: string;
+}): Promise<{ skills: ImportedSkill[] }> {
   const source = parseSkillSource(input);
   if (source.kind === "raw") {
     const text = await fetchText(source.url);
@@ -66,25 +87,44 @@ export async function importSkills({ source: input }: { source: string }): Promi
   const { owner, repo } = source;
   const api = `https://api.github.com/repos/${owner}/${repo}`;
   const ref = source.ref ?? (await fetchJson<{ default_branch: string }>(api)).default_branch;
-  const tree = await fetchJson<{ tree: TreeEntry[]; truncated: boolean }>(`${api}/git/trees/${encodeURIComponent(ref)}?recursive=1`);
+  const tree = await fetchJson<{ tree: TreeEntry[]; truncated: boolean }>(
+    `${api}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
+  );
   const prefix = source.path ? `${source.path}/` : "";
   const skillDirs = tree.tree
-    .filter((entry) => entry.type === "blob" && posix.basename(entry.path) === "SKILL.md" && (entry.path === `${prefix}SKILL.md` || entry.path.startsWith(prefix)))
+    .filter(
+      (entry) =>
+        entry.type === "blob" &&
+        posix.basename(entry.path) === "SKILL.md" &&
+        (entry.path === `${prefix}SKILL.md` || entry.path.startsWith(prefix)),
+    )
     .map((entry) => posix.dirname(entry.path))
     .slice(0, MAX_SKILLS);
-  if (skillDirs.length === 0) throw new Error(`No SKILL.md found in ${owner}/${repo}${source.path ? `/${source.path}` : ""}.`);
+  if (skillDirs.length === 0)
+    throw new Error(`No SKILL.md found in ${owner}/${repo}${source.path ? `/${source.path}` : ""}.`);
 
   const skills: ImportedSkill[] = [];
   for (const dir of skillDirs) {
     const base = dir === "." ? "" : `${dir}/`;
     const blobs = tree.tree
-      .filter((entry) => entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES)
+      .filter(
+        (entry) =>
+          entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
+      )
       // Nested skills are imported on their own.
-      .filter((entry) => !skillDirs.some((other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`)))
+      .filter(
+        (entry) =>
+          !skillDirs.some(
+            (other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`),
+          ),
+      )
       .slice(0, MAX_FILES_PER_SKILL);
     const files = new Map<string, string>();
     for (const blob of blobs) {
-      files.set(blob.path.slice(base.length), await fetchText(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${blob.path}`));
+      files.set(
+        blob.path.slice(base.length),
+        await fetchText(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${blob.path}`),
+      );
     }
     const origin = `github.com/${owner}/${repo}${dir === "." ? "" : `/${dir}`}`;
     skills.push(await saveSkill(files, origin, dir === "." ? repo : posix.basename(dir)));
@@ -120,7 +160,13 @@ export async function skillSha(id: string): Promise<string | null> {
 export async function readSkill({ id }: { id: string }) {
   const dir = librarySkillPath(id);
   const text = await readFile(join(dir, "SKILL.md"), "utf8").catch(() => null);
-  return { text: text ?? "", sha: text === null ? null : sha256(text), missing: text === null, path: join(dir, "SKILL.md"), files: await listFiles(dir) };
+  return {
+    text: text ?? "",
+    sha: text === null ? null : sha256(text),
+    missing: text === null,
+    path: join(dir, "SKILL.md"),
+    files: await listFiles(dir),
+  };
 }
 
 /** Writes SKILL.md, creating the skill folder if needed. Returns its frontmatter description and hash. */
@@ -167,7 +213,8 @@ export async function linkBotSkills(botId: string, ids: readonly string[]): Prom
   await mkdir(dir, { recursive: true }).catch(() => {});
   const existing = await readdir(dir, { withFileTypes: true }).catch(() => []);
   for (const entry of existing) {
-    if (entry.isSymbolicLink() && !ids.includes(entry.name)) await unlink(join(dir, entry.name)).catch(() => {});
+    if (entry.isSymbolicLink() && !ids.includes(entry.name))
+      await unlink(join(dir, entry.name)).catch(() => {});
   }
   for (const id of ids) {
     const target = librarySkillPath(id);

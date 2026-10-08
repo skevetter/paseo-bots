@@ -24,7 +24,13 @@ interface AttachmentPillProps {
   alwaysShowRemove?: boolean;
 }
 
-export function AttachmentPill({ colors, attachment, onRemove, disabled, alwaysShowRemove }: AttachmentPillProps) {
+export function AttachmentPill({
+  colors,
+  attachment,
+  onRemove,
+  disabled,
+  alwaysShowRemove,
+}: AttachmentPillProps) {
   const [open, setOpen] = useState(false);
   const [bodyHovered, setBodyHovered] = useState(false);
   const [closeHovered, setCloseHovered] = useState(false);
@@ -45,9 +51,17 @@ export function AttachmentPill({ colors, attachment, onRemove, disabled, alwaysS
         style={frameStyle(colors)}
       >
         {attachment.kind === "image" ? (
-          <Image source={{ uri: imageUri(attachment) }} style={{ width: CONTENT_HEIGHT, height: CONTENT_HEIGHT }} />
+          <Image
+            source={{ uri: imageUri(attachment) }}
+            style={{ width: CONTENT_HEIGHT, height: CONTENT_HEIGHT }}
+          />
         ) : (
-          <AttachmentLabel colors={colors} icon={<Icon name="FileText" size={14} color={colors.foregroundMuted} />} title={attachment.name} subtitle={subtitleFor(attachment)} />
+          <AttachmentLabel
+            colors={colors}
+            icon={<Icon name="FileText" size={14} color={colors.foregroundMuted} />}
+            title={attachment.name}
+            subtitle={subtitleFor(attachment)}
+          />
         )}
       </Pressable>
       {onRemove ? (
@@ -79,7 +93,9 @@ export function AttachmentPill({ colors, attachment, onRemove, disabled, alwaysS
           <Icon name="X" size={12} color={colors.foregroundMuted} />
         </Pressable>
       ) : null}
-      {open ? <AttachmentPreview colors={colors} attachment={attachment} onClose={() => setOpen(false)} /> : null}
+      {open ? (
+        <AttachmentPreview colors={colors} attachment={attachment} onClose={() => setOpen(false)} />
+      ) : null}
     </View>
   );
 }
@@ -88,13 +104,23 @@ export function AttachmentPill({ colors, attachment, onRemove, disabled, alwaysS
 export function PendingAttachmentPill({ colors, name }: { colors: Colors; name: string }) {
   return (
     <View accessibilityLabel={`Attaching ${name}`} style={frameStyle(colors)}>
-      <AttachmentLabel colors={colors} icon={<ActivityIndicator size="small" color={colors.foregroundMuted} />} title={name} subtitle={getFileTypeLabel(name) ?? ""} />
+      <AttachmentLabel
+        colors={colors}
+        icon={<ActivityIndicator size="small" color={colors.foregroundMuted} />}
+        title={name}
+        subtitle={getFileTypeLabel(name) ?? ""}
+      />
     </View>
   );
 }
 
 function frameStyle(colors: Colors) {
-  return { borderRadius: 6, borderWidth: 1, borderColor: nativeTokens(colors).borderAccent, overflow: "hidden" as const };
+  return {
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: nativeTokens(colors).borderAccent,
+    overflow: "hidden" as const,
+  };
 }
 
 function imageUri(attachment: Extract<ComposerAttachment, { kind: "image" }>): string {
@@ -105,9 +131,29 @@ function subtitleFor(attachment: ComposerAttachment): string {
   return getFileTypeLabel(attachment.name) ?? (attachment.kind === "text" ? "TXT" : "");
 }
 
-function AttachmentLabel({ colors, icon, title, subtitle }: { colors: Colors; icon: ReactNode; title: string; subtitle: string }) {
+function AttachmentLabel({
+  colors,
+  icon,
+  title,
+  subtitle,
+}: {
+  colors: Colors;
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+}) {
   return (
-    <View style={{ height: CONTENT_HEIGHT, maxWidth: 260, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, backgroundColor: colors.surface1 }}>
+    <View
+      style={{
+        height: CONTENT_HEIGHT,
+        maxWidth: 260,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
+        paddingHorizontal: 12,
+        backgroundColor: colors.surface1,
+      }}
+    >
       <View style={{ width: 18, alignItems: "center", justifyContent: "center" }}>{icon}</View>
       <View style={{ minWidth: 0, flexShrink: 1 }}>
         <Text numberOfLines={1} style={{ fontSize: ui(14), color: colors.foreground }}>
@@ -122,16 +168,38 @@ function AttachmentLabel({ colors, icon, title, subtitle }: { colors: Colors; ic
 }
 
 /** Paseo's attachment lightbox for images; pasted and attached text opens as a read-only preview. */
-function AttachmentPreview({ colors, attachment, onClose }: { colors: Colors; attachment: ComposerAttachment; onClose(): void }) {
+function AttachmentPreview({
+  colors,
+  attachment,
+  onClose,
+}: {
+  colors: Colors;
+  attachment: ComposerAttachment;
+  onClose(): void;
+}) {
   const { height } = useWindowDimensions();
   return (
     <Modal title={attachment.name} open onOpenChange={(value) => !value && onClose()}>
       <Modal.Content scrollable={attachment.kind !== "text"}>
         {attachment.kind === "image" ? (
-          <Image accessibilityLabel={attachment.name} source={{ uri: imageUri(attachment) }} resizeMode="contain" style={{ width: "100%", height: Math.round(height * 0.6) }} />
+          <Image
+            accessibilityLabel={attachment.name}
+            source={{ uri: imageUri(attachment) }}
+            resizeMode="contain"
+            style={{ width: "100%", height: Math.round(height * 0.6) }}
+          />
         ) : attachment.kind === "text" ? (
           <ScrollView style={{ maxHeight: Math.round(height * 0.6) }}>
-            <Text selectable {...MONO_PROPS} style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foreground }}>
+            <Text
+              selectable
+              {...MONO_PROPS}
+              style={{
+                fontFamily: MONO_FONT,
+                fontSize: code(),
+                lineHeight: codeLine(),
+                color: colors.foreground,
+              }}
+            >
               {attachment.text}
             </Text>
           </ScrollView>

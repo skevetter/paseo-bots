@@ -19,21 +19,45 @@ export function Splash({ colors, background }: { colors: Colors; background?: st
   const lineup = useMemo(
     () =>
       SPLASH_LINEUP.map((entry) => {
-        return { key: entry.sprite, gray: grayscaleAvatar(spriteAvatar(entry.sprite, entry.palette, entry.accent, { dark })) };
+        return {
+          key: entry.sprite,
+          gray: grayscaleAvatar(spriteAvatar(entry.sprite, entry.palette, entry.accent, { dark })),
+        };
       }),
     [dark],
   );
 
   return (
-    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 16, backgroundColor: background ?? colors.surface0 }}>
-      <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 12, maxWidth: 6 * AVATAR_SIZE + 5 * 12 }}>
+    <View
+      style={{
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 24,
+        gap: 16,
+        backgroundColor: background ?? colors.surface0,
+      }}
+    >
+      <View
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={{
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          gap: 12,
+          maxWidth: 6 * AVATAR_SIZE + 5 * 12,
+        }}
+      >
         {lineup.map((entry) => (
           <PixelSprite key={entry.key} sprite={entry.gray} size={AVATAR_SIZE} />
         ))}
       </View>
       <View style={{ alignItems: "center", gap: 2 }}>
         <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>paseo-bots</Text>
-        <Text style={{ fontSize: ui(11), color: colors.foregroundMuted, opacity: 0.7 }}>v{PLUGIN_VERSION}</Text>
+        <Text style={{ fontSize: ui(11), color: colors.foregroundMuted, opacity: 0.7 }}>
+          v{PLUGIN_VERSION}
+        </Text>
       </View>
       <View style={{ position: "absolute", left: 0, right: 0, bottom: 16, alignItems: "center" }}>
         <ExternalLink href={REPOSITORY_URL} accessibilityLabel="paseo-bots on GitHub">

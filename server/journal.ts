@@ -116,14 +116,20 @@ export class MemoryJournal {
     return this.serial(botId, async () => {
       const entry = (await this.load(botId)).find((candidate) => candidate.id === id);
       if (!entry) throw new Error("That change is no longer in the journal.");
-      if (entry.kind !== "created" && entry.before === null) throw new Error("This change was too large to keep a copy of.");
+      if (entry.kind !== "created" && entry.before === null)
+        throw new Error("This change was too large to keep a copy of.");
       // Undoing a new topic file deletes it; MEMORY.md is emptied instead.
       const restore = entry.kind === "created" ? (entry.file === MAIN_MEMORY ? "" : null) : entry.before;
       await this.apply(botId, entry.file, restore, "undo");
     });
   }
 
-  private async record(botId: string, previous: Snapshot, current: Snapshot, who: Pick<JournalEntry, "actor" | "via" | "chat">): Promise<void> {
+  private async record(
+    botId: string,
+    previous: Snapshot,
+    current: Snapshot,
+    who: Pick<JournalEntry, "actor" | "via" | "chat">,
+  ): Promise<void> {
     for (const file of new Set([...previous.keys(), ...current.keys()])) {
       const before = previous.get(file) ?? null;
       const after = current.get(file) ?? null;
@@ -131,7 +137,13 @@ export class MemoryJournal {
     }
   }
 
-  private async append(botId: string, file: string, before: string | null, after: string | null, who: Pick<JournalEntry, "actor" | "via" | "chat">): Promise<void> {
+  private async append(
+    botId: string,
+    file: string,
+    before: string | null,
+    after: string | null,
+    who: Pick<JournalEntry, "actor" | "via" | "chat">,
+  ): Promise<void> {
     if (before === after) return;
     const { diff, added, removed } = lineDiff(redactSecrets(before ?? ""), redactSecrets(after ?? ""));
     const entry: JournalEntry = {
@@ -147,7 +159,10 @@ export class MemoryJournal {
     };
     const entries = [...(await this.load(botId)), entry].slice(-KEEP);
     await mkdir(join(pluginDataPath(), "journal"), { recursive: true });
-    await writeFile(journalPath(botId), entries.map((item) => JSON.stringify(item)).join("\n") + "\n", { encoding: "utf8", mode: 0o600 });
+    await writeFile(journalPath(botId), entries.map((item) => JSON.stringify(item)).join("\n") + "\n", {
+      encoding: "utf8",
+      mode: 0o600,
+    });
   }
 
   private async load(botId: string): Promise<JournalEntry[]> {

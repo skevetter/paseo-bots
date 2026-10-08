@@ -37,7 +37,19 @@ interface LibraryListProps {
  * The page's list column, in the settings sidebar's geometry (settings-screen.tsx):
  * a group per kind with its items and an add button.
  */
-export function LibraryList({ colors, library, query, onQuery, selected, onSelect, onAddSkill, onAddServer, touch, onBack, bottomInset }: LibraryListProps) {
+export function LibraryList({
+  colors,
+  library,
+  query,
+  onQuery,
+  selected,
+  onSelect,
+  onAddSkill,
+  onAddServer,
+  touch,
+  onBack,
+  bottomInset,
+}: LibraryListProps) {
   const skills = library.skills
     .filter((skill) => matchesQuery(query, skill.id, skill.description, skill.source))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -45,19 +57,49 @@ export function LibraryList({ colors, library, query, onQuery, selected, onSelec
     .filter((server) => matchesQuery(query, server.name, server.description, mcpTarget(server.config)))
     .sort((a, b) => a.name.localeCompare(b.name));
   const searching = query.trim().length > 0;
-  const is = (kind: LibraryTarget["kind"], id?: string) => selected?.kind === kind && (id === undefined || ("id" in selected && selected.id === id));
+  const is = (kind: LibraryTarget["kind"], id?: string) =>
+    selected?.kind === kind && (id === undefined || ("id" in selected && selected.id === id));
   const appsStatus = useAppsStatus();
   const configured = appsStatus.data?.configured ?? false;
   const accounts = useAppsAccounts(configured);
   const catalog = useAppsCatalog(configured);
-  const apps = connectedApps(accounts.data?.accounts ?? [], catalog.data?.apps ?? []).filter((app) => matchesQuery(query, app.name, app.slug));
+  const apps = connectedApps(accounts.data?.accounts ?? [], catalog.data?.apps ?? []).filter((app) =>
+    matchesQuery(query, app.name, app.slug),
+  );
 
   return (
-    <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 16 + bottomInset }}>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: 16 + bottomInset }}
+    >
       {/* Paseo's sidebar header group: its rows over a full-width divider (left-sidebar.tsx sidebarHeaderGroup). */}
-      <View style={{ paddingHorizontal: 8, paddingTop: 8, paddingBottom: 8, gap: 2, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-        {onBack ? <NavRow colors={colors} icon="ArrowLeft" label="Back to bots" selected={false} touch={touch} onPress={onBack} /> : null}
-        <SearchField colors={colors} value={query} onChangeText={onQuery} placeholder="Search skills and tools" />
+      <View
+        style={{
+          paddingHorizontal: 8,
+          paddingTop: 8,
+          paddingBottom: 8,
+          gap: 2,
+          borderBottomWidth: 1,
+          borderBottomColor: colors.border,
+        }}
+      >
+        {onBack ? (
+          <NavRow
+            colors={colors}
+            icon="ArrowLeft"
+            label="Back to bots"
+            selected={false}
+            touch={touch}
+            onPress={onBack}
+          />
+        ) : null}
+        <SearchField
+          colors={colors}
+          value={query}
+          onChangeText={onQuery}
+          placeholder="Search skills and tools"
+        />
       </View>
 
       <Group colors={colors} label="Skills" addLabel="Add skill" onAdd={onAddSkill}>
@@ -73,7 +115,9 @@ export function LibraryList({ colors, library, query, onQuery, selected, onSelec
             onPress={() => onSelect({ kind: "skill", id: skill.id })}
           />
         ))}
-        {skills.length === 0 ? <GroupNote colors={colors} text={searching ? "No matching skills" : "No skills yet"} /> : null}
+        {skills.length === 0 ? (
+          <GroupNote colors={colors} text={searching ? "No matching skills" : "No skills yet"} />
+        ) : null}
       </Group>
       <Divider colors={colors} />
 
@@ -90,11 +134,18 @@ export function LibraryList({ colors, library, query, onQuery, selected, onSelec
             onPress={() => onSelect({ kind: "mcp", id: server.id })}
           />
         ))}
-        {servers.length === 0 ? <GroupNote colors={colors} text={searching ? "No matching servers" : "No MCP servers yet"} /> : null}
+        {servers.length === 0 ? (
+          <GroupNote colors={colors} text={searching ? "No matching servers" : "No MCP servers yet"} />
+        ) : null}
       </Group>
       <Divider colors={colors} />
 
-      <Group colors={colors} label="Connected apps" addLabel={configured ? "Connect an app" : "Set up connected apps"} onAdd={() => onSelect({ kind: "apps" })}>
+      <Group
+        colors={colors}
+        label="Connected apps"
+        addLabel={configured ? "Connect an app" : "Set up connected apps"}
+        onAdd={() => onSelect({ kind: "apps" })}
+      >
         {apps.map((app) => (
           <NavRow
             key={app.slug}
@@ -108,18 +159,37 @@ export function LibraryList({ colors, library, query, onQuery, selected, onSelec
             onPress={() => onSelect({ kind: "app", id: app.slug })}
           />
         ))}
-        {apps.length === 0 ? <GroupNote colors={colors} text={searching ? "No matching apps" : configured ? "No apps connected yet" : "Not set up yet"} /> : null}
+        {apps.length === 0 ? (
+          <GroupNote
+            colors={colors}
+            text={searching ? "No matching apps" : configured ? "No apps connected yet" : "Not set up yet"}
+          />
+        ) : null}
       </Group>
     </ScrollView>
   );
 }
 
 /** A nav group: extra-muted 14pt label (8/4 padding) with its count and a trailing add button. */
-function Group({ colors, label, addLabel, onAdd, children }: { colors: Colors; label: string; addLabel: string; onAdd(anchor: LayoutRectangle): void; children: ReactNode }) {
+function Group({
+  colors,
+  label,
+  addLabel,
+  onAdd,
+  children,
+}: {
+  colors: Colors;
+  label: string;
+  addLabel: string;
+  onAdd(anchor: LayoutRectangle): void;
+  children: ReactNode;
+}) {
   const tokens = nativeTokens(colors);
   return (
     <View style={{ paddingVertical: 8, paddingHorizontal: 8, gap: 2 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", paddingLeft: 8, paddingRight: 4, minHeight: 28 }}>
+      <View
+        style={{ flexDirection: "row", alignItems: "center", paddingLeft: 8, paddingRight: 4, minHeight: 28 }}
+      >
         <Text style={{ flex: 1, fontSize: ui(14), color: tokens.foregroundExtraMuted }}>{label}</Text>
         <AddButton colors={colors} label={addLabel} onPress={onAdd} />
       </View>
@@ -134,11 +204,25 @@ function Divider({ colors }: { colors: Colors }) {
 }
 
 function GroupNote({ colors, text }: { colors: Colors; text: string }) {
-  return <Text style={{ fontSize: ui(14), color: colors.foregroundMuted, paddingHorizontal: 8, paddingVertical: 4 }}>{text}</Text>;
+  return (
+    <Text
+      style={{ fontSize: ui(14), color: colors.foregroundMuted, paddingHorizontal: 8, paddingVertical: 4 }}
+    >
+      {text}
+    </Text>
+  );
 }
 
 /** Ghost icon button like the sidebar's section actions: 24 box, radius 6, Plus 14. */
-function AddButton({ colors, label, onPress }: { colors: Colors; label: string; onPress(anchor: LayoutRectangle): void }) {
+function AddButton({
+  colors,
+  label,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  onPress(anchor: LayoutRectangle): void;
+}) {
   const ref = useRef<View>(null);
   const { hovered, hoverProps } = useHover();
   return (
@@ -150,7 +234,14 @@ function AddButton({ colors, label, onPress }: { colors: Colors; label: string; 
       hitSlop={8}
       onPress={() => void measureAnchor(ref).then((anchor) => anchor && onPress(anchor))}
       {...hoverProps}
-      style={({ pressed }) => ({ width: 24, height: 24, borderRadius: 6, alignItems: "center", justifyContent: "center", backgroundColor: hovered || pressed ? colors.surface1 : "transparent" })}
+      style={({ pressed }) => ({
+        width: 24,
+        height: 24,
+        borderRadius: 6,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: hovered || pressed ? colors.surface1 : "transparent",
+      })}
     >
       <Icon name="Plus" size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
     </Pressable>
@@ -194,7 +285,10 @@ function NavRow({ colors, icon, leading, label, note, selected, touch, onPress }
       })}
     >
       {leading ?? <Icon name={icon} size={16} color={tint} />}
-      <Text numberOfLines={1} style={{ flex: 1, minWidth: 0, fontSize: ui(14), color: tint, opacity: note ? 0.6 : 1 }}>
+      <Text
+        numberOfLines={1}
+        style={{ flex: 1, minWidth: 0, fontSize: ui(14), color: tint, opacity: note ? 0.6 : 1 }}
+      >
         {label}
       </Text>
       {note ? <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>{note}</Text> : null}

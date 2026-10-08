@@ -1,6 +1,13 @@
 import type { PaseoApi } from "./paseo";
 import type { PluginSettings } from "@getpaseo/plugin/server";
-import { BOT_LABEL, EMPTY_LIBRARY, type Bot, type BotSettingsValues, type botSettings, type Library } from "../shared/bot";
+import {
+  BOT_LABEL,
+  EMPTY_LIBRARY,
+  type Bot,
+  type BotSettingsValues,
+  type botSettings,
+  type Library,
+} from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 
 // What every server feature needs: the saved settings (read-only on the
@@ -33,7 +40,8 @@ export class BotsHost {
 
   /** The Paseo API, or an error a tool can show the agent. */
   requirePaseo(): PaseoApi {
-    if (!this.api) throw new Error("paseo-bots isn't connected to Paseo yet. Open the Bots screen once and try again.");
+    if (!this.api)
+      throw new Error("paseo-bots isn't connected to Paseo yet. Open the Bots screen once and try again.");
     return this.api;
   }
 
@@ -57,15 +65,25 @@ export class BotsHost {
   private readonly chatBots = new Map<string, string | null>();
 
   /** A bot chat's bot, its current title (Paseo names chats after their first message), routine and labels; null for other agents. */
-  async chatOf(agentId: string): Promise<{ botId: string; title: string | null; routineId: string | null; labels: Record<string, string> } | null> {
+  async chatOf(agentId: string): Promise<{
+    botId: string;
+    title: string | null;
+    routineId: string | null;
+    labels: Record<string, string>;
+  } | null> {
     if (this.chatBots.get(agentId) === null) return null;
-    const snapshot = await this.paseo?.agents.ref(agentId).refresh().catch(() => null);
+    const snapshot = await this.paseo?.agents
+      .ref(agentId)
+      .refresh()
+      .catch(() => null);
     if (!snapshot) return null;
     const botId = snapshot.agent.labels?.[BOT_LABEL] ?? null;
     if (this.chatBots.size > 500) this.chatBots.clear();
     this.chatBots.set(agentId, botId);
     const labels = snapshot.agent.labels ?? {};
-    return botId ? { botId, title: snapshot.agent.title ?? null, routineId: labels[ROUTINE_LABEL] ?? null, labels } : null;
+    return botId
+      ? { botId, title: snapshot.agent.title ?? null, routineId: labels[ROUTINE_LABEL] ?? null, labels }
+      : null;
   }
 
   /** The bot a chat belongs to, from the label it was created with; null for other agents. */

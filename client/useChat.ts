@@ -33,7 +33,12 @@ export async function fullTimeline(api: PaseoApi, agentId: string): Promise<Chat
   if (page.error) throw new Error(page.error);
   let entries = page.entries;
   for (let pages = 0; pages < 100 && page.hasOlder && page.startCursor; pages++) {
-    page = await handle.timeline.refetch({ direction: "before", cursor: page.startCursor, projection: "projected", limit: 200 });
+    page = await handle.timeline.refetch({
+      direction: "before",
+      cursor: page.startCursor,
+      projection: "projected",
+      limit: 200,
+    });
     if (page.error) throw new Error(page.error);
     if (page.entries.length === 0) break;
     entries = mergeEntries(entries, page.entries);
@@ -42,7 +47,17 @@ export async function fullTimeline(api: PaseoApi, agentId: string): Promise<Chat
 }
 
 const noop = () => {};
-const EMPTY: ChatState = { entries: [], agent: null, loading: false, error: null, hasOlder: false, loadingOlder: false, retrying: false, loadOlder: noop, retry: noop };
+const EMPTY: ChatState = {
+  entries: [],
+  agent: null,
+  loading: false,
+  error: null,
+  hasOlder: false,
+  loadingOlder: false,
+  retrying: false,
+  loadOlder: noop,
+  retry: noop,
+};
 
 function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -73,7 +88,8 @@ export function useChat(api: PaseoApi | null, agentId: string | null): ChatState
     let olderBusy = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    const agentFrom = (page: TimelinePage, current: PaseoAgent | null) => (page.agent as PaseoAgent | null) ?? handle.current() ?? current;
+    const agentFrom = (page: TimelinePage, current: PaseoAgent | null) =>
+      (page.agent as PaseoAgent | null) ?? handle.current() ?? current;
 
     const sync = async (mode: "tail" | "after"): Promise<void> => {
       if (busy) {
@@ -85,8 +101,17 @@ export function useChat(api: PaseoApi | null, agentId: string | null): ChatState
         let replace = mode === "tail" || endCursor === null;
         for (let pages = 0; pages < 25 && !disposed; pages++) {
           const page = replace
-            ? await handle.timeline.refetch({ direction: "tail", projection: "projected", limit: TIMELINE_PAGE_SIZE })
-            : await handle.timeline.refetch({ direction: "after", cursor: endCursor!, projection: "projected", limit: TIMELINE_PAGE_SIZE });
+            ? await handle.timeline.refetch({
+                direction: "tail",
+                projection: "projected",
+                limit: TIMELINE_PAGE_SIZE,
+              })
+            : await handle.timeline.refetch({
+                direction: "after",
+                cursor: endCursor!,
+                projection: "projected",
+                limit: TIMELINE_PAGE_SIZE,
+              });
           if (disposed) return;
           if (page.error) throw new Error(page.error);
           // A new epoch or a gap means our cursor no longer lines up: the page is a fresh tail.
@@ -108,7 +133,8 @@ export function useChat(api: PaseoApi | null, agentId: string | null): ChatState
           replace = false;
         }
       } catch (error) {
-        if (!disposed) setState((current) => ({ ...current, loading: false, retrying: false, error: message(error) }));
+        if (!disposed)
+          setState((current) => ({ ...current, loading: false, retrying: false, error: message(error) }));
       } finally {
         busy = false;
         if (queued && !disposed) {
@@ -132,7 +158,12 @@ export function useChat(api: PaseoApi | null, agentId: string | null): ChatState
       olderBusy = true;
       setState((current) => (current.hasOlder ? { ...current, loadingOlder: true } : current));
       void handle.timeline
-        .refetch({ direction: "before", cursor: startCursor, projection: "projected", limit: TIMELINE_PAGE_SIZE })
+        .refetch({
+          direction: "before",
+          cursor: startCursor,
+          projection: "projected",
+          limit: TIMELINE_PAGE_SIZE,
+        })
         .then((page) => {
           if (disposed) return;
           if (page.error) throw new Error(page.error);

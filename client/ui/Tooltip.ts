@@ -35,10 +35,22 @@ interface PointerEventLike {
 declare const document: {
   createElement(tag: "div"): Bubble;
   body: { appendChild(node: Bubble): void };
-  addEventListener(type: string, listener: (event: PointerEventLike & { key?: string }) => void, capture: boolean): void;
-  removeEventListener(type: string, listener: (event: PointerEventLike & { key?: string }) => void, capture: boolean): void;
+  addEventListener(
+    type: string,
+    listener: (event: PointerEventLike & { key?: string }) => void,
+    capture: boolean,
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: (event: PointerEventLike & { key?: string }) => void,
+    capture: boolean,
+  ): void;
 };
-declare const window: { innerWidth: number; innerHeight: number; getComputedStyle(element: unknown): { fontFamily: string } };
+declare const window: {
+  innerWidth: number;
+  innerHeight: number;
+  getComputedStyle(element: unknown): { fontFamily: string };
+};
 
 const web = Platform.OS === "web";
 const SELECTOR = "[data-pb-tip]";
@@ -47,7 +59,8 @@ const OFFSET = 8;
 const EDGE = 8;
 /** Paseo's compact breakpoint (styles/unistyles.ts: md starts at 720). */
 const COMPACT_WIDTH = 720;
-const UI_FONT = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+const UI_FONT =
+  "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 interface TooltipExtras {
   /** Lines under the label in the same type, like Paseo's context meter "42% used". */
@@ -149,8 +162,18 @@ export function installTooltips(): () => void {
     const above = rect.top - height - OFFSET;
     const below = rect.top + rect.height + OFFSET;
     // Paseo flips to the other side when the preferred one hasn't the room.
-    const side: Side = wanted === "top" ? (above < EDGE && below + height <= window.innerHeight - EDGE ? "bottom" : "top") : below + height > window.innerHeight - EDGE && above >= EDGE ? "top" : "bottom";
-    const left = Math.max(EDGE, Math.min(window.innerWidth - width - EDGE, rect.left + (rect.width - width) / 2));
+    const side: Side =
+      wanted === "top"
+        ? above < EDGE && below + height <= window.innerHeight - EDGE
+          ? "bottom"
+          : "top"
+        : below + height > window.innerHeight - EDGE && above >= EDGE
+          ? "top"
+          : "bottom";
+    const left = Math.max(
+      EDGE,
+      Math.min(window.innerWidth - width - EDGE, rect.left + (rect.width - width) / 2),
+    );
     bubble.style.left = `${left}px`;
     bubble.style.top = `${side === "top" ? above : below}px`;
     bubble.style.opacity = "1";

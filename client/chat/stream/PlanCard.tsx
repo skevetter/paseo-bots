@@ -30,7 +30,15 @@ export function PlanCard(props: PlanCardProps) {
   return <PlanCardContent key={props.outcome ?? "proposed"} {...props} />;
 }
 
-function PlanCardContent({ colors, title, description, text, outcome, footer, disableOuterSpacing = false }: PlanCardProps) {
+function PlanCardContent({
+  colors,
+  title,
+  description,
+  text,
+  outcome,
+  footer,
+  disableOuterSpacing = false,
+}: PlanCardProps) {
   const [expanded, setExpanded] = useState(outcome !== "rejected" && outcome !== "canceled");
   const resolvedTitle = title ?? (!outcome || outcome === "pending" ? "Plan" : TITLES[outcome]);
   return (
@@ -55,11 +63,17 @@ function PlanCardContent({ colors, title, description, text, outcome, footer, di
         <View style={expanded ? { transform: [{ rotate: "90deg" }] } : undefined}>
           <Icon name="ChevronRight" size={16} color={colors.foregroundMuted} />
         </View>
-        <Text style={{ color: colors.foreground, flexShrink: 1, fontSize: ui(14), lineHeight: 22 }}>{resolvedTitle}</Text>
+        <Text style={{ color: colors.foreground, flexShrink: 1, fontSize: ui(14), lineHeight: 22 }}>
+          {resolvedTitle}
+        </Text>
       </Pressable>
       {expanded ? (
         <View style={{ gap: 8 }}>
-          {description ? <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), lineHeight: 20 }}>{description}</Text> : null}
+          {description ? (
+            <Text style={{ color: colors.foregroundMuted, fontSize: ui(14), lineHeight: 20 }}>
+              {description}
+            </Text>
+          ) : null}
           <View>
             <Markdown colors={colors} text={text} linkify={false} />
           </View>

@@ -1,5 +1,12 @@
 import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import {
+  SettingsAction,
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+  SettingsSelect,
+  SettingsSwitch,
+} from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { randomSeed } from "../../shared/avatar";
 import type { Bot, BotAvatar, BotVoice } from "../../shared/bot";
@@ -24,10 +31,25 @@ export function IdentitySection({ colors, bot, onPatch }: PanelProps) {
     <>
       <SettingsSection title="Avatar">
         <SettingsCard>
-          <DrillRow colors={colors} label="Picture" hint={pictureHint(bot)} hintLines={2} trailing={<Avatar avatar={bot.avatar} size={40} />} onPress={() => setSheet("avatar")} />
+          <DrillRow
+            colors={colors}
+            label="Picture"
+            hint={pictureHint(bot)}
+            hintLines={2}
+            trailing={<Avatar avatar={bot.avatar} size={40} />}
+            onPress={() => setSheet("avatar")}
+          />
         </SettingsCard>
       </SettingsSection>
-      {sheet === "avatar" ? <AvatarEditor colors={colors} bot={bot} setAvatar={setAvatar} onGenerate={() => setSheet("generate")} onClose={() => setSheet(null)} /> : null}
+      {sheet === "avatar" ? (
+        <AvatarEditor
+          colors={colors}
+          bot={bot}
+          setAvatar={setAvatar}
+          onGenerate={() => setSheet("generate")}
+          onClose={() => setSheet(null)}
+        />
+      ) : null}
       {sheet === "generate" ? (
         <AvatarSheet
           colors={colors}
@@ -41,7 +63,8 @@ export function IdentitySection({ colors, bot, onPatch }: PanelProps) {
       ) : null}
       <SettingsSection title="Profile">
         <SettingsCard>
-          <InputField colors={colors}
+          <InputField
+            colors={colors}
             label="Name"
             error={nameEmpty ? "Give the bot a name" : null}
             initialValue={bot.name}
@@ -51,7 +74,8 @@ export function IdentitySection({ colors, bot, onPatch }: PanelProps) {
               onPatch({ name: name.replace(/\n/g, " ").slice(0, 100) });
             }}
           />
-          <InputField colors={colors}
+          <InputField
+            colors={colors}
             label="Title"
             hint="One line: what the bot does"
             initialValue={bot.title}
@@ -81,7 +105,19 @@ function pictureHint(bot: Bot): string {
 }
 
 /** Everything about the picture: the face, its colour and shape, or a picture of your own. */
-function AvatarEditor({ colors, bot, setAvatar, onGenerate, onClose }: { colors: PanelProps["colors"]; bot: Bot; setAvatar(patch: Partial<BotAvatar>): void; onGenerate(): void; onClose(): void }) {
+function AvatarEditor({
+  colors,
+  bot,
+  setAvatar,
+  onGenerate,
+  onClose,
+}: {
+  colors: PanelProps["colors"];
+  bot: Bot;
+  setAvatar(patch: Partial<BotAvatar>): void;
+  onGenerate(): void;
+  onClose(): void;
+}) {
   const toast = useToast();
   const upload = () =>
     void pickPicture()
@@ -94,14 +130,33 @@ function AvatarEditor({ colors, bot, setAvatar, onGenerate, onClose }: { colors:
           <SettingsRow label="Picture" hint={pictureHint(bot)}>
             <Avatar avatar={bot.avatar} size={56} />
           </SettingsRow>
-          <SettingsAction label="New face" hint="Draws a different one" actionLabel="Reroll" onPress={() => setAvatar({ seed: randomSeed(), imageUrl: null })} />
+          <SettingsAction
+            label="New face"
+            hint="Draws a different one"
+            actionLabel="Reroll"
+            onPress={() => setAvatar({ seed: randomSeed(), imageUrl: null })}
+          />
           {canPickFiles ? (
             <>
-              <SettingsAction label="Upload a picture" hint="Cropped to a square" actionLabel="Upload" onPress={upload} />
-              <SettingsAction label="Generate a picture" hint="Drawn by OpenAI with your key" actionLabel="Generate" onPress={onGenerate} />
+              <SettingsAction
+                label="Upload a picture"
+                hint="Cropped to a square"
+                actionLabel="Upload"
+                onPress={upload}
+              />
+              <SettingsAction
+                label="Generate a picture"
+                hint="Drawn by OpenAI with your key"
+                actionLabel="Generate"
+                onPress={onGenerate}
+              />
             </>
           ) : null}
-          <ColourRow colors={colors} value={bot.avatar.palette} onChange={(palette) => setAvatar({ palette })} />
+          <ColourRow
+            colors={colors}
+            value={bot.avatar.palette}
+            onChange={(palette) => setAvatar({ palette })}
+          />
           <SettingsSelect
             label="Shape"
             value={bot.avatar.shape}
@@ -112,7 +167,13 @@ function AvatarEditor({ colors, bot, setAvatar, onGenerate, onClose }: { colors:
             ]}
             onValueChange={(shape) => setAvatar({ shape })}
           />
-          <PictureSource colors={colors} imageUrl={bot.avatar.imageUrl} hint="Optional. Replaces the pixel face" placeholder="https://example.com/avatar.png" onChange={(imageUrl) => setAvatar({ imageUrl })} />
+          <PictureSource
+            colors={colors}
+            imageUrl={bot.avatar.imageUrl}
+            hint="Optional. Replaces the pixel face"
+            placeholder="https://example.com/avatar.png"
+            onChange={(imageUrl) => setAvatar({ imageUrl })}
+          />
         </SettingsCard>
         <SheetActions>
           <Button colors={colors} variant="default" label="Done" onPress={onClose} />
@@ -126,19 +187,39 @@ function AvatarEditor({ colors, bot, setAvatar, onGenerate, onClose }: { colors:
 function VoiceSection({ bot, onPatch }: Pick<PanelProps, "bot" | "onPatch">) {
   const voices = useVoices();
   const setVoice = (patch: Partial<BotVoice>) => onPatch({ voice: { ...bot.voice, ...patch } });
-  const missing = bot.voice.name !== null && voices.length > 0 && !voices.some((voice) => voice.name === bot.voice.name);
+  const missing =
+    bot.voice.name !== null && voices.length > 0 && !voices.some((voice) => voice.name === bot.voice.name);
   return (
-    <SettingsSection title="Voice" info="Replies are read with this computer's voices. Voices differ between devices; a missing one reads with the default.">
+    <SettingsSection
+      title="Voice"
+      info="Replies are read with this computer's voices. Voices differ between devices; a missing one reads with the default."
+    >
       <SettingsCard>
         <SettingsSelect
           label="Voice"
           hint={missing ? `${bot.voice.name} isn't on this device` : undefined}
           value={bot.voice.name ?? ""}
-          options={[{ label: "Default", value: "" }, ...voices.map((voice) => ({ label: voice.name.includes("(") ? voice.name : `${voice.name} (${voice.lang})`, value: voice.name }))]}
+          options={[
+            { label: "Default", value: "" },
+            ...voices.map((voice) => ({
+              label: voice.name.includes("(") ? voice.name : `${voice.name} (${voice.lang})`,
+              value: voice.name,
+            })),
+          ]}
           onValueChange={(name) => setVoice({ name: name || null })}
         />
-        <SettingsAction label="Hear it" hint="Reads a sentence in this voice" actionLabel="Play" onPress={() => speak(`voice-test:${bot.id}`, `Hi, I'm ${bot.name || "your bot"}.`, bot.voice.name)} />
-        <SettingsSwitch label="Read replies aloud" hint="Reads each reply as it finishes, while its chat is open" value={bot.voice.readReplies} onValueChange={(readReplies) => setVoice({ readReplies })} />
+        <SettingsAction
+          label="Hear it"
+          hint="Reads a sentence in this voice"
+          actionLabel="Play"
+          onPress={() => speak(`voice-test:${bot.id}`, `Hi, I'm ${bot.name || "your bot"}.`, bot.voice.name)}
+        />
+        <SettingsSwitch
+          label="Read replies aloud"
+          hint="Reads each reply as it finishes, while its chat is open"
+          value={bot.voice.readReplies}
+          onValueChange={(readReplies) => setVoice({ readReplies })}
+        />
       </SettingsCard>
     </SettingsSection>
   );

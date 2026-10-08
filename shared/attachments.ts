@@ -18,12 +18,22 @@ export type AttachmentKind = "image" | "text" | "file";
 
 export function classifyFile(name: string, mimeType: string): AttachmentKind {
   if (IMAGE_TYPES.has(mimeType.toLowerCase())) return "image";
-  if (mimeType.startsWith("text/") || /^application\/(json|xml|x-yaml|yaml|javascript|typescript|sql)/.test(mimeType) || TEXT_EXTENSIONS.test(name)) return "text";
+  if (
+    mimeType.startsWith("text/") ||
+    /^application\/(json|xml|x-yaml|yaml|javascript|typescript|sql)/.test(mimeType) ||
+    TEXT_EXTENSIONS.test(name)
+  )
+    return "text";
   return "file";
 }
 
 /** Classifies a file and checks its size before any bytes are read. */
-export function preflightFile(name: string, mimeType: string, size: number, canUpload: boolean): { kind: AttachmentKind; reason: string | null } {
+export function preflightFile(
+  name: string,
+  mimeType: string,
+  size: number,
+  canUpload: boolean,
+): { kind: AttachmentKind; reason: string | null } {
   let kind = classifyFile(name, mimeType);
   if (kind === "text" && size > TEXT_MAX_BYTES) kind = "file";
   return { kind, reason: rejectReason(kind, size, canUpload) };
@@ -58,13 +68,25 @@ export type WireAttachment =
   | { type: "text"; mimeType: "text/plain"; title: string; text: string }
   | { type: "uploaded_file"; id: string; fileName: string; mimeType: string; size: number; path: string };
 
-export function toWire(attachments: readonly ComposerAttachment[]): { images: WireImage[]; attachments: WireAttachment[] } {
+export function toWire(attachments: readonly ComposerAttachment[]): {
+  images: WireImage[];
+  attachments: WireAttachment[];
+} {
   const images: WireImage[] = [];
   const rest: WireAttachment[] = [];
   for (const attachment of attachments) {
     if (attachment.kind === "image") images.push({ data: attachment.data, mimeType: attachment.mimeType });
-    else if (attachment.kind === "text") rest.push({ type: "text", mimeType: "text/plain", title: attachment.name, text: attachment.text });
-    else rest.push({ type: "uploaded_file", id: attachment.id, fileName: attachment.name, mimeType: attachment.mimeType, size: attachment.size, path: attachment.path });
+    else if (attachment.kind === "text")
+      rest.push({ type: "text", mimeType: "text/plain", title: attachment.name, text: attachment.text });
+    else
+      rest.push({
+        type: "uploaded_file",
+        id: attachment.id,
+        fileName: attachment.name,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+        path: attachment.path,
+      });
   }
   return { images, attachments: rest };
 }

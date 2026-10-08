@@ -71,7 +71,9 @@ export function canonicalSlug(slug: string): string {
 export function isComposioUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname === "composio.dev" || url.hostname.endsWith(".composio.dev"));
+    return (
+      url.protocol === "https:" && (url.hostname === "composio.dev" || url.hostname.endsWith(".composio.dev"))
+    );
   } catch {
     return false;
   }
@@ -115,17 +117,27 @@ type ToolEntry = { tool_slug?: unknown; account?: unknown };
  * always pass. Composio's remote workbench can run any app's tools, so bots
  * with any limit can't use it.
  */
-export function checkAppCall(message: unknown, access: AppAccess): { refusal: string } | { message: unknown } {
+export function checkAppCall(
+  message: unknown,
+  access: AppAccess,
+): { refusal: string } | { message: unknown } {
   const frame = (message ?? {}) as { method?: unknown; params?: { name?: unknown; arguments?: unknown } };
   if (frame.method !== "tools/call" || typeof frame.params?.name !== "string") return { message };
   if (/^COMPOSIO_REMOTE_(WORKBENCH|BASH_TOOL)$/.test(frame.params.name)) {
     const limited = access.limits.size > 0 || access.connected.some((slug) => !access.allowed.includes(slug));
-    return limited ? { refusal: "Composio's remote workbench can run any app's tools, so it's off for bots limited to some apps, tools or accounts. Run tools with COMPOSIO_MULTI_EXECUTE_TOOL." } : { message };
+    return limited
+      ? {
+          refusal:
+            "Composio's remote workbench can run any app's tools, so it's off for bots limited to some apps, tools or accounts. Run tools with COMPOSIO_MULTI_EXECUTE_TOOL.",
+        }
+      : { message };
   }
   if (!/MULTI_EXECUTE_TOOL$|^COMPOSIO_EXECUTE_TOOL$/.test(frame.params.name)) return { message };
   // `{tools: [{tool_slug, account}]}`, or the older single `{tool_slug, account}`.
   const args = (frame.params.arguments ?? {}) as ToolEntry & { tools?: unknown };
-  const entries: ToolEntry[] = Array.isArray(args.tools) ? args.tools.map((entry) => (entry && typeof entry === "object" ? (entry as ToolEntry) : {})) : [args];
+  const entries: ToolEntry[] = Array.isArray(args.tools)
+    ? args.tools.map((entry) => (entry && typeof entry === "object" ? (entry as ToolEntry) : {}))
+    : [args];
   const apps = new Set<string>();
   const tools = new Set<string>();
   let account: string | null = null;
@@ -140,16 +152,31 @@ export function checkAppCall(message: unknown, access: AppAccess): { refusal: st
     if (limit.tools && !limit.tools.has(tool)) tools.add(tool);
     if (!limit.account) return entry;
     const asked = typeof entry.account === "string" ? entry.account.trim() : "";
-    if (asked && asked !== limit.account.id && asked.toLowerCase() !== limit.account.alias?.toLowerCase()) account = limit.account.alias ?? limit.account.id;
+    if (asked && asked !== limit.account.id && asked.toLowerCase() !== limit.account.alias?.toLowerCase())
+      account = limit.account.alias ?? limit.account.id;
     pinned = true;
     return { ...entry, account: limit.account.id };
   });
   const them = (count: number) => (count === 1 ? "it" : "them");
-  if (apps.size) return { refusal: `This bot isn't allowed to use ${[...apps].join(", ")}. Ask the user to switch ${them(apps.size)} on under the bot's Access settings in Paseo.` };
-  if (tools.size) return { refusal: `This bot isn't allowed to run ${[...tools].join(", ")}. Ask the user to allow ${them(tools.size)} under the bot's Access settings in Paseo.` };
-  if (account) return { refusal: `This bot may only use the account "${account}" for that app. Leave "account" out to use it.` };
+  if (apps.size)
+    return {
+      refusal: `This bot isn't allowed to use ${[...apps].join(", ")}. Ask the user to switch ${them(apps.size)} on under the bot's Access settings in Paseo.`,
+    };
+  if (tools.size)
+    return {
+      refusal: `This bot isn't allowed to run ${[...tools].join(", ")}. Ask the user to allow ${them(tools.size)} under the bot's Access settings in Paseo.`,
+    };
+  if (account)
+    return {
+      refusal: `This bot may only use the account "${account}" for that app. Leave "account" out to use it.`,
+    };
   if (!pinned) return { message };
-  return { message: { ...frame, params: { ...frame.params, arguments: Array.isArray(args.tools) ? { ...args, tools: next } : next[0] } } };
+  return {
+    message: {
+      ...frame,
+      params: { ...frame.params, arguments: Array.isArray(args.tools) ? { ...args, tools: next } : next[0] },
+    },
+  };
 }
 
 /** One of an app's tools, for choosing which a bot may run. */
@@ -161,7 +188,11 @@ export interface AppTool {
 }
 
 /** A bot's rules with one app's rule set; a rule allowing everything is dropped. */
-export function withAppRule(rules: Readonly<Record<string, AppRule>>, slug: string, rule: AppRule): Record<string, AppRule> {
+export function withAppRule(
+  rules: Readonly<Record<string, AppRule>>,
+  slug: string,
+  rule: AppRule,
+): Record<string, AppRule> {
   const next = { ...rules };
   if (rule.tools === "all" && !rule.account) delete next[slug];
   else next[slug] = rule;
@@ -188,23 +219,49 @@ function composioResults(value: unknown, depth = 0): Record<string, unknown> | n
       return null;
     }
   }
-  if (Array.isArray(value)) return value.reduce<Record<string, unknown> | null>((found, entry) => found ?? composioResults(entry, depth + 1), null);
-  const record = value as { data?: { results?: unknown }; output?: unknown; text?: unknown; content?: unknown };
+  if (Array.isArray(value))
+    return value.reduce<Record<string, unknown> | null>(
+      (found, entry) => found ?? composioResults(entry, depth + 1),
+      null,
+    );
+  const record = value as {
+    data?: { results?: unknown };
+    output?: unknown;
+    text?: unknown;
+    content?: unknown;
+  };
   const results = record.data?.results;
-  if (results && typeof results === "object" && !Array.isArray(results)) return results as Record<string, unknown>;
-  return composioResults(record.output, depth + 1) ?? composioResults(record.text, depth + 1) ?? composioResults(record.content, depth + 1);
+  if (results && typeof results === "object" && !Array.isArray(results))
+    return results as Record<string, unknown>;
+  return (
+    composioResults(record.output, depth + 1) ??
+    composioResults(record.text, depth + 1) ??
+    composioResults(record.content, depth + 1)
+  );
 }
 
 /**
  * The sign-ins a finished COMPOSIO_MANAGE_CONNECTIONS call started, from its
  * output: `{data: {results: {notion: {redirect_url, accounts: [{id, alias}]}}}}`.
  */
-export function appSignIns(call: { name: string; status: string; detail: unknown; metadata?: unknown }): AppSignIn[] {
-  if (call.status !== "completed" || serverToolName(toolCallName(call), APPS_MCP_NAME) !== "COMPOSIO_MANAGE_CONNECTIONS") return [];
+export function appSignIns(call: {
+  name: string;
+  status: string;
+  detail: unknown;
+  metadata?: unknown;
+}): AppSignIn[] {
+  if (
+    call.status !== "completed" ||
+    serverToolName(toolCallName(call), APPS_MCP_NAME) !== "COMPOSIO_MANAGE_CONNECTIONS"
+  )
+    return [];
   const results = composioResults((call.detail as { output?: unknown } | null)?.output) ?? {};
   const signIns: AppSignIn[] = [];
   for (const [slug, value] of Object.entries(results)) {
-    const result = (value ?? {}) as { redirect_url?: unknown; accounts?: { id?: unknown; alias?: unknown }[] };
+    const result = (value ?? {}) as {
+      redirect_url?: unknown;
+      accounts?: { id?: unknown; alias?: unknown }[];
+    };
     const url = result.redirect_url;
     if (typeof url !== "string" || !isComposioUrl(url)) continue;
     const account = Array.isArray(result.accounts) ? result.accounts[0] : undefined;
@@ -230,8 +287,14 @@ export interface PromptApp {
 /** `Gmail`, or with its accounts and limits: `Gmail (accounts: "work" = me@work.com, "personal"; read-only tools)`. */
 function promptAppName(app: PromptApp): string {
   const notes = [
-    app.accounts.length > 1 ? `accounts: ${app.accounts.map((entry) => `"${entry.account}"${entry.name ? ` = ${entry.name}` : ""}`).join(", ")}` : null,
-    app.tools === "read" ? "read-only tools" : Array.isArray(app.tools) ? `only ${app.tools.join(", ")}` : null,
+    app.accounts.length > 1
+      ? `accounts: ${app.accounts.map((entry) => `"${entry.account}"${entry.name ? ` = ${entry.name}` : ""}`).join(", ")}`
+      : null,
+    app.tools === "read"
+      ? "read-only tools"
+      : Array.isArray(app.tools)
+        ? `only ${app.tools.join(", ")}`
+        : null,
   ].filter(Boolean);
   return notes.length ? `${app.name} (${notes.join("; ")})` : app.name;
 }
@@ -241,7 +304,11 @@ export function appsPrompt(apps: readonly PromptApp[]): string {
   return [
     `Connected apps are available through the MCP server "${APPS_MCP_NAME}". You may use: ${apps.map(promptAppName).join(", ")}.`,
     "Find a tool with COMPOSIO_SEARCH_TOOLS, read its arguments with COMPOSIO_GET_TOOL_SCHEMAS, then run it with COMPOSIO_MULTI_EXECUTE_TOOL.",
-    ...(apps.some((app) => app.accounts.length > 1) ? ['When an app has several accounts, pass the one to use as "account" in each COMPOSIO_MULTI_EXECUTE_TOOL entry, and ask the user when it isn\'t clear which one they mean.'] : []),
+    ...(apps.some((app) => app.accounts.length > 1)
+      ? [
+          'When an app has several accounts, pass the one to use as "account" in each COMPOSIO_MULTI_EXECUTE_TOOL entry, and ask the user when it isn\'t clear which one they mean.',
+        ]
+      : []),
     "If a task needs an app that isn't connected, add it with COMPOSIO_MANAGE_CONNECTIONS: the user gets a card in this chat to sign in. Then end your turn; they'll tell you when it's connected.",
   ].join(" ");
 }

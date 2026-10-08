@@ -11,7 +11,17 @@ import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } fr
 import { probeMcpServer } from "./server/mcp-probe";
 import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
 import { mcpSources } from "./server/mcp-sources";
-import { accounts, appTools, catalog, connect, disconnect, removeKey, renameAccount, setKey, status as appsStatus } from "./server/composio";
+import {
+  accounts,
+  appTools,
+  catalog,
+  connect,
+  disconnect,
+  removeKey,
+  renameAccount,
+  setKey,
+  status as appsStatus,
+} from "./server/composio";
 import { BotsHost } from "./server/host";
 import { Relay } from "./server/relay";
 import { acceptProposal, dismissProposal, getProposal } from "./server/proposals";
@@ -100,7 +110,9 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     return ensureBotHome(input);
   });
-  server.handle(systemPromptRpc, async (input, context) => systemPrompt(input, await library(), context.paseo, await host.values()));
+  server.handle(systemPromptRpc, async (input, context) =>
+    systemPrompt(input, await library(), context.paseo, await host.values()),
+  );
   server.handle(memoryListRpc, ({ botId }) => listMemory(botId));
   server.handle(memoryReadRpc, ({ botId, name }) => readMemory(botId, name));
   server.handle(memoryWriteRpc, async ({ botId, name, text }) => {
@@ -112,13 +124,19 @@ export default function contribute(server: PluginServerContext) {
     return { ok: true };
   });
   server.handle(memoryJournalRpc, async ({ botId }) => ({
-    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({ ...entry, canUndo: entry.kind === "created" || before !== null })),
+    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({
+      ...entry,
+      canUndo: entry.kind === "created" || before !== null,
+    })),
   }));
   server.handle(memoryUndoRpc, async ({ botId, id }) => {
     await journal.undo(botId, id);
     return { ok: true };
   });
-  server.handle(memoryLogRpc, async ({ botId, day }) => ({ ...(await listLogDays(botId)), text: day ? (await readLogDay(botId, day)).text : null }));
+  server.handle(memoryLogRpc, async ({ botId, day }) => ({
+    ...(await listLogDays(botId)),
+    text: day ? (await readLogDay(botId, day)).text : null,
+  }));
   server.handle(memoryLogDeleteRpc, ({ botId, day }) => deleteLogDay(botId, day));
   server.handle(skillImportRpc, importSkills);
   server.handle(skillReadRpc, readSkill);
@@ -141,7 +159,10 @@ export default function contribute(server: PluginServerContext) {
   server.handle(appsToolsRpc, appTools);
   server.handle(mountRpc, async ({ botId, agentId }) => {
     const bot = await host.bot(botId);
-    return { tools: await relay.mountTools(botId, agentId), apps: bot?.apps.length ? await relay.mountApps(botId) : null };
+    return {
+      tools: await relay.mountTools(botId, agentId),
+      apps: bot?.apps.length ? await relay.mountApps(botId) : null,
+    };
   });
   server.handle(proposalGetRpc, async ({ id }) => ({ proposal: await getProposal(id) }));
   server.handle(proposalAcceptRpc, ({ id }) => acceptProposal(id));
@@ -156,7 +177,9 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));
   server.handle(commandListRpc, async ({ botId }) => ({ rules: await commands.list(botId) }));
-  server.handle(commandAllowRpc, async ({ botId, command, cwd }) => ({ rule: await commands.add(botId, command, cwd) }));
+  server.handle(commandAllowRpc, async ({ botId, command, cwd }) => ({
+    rule: await commands.add(botId, command, cwd),
+  }));
   server.handle(commandRemoveRpc, async ({ botId, id }) => ({ ok: await commands.remove(botId, id) }));
   server.handle(exportBotRpc, async (input) => exportBot(input, await library()));
   server.handle(importBotRpc, importBot);
@@ -165,7 +188,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(uploadRpc, saveUpload);
   server.on("agent.turn_started", async (event, context) => {
     host.attach(context.paseo);
-    await turnStarted(host, journal, event).catch((error: unknown) => console.error("paseo-bots: couldn't check memory before a turn", error));
+    await turnStarted(host, journal, event).catch((error: unknown) =>
+      console.error("paseo-bots: couldn't check memory before a turn", error),
+    );
   });
   // A bot's saved commands (exact command, exact folder) are approved here instead of asking.
   server.on("agent.permission_requested", async ({ agent, request }, context) => {
@@ -181,7 +206,9 @@ export default function contribute(server: PluginServerContext) {
   });
   server.on("agent.turn_ended", async (event, context) => {
     host.attach(context.paseo);
-    await turnEnded(host, journal, scheduler, event).catch((error: unknown) => console.error("paseo-bots: couldn't record a turn", error));
+    await turnEnded(host, journal, scheduler, event).catch((error: unknown) =>
+      console.error("paseo-bots: couldn't record a turn", error),
+    );
   });
 
   return () => {

@@ -1,4 +1,18 @@
-import { EMPTY_LIBRARY, joinArgs, newGroupId, numberedName, RESERVED_MCP_NAMES, uniqueName, type Bot, type BotMcpServer, type BotSettingsValues, type Library, type LibraryMcpServer, type LibrarySkill, type TeamFileTeam } from "./bot";
+import {
+  EMPTY_LIBRARY,
+  joinArgs,
+  newGroupId,
+  numberedName,
+  RESERVED_MCP_NAMES,
+  uniqueName,
+  type Bot,
+  type BotMcpServer,
+  type BotSettingsValues,
+  type Library,
+  type LibraryMcpServer,
+  type LibrarySkill,
+  type TeamFileTeam,
+} from "./bot";
 import { saveTeam } from "./groups";
 
 // The shared library of skills and MCP servers. Bots only hold ids; these
@@ -32,7 +46,11 @@ function libraryServer(draft: BotMcpServer, name: string, now: string): LibraryM
  * name (templates: the user may have filled in keys since). Anything else gets a
  * free name. Returns the new library and the ids, in input order.
  */
-export function addMcpServers(library: Library, drafts: readonly BotMcpServer[], options: { reuseByName?: boolean; now?: string } = {}): { library: Library; ids: string[] } {
+export function addMcpServers(
+  library: Library,
+  drafts: readonly BotMcpServer[],
+  options: { reuseByName?: boolean; now?: string } = {},
+): { library: Library; ids: string[] } {
   const now = options.now ?? new Date().toISOString();
   const servers = [...library.mcpServers];
   const ids: string[] = [];
@@ -40,12 +58,18 @@ export function addMcpServers(library: Library, drafts: readonly BotMcpServer[],
     const name = draft.name.trim();
     if (!name) continue;
     const config = JSON.stringify(draft.config);
-    const existing = servers.find((server) => server.name === name && (options.reuseByName || JSON.stringify(server.config) === config));
+    const existing = servers.find(
+      (server) => server.name === name && (options.reuseByName || JSON.stringify(server.config) === config),
+    );
     if (existing) {
       ids.push(existing.id);
       continue;
     }
-    const server = libraryServer(draft, uniqueName(name, new Set([...RESERVED_MCP_NAMES, ...servers.map((entry) => entry.name)])), now);
+    const server = libraryServer(
+      draft,
+      uniqueName(name, new Set([...RESERVED_MCP_NAMES, ...servers.map((entry) => entry.name)])),
+      now,
+    );
     servers.push(server);
     ids.push(server.id);
   }
@@ -57,29 +81,61 @@ export function addMcpServers(library: Library, drafts: readonly BotMcpServer[],
  * and a refreshed one needs a new review; a skill written here carries the
  * hash of what the user wrote (`reviewedSha`) and arrives on.
  */
-export function upsertSkills(library: Library, skills: readonly (Pick<LibrarySkill, "id" | "description" | "source"> & { reviewedSha?: string })[], now: string = new Date().toISOString()): Library {
+export function upsertSkills(
+  library: Library,
+  skills: readonly (Pick<LibrarySkill, "id" | "description" | "source"> & { reviewedSha?: string })[],
+  now: string = new Date().toISOString(),
+): Library {
   const next = [...library.skills];
   for (const { reviewedSha, ...skill } of skills) {
     const index = next.findIndex((entry) => entry.id === skill.id);
-    if (index === -1) next.push({ ...skill, enabled: !!reviewedSha, reviewedSha: reviewedSha ?? null, createdAt: now, updatedAt: now });
-    else next[index] = { ...next[index]!, description: skill.description, source: skill.source || next[index]!.source, reviewedSha: reviewedSha ?? null, updatedAt: now };
+    if (index === -1)
+      next.push({
+        ...skill,
+        enabled: !!reviewedSha,
+        reviewedSha: reviewedSha ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+    else
+      next[index] = {
+        ...next[index]!,
+        description: skill.description,
+        source: skill.source || next[index]!.source,
+        reviewedSha: reviewedSha ?? null,
+        updatedAt: now,
+      };
   }
   return { ...library, skills: next };
 }
 
 export function updateMcpServer(library: Library, id: string, patch: Partial<LibraryMcpServer>): Library {
-  return { ...library, mcpServers: library.mcpServers.map((server) => (server.id === id ? { ...server, ...patch, updatedAt: new Date().toISOString() } : server)) };
+  return {
+    ...library,
+    mcpServers: library.mcpServers.map((server) =>
+      server.id === id ? { ...server, ...patch, updatedAt: new Date().toISOString() } : server,
+    ),
+  };
 }
 
 export function updateSkill(library: Library, id: string, patch: Partial<LibrarySkill>): Library {
-  return { ...library, skills: library.skills.map((skill) => (skill.id === id ? { ...skill, ...patch, updatedAt: new Date().toISOString() } : skill)) };
+  return {
+    ...library,
+    skills: library.skills.map((skill) =>
+      skill.id === id ? { ...skill, ...patch, updatedAt: new Date().toISOString() } : skill,
+    ),
+  };
 }
 
 /** Switches a library item on or off for one bot. */
 export function setBotUses(bot: Bot, kind: LibraryKind, id: string, on: boolean): Bot {
   const key = kind === "skill" ? "skillIds" : "mcpServerIds";
   const current = bot[key];
-  const next = on ? (current.includes(id) ? current : [...current, id]) : current.filter((entry) => entry !== id);
+  const next = on
+    ? current.includes(id)
+      ? current
+      : [...current, id]
+    : current.filter((entry) => entry !== id);
   return next === current ? bot : { ...bot, [key]: next };
 }
 
@@ -94,7 +150,12 @@ export function renameGrants(bots: readonly Bot[], from: string, to: string): Bo
   const prefix = `${from}/`;
   return bots.map((bot) =>
     bot.alwaysAllow.some((grant) => grant.startsWith(prefix))
-      ? { ...bot, alwaysAllow: bot.alwaysAllow.map((grant) => (grant.startsWith(prefix) ? `${to}/${grant.slice(prefix.length)}` : grant)) }
+      ? {
+          ...bot,
+          alwaysAllow: bot.alwaysAllow.map((grant) =>
+            grant.startsWith(prefix) ? `${to}/${grant.slice(prefix.length)}` : grant,
+          ),
+        }
       : bot,
   );
 }
@@ -106,7 +167,9 @@ export function mcpServerTested(server: Pick<LibraryMcpServer, "tools" | "checkE
 
 /** One line describing how a server connects: the command line, or transport and URL. */
 export function mcpTarget(config: BotMcpServer["config"]): string {
-  return config.type === "stdio" ? [config.command, joinArgs(config.args)].filter(Boolean).join(" ") : `${config.type.toUpperCase()} · ${config.url}`;
+  return config.type === "stdio"
+    ? [config.command, joinArgs(config.args)].filter(Boolean).join(" ")
+    : `${config.type.toUpperCase()} · ${config.url}`;
 }
 
 /** Case-insensitive match on any of the given fields. */
@@ -125,13 +188,21 @@ export interface ImportedBot {
  * Adds imported bots, numbering names already in use; their skills (unreviewed, so
  * off) and MCP servers join the library, and a team file's teams come along.
  */
-export function addImportedBots(values: BotSettingsValues, imported: readonly ImportedBot[], teams: readonly TeamFileTeam[] = [], now: string = new Date().toISOString()): BotSettingsValues {
+export function addImportedBots(
+  values: BotSettingsValues,
+  imported: readonly ImportedBot[],
+  teams: readonly TeamFileTeam[] = [],
+  now: string = new Date().toISOString(),
+): BotSettingsValues {
   let library = values.library ?? EMPTY_LIBRARY;
   const bots = [...values.bots];
   for (const entry of imported) {
     const name = numberedName(entry.bot.name, new Set(bots.map((bot) => bot.name)));
     const known = new Set(library.skills.map((skill) => skill.id));
-    library = upsertSkills(library, entry.skills.filter((skill) => !known.has(skill.id)));
+    library = upsertSkills(
+      library,
+      entry.skills.filter((skill) => !known.has(skill.id)),
+    );
     const added = addMcpServers(library, entry.mcpServers, { reuseByName: true });
     library = added.library;
     bots.push({ ...entry.bot, name, mcpServerIds: [...new Set([...entry.bot.mcpServerIds, ...added.ids])] });
@@ -139,7 +210,13 @@ export function addImportedBots(values: BotSettingsValues, imported: readonly Im
   const idAt = (position: number) => imported[position]?.bot.id;
   const groups = teams.reduce((current, team) => {
     const memberIds = team.members.flatMap((position) => idAt(position) ?? []);
-    const draft = { name: team.name, logo: team.logo, leadId: team.lead === null ? null : (idAt(team.lead) ?? null), memberIds, instructions: team.instructions };
+    const draft = {
+      name: team.name,
+      logo: team.logo,
+      leadId: team.lead === null ? null : (idAt(team.lead) ?? null),
+      memberIds,
+      instructions: team.instructions,
+    };
     return memberIds.length ? saveTeam(current, null, draft, newGroupId(), now) : current;
   }, values.groups ?? []);
   return { ...values, bots, library, groups };

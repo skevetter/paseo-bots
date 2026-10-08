@@ -18,7 +18,17 @@ const AMBER_500 = "#f59e0b";
  * track alone. Hovering shows Paseo's tooltip at once; where there are no tooltips (touch,
  * compact) pressing opens the same lines in a small anchored panel.
  */
-export function ContextMeter({ colors, usage, pending, glyphSize }: { colors: Colors; usage: ContextUsage | null; pending: boolean; glyphSize: number }) {
+export function ContextMeter({
+  colors,
+  usage,
+  pending,
+  glyphSize,
+}: {
+  colors: Colors;
+  usage: ContextUsage | null;
+  pending: boolean;
+  glyphSize: number;
+}) {
   const tokens = nativeTokens(colors);
   const menu = useMenu();
   const anchor = useRef<View>(null);
@@ -32,7 +42,8 @@ export function ContextMeter({ colors, usage, pending, glyphSize }: { colors: Co
   }
   const rounded = Math.round(usage.percent);
   const tone = meterTone(usage.percent);
-  const progress = tone === "danger" ? colors.statusDanger : tone === "warning" ? AMBER_500 : colors.foregroundMuted;
+  const progress =
+    tone === "danger" ? colors.statusDanger : tone === "warning" ? AMBER_500 : colors.foregroundMuted;
   const cost = usage.costUsd !== null ? formatSessionCost(usage.costUsd) : null;
   const tokensLine = `${formatTokenCount(usage.used)} / ${formatTokenCount(usage.max)} tokens`;
   const costLine = cost ? `Session cost ${cost}` : null;
@@ -58,7 +69,11 @@ export function ContextMeter({ colors, usage, pending, glyphSize }: { colors: Co
       ref={anchor}
       accessibilityRole="button"
       accessibilityLabel={`Context window ${rounded}% used`}
-      {...tooltip("Context window", "top", { lines: [`${rounded}% used`], details: costLine ? [tokensLine, costLine] : [tokensLine], delay: 0 })}
+      {...tooltip("Context window", "top", {
+        lines: [`${rounded}% used`],
+        details: costLine ? [tokensLine, costLine] : [tokensLine],
+        delay: 0,
+      })}
       onPress={() => void open()}
       style={{ width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" }}
     >
@@ -68,7 +83,19 @@ export function ContextMeter({ colors, usage, pending, glyphSize }: { colors: Co
 }
 
 /** A progress ring from plain Views: a track circle plus two clipped half-rings. */
-function Ring({ size, stroke, percent, track, progress }: { size: number; stroke: number; percent: number; track: string; progress: string }) {
+function Ring({
+  size,
+  stroke,
+  percent,
+  track,
+  progress,
+}: {
+  size: number;
+  stroke: number;
+  percent: number;
+  track: string;
+  progress: string;
+}) {
   const half = size / 2;
   const { right, left } = ringRotations(percent);
   const arc = (rotation: number, offset: number) => ({
@@ -86,15 +113,35 @@ function Ring({ size, stroke, percent, track, progress }: { size: number; stroke
     transform: [{ rotate: `${rotation}deg` }],
   });
   return (
-    <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: size, height: size }}>
-      <View style={{ position: "absolute", top: 0, left: 0, width: size, height: size, borderRadius: half, borderWidth: stroke, borderColor: track }} />
+    <View
+      pointerEvents="none"
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{ width: size, height: size }}
+    >
+      <View
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: size,
+          height: size,
+          borderRadius: half,
+          borderWidth: stroke,
+          borderColor: track,
+        }}
+      />
       {percent > 0 ? (
-        <View style={{ position: "absolute", top: 0, left: half, width: half, height: size, overflow: "hidden" }}>
+        <View
+          style={{ position: "absolute", top: 0, left: half, width: half, height: size, overflow: "hidden" }}
+        >
           <View style={arc(right, -half)} />
         </View>
       ) : null}
       {left !== null ? (
-        <View style={{ position: "absolute", top: 0, left: 0, width: half, height: size, overflow: "hidden" }}>
+        <View
+          style={{ position: "absolute", top: 0, left: 0, width: half, height: size, overflow: "hidden" }}
+        >
           <View style={arc(left, 0)} />
         </View>
       ) : null}

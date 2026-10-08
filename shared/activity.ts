@@ -47,7 +47,9 @@ export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; t
   let start = items.length;
   while (start > 0 && items[start - 1]!.type !== "user_message") start--;
   const turn = items.slice(start);
-  const reply = [...turn].reverse().find((item) => item.type === "assistant_message" && String(item.text ?? "").trim());
+  const reply = [...turn]
+    .reverse()
+    .find((item) => item.type === "assistant_message" && String(item.text ?? "").trim());
   const tools: string[] = [];
   for (const item of turn) {
     if (item.type !== "tool_call" || typeof item.name !== "string") continue;
@@ -72,7 +74,13 @@ export function localTime(date: Date): string {
  * One daily-log line: "- 09:05 · from chat "Title" · reply [tools: a, b]".
  * Null for a turn that finished without saying anything.
  */
-export function logLine(input: { at: Date; chat: string; reply: string; tools: readonly string[]; failure?: string | null }): string | null {
+export function logLine(input: {
+  at: Date;
+  chat: string;
+  reply: string;
+  tools: readonly string[];
+  failure?: string | null;
+}): string | null {
   const reply = foldText(redactSecrets(input.reply), REPLY_MAX);
   const failure = input.failure ? `(turn failed: ${foldText(input.failure, 120)})` : "";
   if (!reply && !failure) return null;
@@ -97,7 +105,11 @@ export function parseLog(day: string, text: string): LogEntry[] {
   for (const line of text.split("\n")) {
     const match = LOG_LINE.exec(line.trim());
     if (!match || !year || !month || !date) continue;
-    entries.push({ at: new Date(year, month - 1, date, Number(match[1]), Number(match[2])), chat: match[3]!, text: match[4]! });
+    entries.push({
+      at: new Date(year, month - 1, date, Number(match[1]), Number(match[2])),
+      chat: match[3]!,
+      text: match[4]!,
+    });
   }
   return entries;
 }
@@ -135,7 +147,11 @@ export function recentWork(entries: readonly LogEntry[], now: Date): string[] {
 
 // ---------------------------------------------------------------- search
 
-const STOP_WORDS = new Set("a an and are about as at be by did do does for from how i in is it me my of on or our that the this to was we were what when where which who why with you your".split(" "));
+const STOP_WORDS = new Set(
+  "a an and are about as at be by did do does for from how i in is it me my of on or our that the this to was we were what when where which who why with you your".split(
+    " ",
+  ),
+);
 
 /** The content words of a search: lowercase, without filler words. Every one must match. */
 export function searchWords(query: string): string[] {
@@ -152,13 +168,18 @@ export function matchesAll(text: string, words: readonly string[]): boolean {
 export function snippet(text: string, words: readonly string[], max = 240): string {
   const line = text.replace(/\s+/g, " ").trim();
   const lower = line.toLowerCase();
-  const first = words.length ? Math.min(...words.map((word) => lower.indexOf(word)).filter((index) => index >= 0)) : 0;
+  const first = words.length
+    ? Math.min(...words.map((word) => lower.indexOf(word)).filter((index) => index >= 0))
+    : 0;
   const start = Number.isFinite(first) ? Math.max(0, first - Math.floor(max / 3)) : 0;
   let cut = line.slice(start, start + max);
   if (start > 0) cut = `…${cut}`;
   if (start + max < line.length) cut = `${cut}…`;
   if (words.length === 0) return cut;
-  const pattern = new RegExp(`(${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "gi");
+  const pattern = new RegExp(
+    `(${words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
+    "gi",
+  );
   return cut.replace(pattern, "[$1]");
 }
 
@@ -169,10 +190,16 @@ export function parseSince(text: string, now: Date): Date {
   if (value === "today") return midnight(0);
   if (value === "yesterday") return midnight(1);
   const span = /^(\d+)\s*(h|d|w)$/.exec(value);
-  if (span) return new Date(now.getTime() - Number(span[1]) * { h: 3_600_000, d: 86_400_000, w: 604_800_000 }[span[2] as "h" | "d" | "w"]);
+  if (span)
+    return new Date(
+      now.getTime() -
+        Number(span[1]) * { h: 3_600_000, d: 86_400_000, w: 604_800_000 }[span[2] as "h" | "d" | "w"],
+    );
   const date = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (date) return new Date(Number(date[1]), Number(date[2]) - 1, Number(date[3]));
-  throw new Error(`Couldn't read "${text}" as a time. Use 24h, 3d, 2w, today, yesterday or a date like 2026-09-01.`);
+  throw new Error(
+    `Couldn't read "${text}" as a time. Use 24h, 3d, 2w, today, yesterday or a date like 2026-09-01.`,
+  );
 }
 
 /** "today 09:05", "yesterday 17:40" or "2026-09-20 08:00". */
@@ -198,7 +225,8 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 export function journalSummary(row: JournalRowLike, botName: string): string {
   const who = row.actor === "bot" ? botName : "You";
   const target = row.file === "MEMORY.md" ? "MEMORY.md" : `the ${row.file.replace(/\.md$/, "")} topic`;
-  if (row.kind === "created") return `${who} created ${target}${row.added ? ` with ${plural(row.added, "line")}` : ""}`;
+  if (row.kind === "created")
+    return `${who} created ${target}${row.added ? ` with ${plural(row.added, "line")}` : ""}`;
   if (row.kind === "deleted") return `${who} deleted ${target}`;
   if (row.added && !row.removed) return `${who} added ${plural(row.added, "line")} to ${target}`;
   if (row.removed && !row.added) return `${who} removed ${plural(row.removed, "line")} from ${target}`;
@@ -220,5 +248,10 @@ export function dayName(day: string, now: Date): string {
   const label = dayLabel(at, now);
   if (label === "today") return "Today";
   if (label === "yesterday") return "Yesterday";
-  return at.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", ...(at.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+  return at.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    ...(at.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}),
+  });
 }

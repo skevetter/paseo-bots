@@ -1,7 +1,17 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, copyText } from "@getpaseo/plugin/client/react-native";
 import { memo, useEffect, useRef, useState, type ReactNode } from "react";
-import { ActivityIndicator, Animated, Easing, Platform, Pressable, Text, View, type StyleProp, type TextStyle } from "react-native";
+import {
+  ActivityIndicator,
+  Animated,
+  Easing,
+  Platform,
+  Pressable,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+} from "react-native";
 import { nativeTokens, useHover } from "../../native";
 import { speak, stopSpeaking, useSpeaking } from "../../speech";
 import { ui } from "../../typography";
@@ -44,7 +54,11 @@ export function Spinner({ color, size = 20 }: { color: string; size?: number }) 
   const scale = size / 20;
   return (
     <View style={{ width: size, height: size, alignItems: "center", justifyContent: "center" }}>
-      <ActivityIndicator size="small" color={color} style={scale === 1 ? undefined : { transform: [{ scale }] }} />
+      <ActivityIndicator
+        size="small"
+        color={color}
+        style={scale === 1 ? undefined : { transform: [{ scale }] }}
+      />
     </View>
   );
 }
@@ -89,8 +103,18 @@ function useShimmer(active: boolean, duration: number): { textProps: object; sty
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.45, duration: (duration * 1000) / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: (duration * 1000) / 2, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(opacity, {
+          toValue: 0.45,
+          duration: (duration * 1000) / 2,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: (duration * 1000) / 2,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -101,7 +125,10 @@ function useShimmer(active: boolean, duration: number): { textProps: object; sty
   }, [active, duration, opacity]);
   if (!active) return { textProps: {}, style: null };
   if (isWeb) {
-    return { textProps: { dataSet: { pbotShimmer: "" } }, style: { animationDuration: `${duration.toFixed(2)}s` } as TextStyle };
+    return {
+      textProps: { dataSet: { pbotShimmer: "" } },
+      style: { animationDuration: `${duration.toFixed(2)}s` } as TextStyle,
+    };
   }
   return { textProps: {}, style: { opacity } as unknown as TextStyle };
 }
@@ -134,8 +161,19 @@ export const CopyButton = memo(function CopyButton({
     });
   };
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={copied ? "Copied" : label} {...tooltip(copied ? "Copied" : "Copy")} onPress={copy} {...hoverProps} style={[{ padding: 4 }, style]}>
-      <Icon name={copied ? "Check" : "Copy"} size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={copied ? "Copied" : label}
+      {...tooltip(copied ? "Copied" : "Copy")}
+      onPress={copy}
+      {...hoverProps}
+      style={[{ padding: 4 }, style]}
+    >
+      <Icon
+        name={copied ? "Check" : "Copy"}
+        size={14}
+        color={hovered ? colors.foreground : colors.foregroundMuted}
+      />
     </Pressable>
   );
 });
@@ -153,13 +191,27 @@ export function SpeakButton({ colors, text, voice }: { colors: Colors; text: str
       {...hoverProps}
       style={{ padding: 4, alignSelf: "center" }}
     >
-      <Icon name={speaking ? "Square" : "Volume2"} size={14} color={hovered || speaking ? colors.foreground : colors.foregroundMuted} />
+      <Icon
+        name={speaking ? "Square" : "Volume2"}
+        size={14}
+        color={hovered || speaking ? colors.foreground : colors.foregroundMuted}
+      />
     </Pressable>
   );
 }
 
 /** Paseo's Button size="sm" variant="secondary": 32 high, radius 12, surface3. */
-export function SecondaryButton({ colors, label, disabled, onPress }: { colors: Colors; label: string; disabled?: boolean; onPress(): void }) {
+export function SecondaryButton({
+  colors,
+  label,
+  disabled,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  disabled?: boolean;
+  onPress(): void;
+}) {
   const tokens = nativeTokens(colors);
   return (
     <Pressable
@@ -185,7 +237,23 @@ export function SecondaryButton({ colors, label, disabled, onPress }: { colors: 
 }
 
 /** The buttons under a permission or proposal card (agent-stream/view.tsx PermissionRequestCard). */
-export function CardButton({ colors, label, icon, primary = false, busy = false, spinning = false, onPress }: { colors: Colors; label: string; icon: string; primary?: boolean; busy?: boolean; spinning?: boolean; onPress(): void }) {
+export function CardButton({
+  colors,
+  label,
+  icon,
+  primary = false,
+  busy = false,
+  spinning = false,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  icon: string;
+  primary?: boolean;
+  busy?: boolean;
+  spinning?: boolean;
+  onPress(): void;
+}) {
   const [hovered, setHovered] = useState(false);
   const tint = primary ? colors.foreground : colors.foregroundMuted;
   return (
@@ -234,7 +302,17 @@ export interface ExpandableBadgeProps {
 }
 
 /** Paseo's ExpandableBadge (message.tsx): the tool call row and its attached detail panel. */
-export const ExpandableBadge = memo(function ExpandableBadge({ colors, label, secondaryLabel, icon, isExpanded, onToggle, renderDetails, isLoading = false, isError = false }: ExpandableBadgeProps) {
+export const ExpandableBadge = memo(function ExpandableBadge({
+  colors,
+  label,
+  secondaryLabel,
+  icon,
+  isExpanded,
+  onToggle,
+  renderDetails,
+  isLoading = false,
+  isError = false,
+}: ExpandableBadgeProps) {
   const [hovered, setHovered] = useState(false);
   const interactive = Boolean(onToggle);
   const active = hovered || isExpanded;
@@ -250,7 +328,12 @@ export const ExpandableBadge = memo(function ExpandableBadge({ colors, label, se
   let iconNode: ReactNode = null;
   if (interactive && active) {
     iconNode = (
-      <View style={{ marginLeft: -4, transform: isExpanded ? [{ scale: 1.3 }, { rotate: "90deg" }] : [{ scale: 1.3 }] }}>
+      <View
+        style={{
+          marginLeft: -4,
+          transform: isExpanded ? [{ scale: 1.3 }, { rotate: "90deg" }] : [{ scale: 1.3 }],
+        }}
+      >
         <Icon name="ChevronRight" size={12} color={colors.foreground} />
       </View>
     );
@@ -285,11 +368,24 @@ export const ExpandableBadge = memo(function ExpandableBadge({ colors, label, se
           paddingVertical: 4,
           overflow: "hidden",
           opacity: pressed && interactive ? 0.9 : 1,
-          ...(isExpanded ? { backgroundColor: colors.surface1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 } : {}),
+          ...(isExpanded
+            ? { backgroundColor: colors.surface1, borderBottomLeftRadius: 0, borderBottomRightRadius: 0 }
+            : {}),
         })}
       >
         <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={{ width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center", marginRight: 4 }}>{iconNode}</View>
+          <View
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: 11,
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: 4,
+            }}
+          >
+            {iconNode}
+          </View>
           <View style={{ flex: 1, flexDirection: "row", alignItems: "center", overflow: "hidden" }}>
             <Animated.Text numberOfLines={1} {...shimmer.textProps} style={[labelStyle, shimmer.style]}>
               {label}
@@ -298,7 +394,16 @@ export const ExpandableBadge = memo(function ExpandableBadge({ colors, label, se
               <Animated.Text
                 numberOfLines={1}
                 {...shimmer.textProps}
-                style={[{ flexShrink: 1, minWidth: 0, marginLeft: 8, fontSize: ui(14), color: active ? colors.foreground : colors.foregroundMuted }, shimmer.style]}
+                style={[
+                  {
+                    flexShrink: 1,
+                    minWidth: 0,
+                    marginLeft: 8,
+                    fontSize: ui(14),
+                    color: active ? colors.foreground : colors.foregroundMuted,
+                  },
+                  shimmer.style,
+                ]}
               >
                 {secondaryLabel}
               </Animated.Text>

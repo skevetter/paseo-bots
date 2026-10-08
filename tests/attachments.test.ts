@@ -28,7 +28,14 @@ describe("attachments", () => {
       images: [{ data: "AAA", mimeType: "image/png" }],
       attachments: [
         { type: "text", mimeType: "text/plain", title: "notes.md", text: "hello" },
-        { type: "uploaded_file", id: "3", fileName: "r.pdf", mimeType: "application/pdf", size: 9, path: "/x/r.pdf" },
+        {
+          type: "uploaded_file",
+          id: "3",
+          fileName: "r.pdf",
+          mimeType: "application/pdf",
+          size: 9,
+          path: "/x/r.pdf",
+        },
       ],
     });
   });
@@ -48,8 +55,14 @@ import { getFileTypeLabel, normalizeMimeType, preflightFile } from "../shared/at
 
 describe("attachment preflight", () => {
   it("checks size before reading and demotes large text to a file", () => {
-    expect(preflightFile("a.png", "image/png", 11 * 1024 * 1024, true)).toEqual({ kind: "image", reason: "Images can be up to 10 MB." });
-    expect(preflightFile("big.log", "text/plain", 2 * 1024 * 1024, true)).toEqual({ kind: "file", reason: null });
+    expect(preflightFile("a.png", "image/png", 11 * 1024 * 1024, true)).toEqual({
+      kind: "image",
+      reason: "Images can be up to 10 MB.",
+    });
+    expect(preflightFile("big.log", "text/plain", 2 * 1024 * 1024, true)).toEqual({
+      kind: "file",
+      reason: null,
+    });
     expect(preflightFile("big.log", "text/plain", 2 * 1024 * 1024, false).reason).toMatch(/this host/);
     expect(preflightFile("notes.md", "", 100, false)).toEqual({ kind: "text", reason: null });
   });

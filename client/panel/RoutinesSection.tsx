@@ -1,18 +1,48 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { Modal, copyText, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect } from "@getpaseo/plugin/client/ui";
+import {
+  SettingsAction,
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+  SettingsSelect,
+} from "@getpaseo/plugin/client/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
 import { newRoutineId, type Bot, type Routine, type RoutineSchedule } from "../../shared/bot";
 import { displayTitle, ROUTINE_LABEL } from "../../shared/chat";
-import { CRON_PRESETS, describeCron, describeSchedule, formatLocalDateTime, nextRun, parseLocalDateTime, scheduleToCron, upcomingRuns, validateCron } from "../../shared/routines";
+import {
+  CRON_PRESETS,
+  describeCron,
+  describeSchedule,
+  formatLocalDateTime,
+  nextRun,
+  parseLocalDateTime,
+  scheduleToCron,
+  upcomingRuns,
+  validateCron,
+} from "../../shared/routines";
 import { routineRunNowRpc, routineStatusRpc, routineWebhookRpc, type RoutineRun } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
 import { useBotChats, useBotHost, type BotHost } from "../data";
 import { confirmDialog, errorText } from "../native";
 import { useMenu } from "../ui/Menu";
-import { Alert, type BadgeVariant, Button, CardNote, DrillRow, InputField, KebabButton, PressableRow, RowText, SectionLink, SheetFooter, StatusBadge, TextAreaField } from "./controls";
+import {
+  Alert,
+  type BadgeVariant,
+  Button,
+  CardNote,
+  DrillRow,
+  InputField,
+  KebabButton,
+  PressableRow,
+  RowText,
+  SectionLink,
+  SheetFooter,
+  StatusBadge,
+  TextAreaField,
+} from "./controls";
 import type { PanelProps } from "./BotPanel";
 
 type Colors = PanelProps["colors"];
@@ -54,8 +84,18 @@ const ROUTINES_KEY = ["paseo-bots", "routines"];
 const UPCOMING = 6;
 const UPCOMING_DAYS = 7;
 const RECENT = 10;
-const RUN_LABELS: Record<RoutineRun["status"], string> = { running: "Running", succeeded: "Done", failed: "Failed", "skipped-busy": "Skipped, still working", "skipped-missed": "Missed" };
-const TRIGGER_LABELS: Record<RoutineRun["trigger"], string> = { schedule: "on schedule", manual: "run by you", webhook: "from its webhook" };
+const RUN_LABELS: Record<RoutineRun["status"], string> = {
+  running: "Running",
+  succeeded: "Done",
+  failed: "Failed",
+  "skipped-busy": "Skipped, still working",
+  "skipped-missed": "Missed",
+};
+const TRIGGER_LABELS: Record<RoutineRun["trigger"], string> = {
+  schedule: "on schedule",
+  manual: "run by you",
+  webhook: "from its webhook",
+};
 
 /** "Today 09:00", "Tomorrow 09:00" or "Mon, Sep 28 09:00". */
 function runTime(at: Date, now: Date): string {
@@ -77,20 +117,30 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
   const toast = useToast();
   const menu = useMenu();
   const queryClient = useQueryClient();
-  const records = useQuery({ queryKey: ROUTINES_KEY, queryFn: () => status({}), refetchInterval: 15_000, enabled: host.isLocal });
+  const records = useQuery({
+    queryKey: ROUTINES_KEY,
+    queryFn: () => status({}),
+    refetchInterval: 15_000,
+    enabled: host.isLocal,
+  });
   const [editing, setEditing] = useState<Routine | "new" | null>(null);
   const [runs, setRuns] = useState(false);
 
   const setRoutines = (routines: Routine[]) => onPatch({ routines });
-  const update = (id: string, patch: Partial<Routine>) => setRoutines(bot.routines.map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
+  const update = (id: string, patch: Partial<Routine>) =>
+    setRoutines(bot.routines.map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
   const recordOf = (routine: Routine) => records.data?.routines[routine.id];
 
   const run = async (routine: Routine) => {
     try {
       await flush();
       const { run: started } = await runNow({ botId: bot.id, routineId: routine.id });
-      if (started.status === "running") toast.show(`Started "${routine.name}". It appears as a chat under ${bot.name}.`, { variant: "success" });
-      else if (started.status === "skipped-busy") toast.show(`"${routine.name}" is still working on its last run.`);
+      if (started.status === "running")
+        toast.show(`Started "${routine.name}". It appears as a chat under ${bot.name}.`, {
+          variant: "success",
+        });
+      else if (started.status === "skipped-busy")
+        toast.show(`"${routine.name}" is still working on its last run.`);
       else toast.error(started.error ?? "Couldn't start the run.");
       void queryClient.invalidateQueries({ queryKey: ["paseo-bots"] });
     } catch (error) {
@@ -119,13 +169,25 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
   };
 
   if (!host.isLocal) {
-    return <Alert colors={colors} description="Routines run on the host that stores the bot. Switch the bot to this host to schedule it." />;
+    return (
+      <Alert
+        colors={colors}
+        description="Routines run on the host that stores the bot. Switch the bot to this host to schedule it."
+      />
+    );
   }
 
   const now = new Date();
   const upcoming = bot.routines
     .filter((routine) => routine.enabled)
-    .flatMap((routine) => upcomingRuns(routine.schedule, new Date(recordOf(routine)?.lastRunAt ?? routine.createdAt), now, UPCOMING).map((at) => ({ at, routine })))
+    .flatMap((routine) =>
+      upcomingRuns(
+        routine.schedule,
+        new Date(recordOf(routine)?.lastRunAt ?? routine.createdAt),
+        now,
+        UPCOMING,
+      ).map((at) => ({ at, routine })),
+    )
     .filter(({ at }) => at.getTime() - now.getTime() <= UPCOMING_DAYS * 86_400_000)
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .slice(0, UPCOMING);
@@ -153,10 +215,20 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
             const next = nextRun(routine.schedule, new Date(record?.lastRunAt ?? routine.createdAt), now);
             const badge = routineState(routine, next);
             return (
-              <PressableRow key={routine.id} colors={colors} accessibilityLabel={`Edit routine ${routine.name}`} onPress={() => setEditing(routine)}>
+              <PressableRow
+                key={routine.id}
+                colors={colors}
+                accessibilityLabel={`Edit routine ${routine.name}`}
+                onPress={() => setEditing(routine)}
+              >
                 {() => (
                   <>
-                    <RowText colors={colors} label={routine.name || "Untitled routine"} hint={routineMeta(routine, record?.runs.at(-1), next)} hintLines={2} />
+                    <RowText
+                      colors={colors}
+                      label={routine.name || "Untitled routine"}
+                      hint={routineMeta(routine, record?.runs.at(-1), next)}
+                      hintLines={2}
+                    />
                     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                       <StatusBadge colors={colors} label={badge.label} variant={badge.variant} />
                       <KebabButton
@@ -171,12 +243,39 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
                             entries: [
                               { label: "Edit routine", icon: "Pencil", onSelect: () => setEditing(routine) },
                               routine.enabled
-                                ? { label: "Pause routine", icon: "Pause", onSelect: () => update(routine.id, { enabled: false }) }
-                                : { label: "Resume routine", icon: "Play", onSelect: () => update(routine.id, { enabled: true }) },
-                              { label: "Run now", icon: "RotateCw", disabled: !routine.prompt.trim(), pendingLabel: "Starting...", onSelect: () => run(routine) },
-                              ...(routine.schedule.kind === "webhook" ? [{ label: "Copy webhook URL", icon: "Webhook", onSelect: () => copyWebhook(routine) }] : []),
+                                ? {
+                                    label: "Pause routine",
+                                    icon: "Pause",
+                                    onSelect: () => update(routine.id, { enabled: false }),
+                                  }
+                                : {
+                                    label: "Resume routine",
+                                    icon: "Play",
+                                    onSelect: () => update(routine.id, { enabled: true }),
+                                  },
+                              {
+                                label: "Run now",
+                                icon: "RotateCw",
+                                disabled: !routine.prompt.trim(),
+                                pendingLabel: "Starting...",
+                                onSelect: () => run(routine),
+                              },
+                              ...(routine.schedule.kind === "webhook"
+                                ? [
+                                    {
+                                      label: "Copy webhook URL",
+                                      icon: "Webhook",
+                                      onSelect: () => copyWebhook(routine),
+                                    },
+                                  ]
+                                : []),
                               { kind: "separator" as const },
-                              { label: "Delete routine", icon: "Trash2", destructive: true, onSelect: () => void remove(routine) },
+                              {
+                                label: "Delete routine",
+                                icon: "Trash2",
+                                destructive: true,
+                                onSelect: () => void remove(routine),
+                              },
                             ],
                           })
                         }
@@ -195,7 +294,14 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
             <DrillRow
               colors={colors}
               label="Runs"
-              hint={[upcoming[0] ? `Next ${runTime(upcoming[0].at, now)}` : null, recent[0] ? `last ${runTime(new Date(recent[0].run.startedAt), now)}` : null].filter(Boolean).join(", ") || "None yet"}
+              hint={
+                [
+                  upcoming[0] ? `Next ${runTime(upcoming[0].at, now)}` : null,
+                  recent[0] ? `last ${runTime(new Date(recent[0].run.startedAt), now)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(", ") || "None yet"
+              }
               onPress={() => setRuns(true)}
             />
           </SettingsCard>
@@ -204,19 +310,34 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
       {runs ? (
         <Modal title="Runs" open onOpenChange={(next) => !next && setRuns(false)}>
           <Modal.Content contentContainerStyle={{ gap: 0 }}>
-            <SettingsSection title="Upcoming" info={`The next runs over the coming ${UPCOMING_DAYS} days, in this host's local time.`}>
+            <SettingsSection
+              title="Upcoming"
+              info={`The next runs over the coming ${UPCOMING_DAYS} days, in this host's local time.`}
+            >
               <SettingsCard>
                 {upcoming.length === 0 ? <CardNote colors={colors} text="Nothing scheduled" /> : null}
                 {upcoming.map(({ at, routine }) => (
-                  <SettingsRow key={`${routine.id}:${at.getTime()}`} label={runTime(at, now)} hint={routine.name} />
+                  <SettingsRow
+                    key={`${routine.id}:${at.getTime()}`}
+                    label={runTime(at, now)}
+                    hint={routine.name}
+                  />
                 ))}
               </SettingsCard>
             </SettingsSection>
-            <SettingsSection title="Recent runs" info="The latest runs of this bot's routines. Open one to see its chat.">
+            <SettingsSection
+              title="Recent runs"
+              info="The latest runs of this bot's routines. Open one to see its chat."
+            >
               <SettingsCard>
                 {recent.length === 0 ? <CardNote colors={colors} text="No runs yet" /> : null}
                 {recent.map(({ run: entry, routine }) => {
-                  const hint = [`${runTime(new Date(entry.startedAt), now)} · ${RUN_LABELS[entry.status]} · ${TRIGGER_LABELS[entry.trigger]}`, entry.error ?? entry.output].filter(Boolean).join("\n");
+                  const hint = [
+                    `${runTime(new Date(entry.startedAt), now)} · ${RUN_LABELS[entry.status]} · ${TRIGGER_LABELS[entry.trigger]}`,
+                    entry.error ?? entry.output,
+                  ]
+                    .filter(Boolean)
+                    .join("\n");
                   const agentId = entry.agentId;
                   return agentId ? (
                     <DrillRow
@@ -247,7 +368,11 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
           routine={editing === "new" ? null : editing}
           onCancel={() => setEditing(null)}
           onSubmit={(routine) => {
-            setRoutines(editing === "new" ? [...bot.routines, routine] : bot.routines.map((entry) => (entry.id === routine.id ? routine : entry)));
+            setRoutines(
+              editing === "new"
+                ? [...bot.routines, routine]
+                : bot.routines.map((entry) => (entry.id === routine.id ? routine : entry)),
+            );
             setEditing(null);
           }}
         />
@@ -287,7 +412,9 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
   const [schedule, setSchedule] = useState<RoutineSchedule>(original);
   const [resultsChatId, setResultsChatId] = useState<string | null>(routine?.resultsChatId ?? null);
   const [cronText, setCronText] = useState(() => scheduleToCron(original) ?? "0 9 * * *");
-  const [onceText, setOnceText] = useState(() => formatLocalDateTime(original.kind === "once" ? new Date(original.at) : inAnHour()));
+  const [onceText, setOnceText] = useState(() =>
+    formatLocalDateTime(original.kind === "once" ? new Date(original.at) : inAnHour()),
+  );
   // Presets rewrite the cron field; remounting it is how Paseo's CadenceEditor resets it too.
   const [cronKey, setCronKey] = useState(0);
   const chats = useBotChats(host, bot.id);
@@ -295,11 +422,21 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
   const once = schedule.kind === "once";
   const hook = schedule.kind === "webhook";
   const trimmedCron = cronText.trim();
-  const presetValue = once ? ONCE : hook ? WEBHOOK : (CRON_PRESETS.find((preset) => preset.expression === trimmedCron)?.id ?? CUSTOM_CRON);
+  const presetValue = once
+    ? ONCE
+    : hook
+      ? WEBHOOK
+      : (CRON_PRESETS.find((preset) => preset.expression === trimmedCron)?.id ?? CUSTOM_CRON);
   const cronError = once || hook ? null : validateCron(trimmedCron);
   const onceDate = once ? parseLocalDateTime(onceText) : null;
   const onceChanged = original.kind !== "once" || onceDate?.getTime() !== new Date(original.at).getTime();
-  const onceError = !once ? null : !onceDate ? "Use YYYY-MM-DD HH:MM" : onceChanged && onceDate.getTime() <= Date.now() ? "Pick a time in the future" : null;
+  const onceError = !once
+    ? null
+    : !onceDate
+      ? "Use YYYY-MM-DD HH:MM"
+      : onceChanged && onceDate.getTime() <= Date.now()
+        ? "Pick a time in the future"
+        : null;
   const canSubmit = prompt.trim().length > 0 && !cronError && !onceError;
 
   // Runs' own chats aren't offered as a results chat; a chosen chat that's gone stays listed so it can be changed.
@@ -307,12 +444,22 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
   const resultOptions = [
     { label: "Only the run's own chat", value: OWN_CHAT },
     ...resultChats.map((chat) => ({ label: displayTitle(chat.title), value: chat.id })),
-    ...(resultsChatId && !resultChats.some((chat) => chat.id === resultsChatId) ? [{ label: "A chat that's no longer here", value: resultsChatId }] : []),
+    ...(resultsChatId && !resultChats.some((chat) => chat.id === resultsChatId)
+      ? [{ label: "A chat that's no longer here", value: resultsChatId }]
+      : []),
   ];
 
   const submit = () => {
     const firstLine = prompt.trim().split("\n")[0]!.slice(0, 60);
-    const base: Routine = routine ?? { id, name: "", prompt: "", enabled: true, schedule, resultsChatId: null, createdAt: new Date().toISOString() };
+    const base: Routine = routine ?? {
+      id,
+      name: "",
+      prompt: "",
+      enabled: true,
+      schedule,
+      resultsChatId: null,
+      createdAt: new Date().toISOString(),
+    };
     onSubmit({ ...base, name: name.trim().slice(0, 80) || firstLine, prompt, schedule, resultsChatId });
   };
 
@@ -321,19 +468,42 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <View style={{ marginBottom: 24 }}>
           <SettingsCard>
-            <InputField colors={colors} label="Name" initialValue={name} placeholder="Morning check-in" onChangeText={setName} />
-            <TextAreaField colors={colors} label="Prompt" hint="Sent as the first message of each run" defaultValue={prompt} onChangeText={setPrompt} placeholder="What should the bot do each run?" />
+            <InputField
+              colors={colors}
+              label="Name"
+              initialValue={name}
+              placeholder="Morning check-in"
+              onChangeText={setName}
+            />
+            <TextAreaField
+              colors={colors}
+              label="Prompt"
+              hint="Sent as the first message of each run"
+              defaultValue={prompt}
+              onChangeText={setPrompt}
+              placeholder="What should the bot do each run?"
+            />
           </SettingsCard>
         </View>
-        <SettingsSection title="Cadence" info="In this host's local time. A run that's still working when the next is due is skipped.">
+        <SettingsSection
+          title="Cadence"
+          info="In this host's local time. A run that's still working when the next is due is skipped."
+        >
           <SettingsCard>
             <SettingsSelect
               label="Repeats"
               value={presetValue}
-              options={[...CRON_PRESETS.map((preset) => ({ label: preset.label, value: preset.id })), { label: "Once", value: ONCE }, { label: "When its webhook is called", value: WEBHOOK }]}
+              options={[
+                ...CRON_PRESETS.map((preset) => ({ label: preset.label, value: preset.id })),
+                { label: "Once", value: ONCE },
+                { label: "When its webhook is called", value: WEBHOOK },
+              ]}
               onValueChange={(value) => {
                 if (value === ONCE) {
-                  setSchedule({ kind: "once", at: (parseLocalDateTime(onceText) ?? inAnHour()).toISOString() });
+                  setSchedule({
+                    kind: "once",
+                    at: (parseLocalDateTime(onceText) ?? inAnHour()).toISOString(),
+                  });
                   return;
                 }
                 if (value === WEBHOOK) {
@@ -350,7 +520,8 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
             {hook ? (
               <WebhookRows colors={colors} routineId={id} />
             ) : once ? (
-              <InputField colors={colors}
+              <InputField
+                colors={colors}
                 key="once"
                 label="At"
                 hint={onceDate ? onceDate.toLocaleString() : "YYYY-MM-DD HH:MM"}
@@ -364,7 +535,8 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
                 }}
               />
             ) : (
-              <InputField colors={colors}
+              <InputField
+                colors={colors}
                 key={`cron-${cronKey}`}
                 label="Cron"
                 monospace
@@ -382,14 +554,30 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
             )}
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection title="Results" info="Every run has its own chat. A results chat also gets a card for each run with how it went.">
+        <SettingsSection
+          title="Results"
+          info="Every run has its own chat. A results chat also gets a card for each run with how it went."
+        >
           <SettingsCard>
-            <SettingsSelect label="Post results to" value={resultsChatId ?? OWN_CHAT} options={resultOptions} onValueChange={(value) => setResultsChatId(value === OWN_CHAT ? null : value)} />
+            <SettingsSelect
+              label="Post results to"
+              value={resultsChatId ?? OWN_CHAT}
+              options={resultOptions}
+              onValueChange={(value) => setResultsChatId(value === OWN_CHAT ? null : value)}
+            />
           </SettingsCard>
         </SettingsSection>
         <SheetFooter>
           <Button colors={colors} size="md" label="Cancel" onPress={onCancel} style={{ flex: 1 }} />
-          <Button colors={colors} size="md" variant="default" label={routine ? "Save changes" : "Create routine"} disabled={!canSubmit} onPress={submit} style={{ flex: 1 }} />
+          <Button
+            colors={colors}
+            size="md"
+            variant="default"
+            label={routine ? "Save changes" : "Create routine"}
+            disabled={!canSubmit}
+            onPress={submit}
+            style={{ flex: 1 }}
+          />
         </SheetFooter>
       </Modal.Content>
     </Modal>
@@ -405,7 +593,12 @@ function WebhookRows({ colors, routineId }: { colors: Colors; routineId: string 
   const url = useQuery({ queryKey: key, queryFn: () => webhook({ routineId }) });
 
   const rotate = async () => {
-    const confirmed = await confirmDialog({ title: "New webhook URL", message: "The current URL stops working. Anything that calls it needs the new one.", confirmLabel: "Replace", destructive: true });
+    const confirmed = await confirmDialog({
+      title: "New webhook URL",
+      message: "The current URL stops working. Anything that calls it needs the new one.",
+      confirmLabel: "Replace",
+      destructive: true,
+    });
     if (!confirmed) return;
     try {
       queryClient.setQueryData(key, await webhook({ routineId, rotate: true }));
@@ -422,9 +615,17 @@ function WebhookRows({ colors, routineId }: { colors: Colors; routineId: string 
         hint={value ?? (url.isError ? errorText(url.error) : "Loading...")}
         actionLabel="Copy"
         disabled={!value}
-        onPress={() => void copyText(value!).then(() => toast.show("Webhook URL copied", { variant: "success" }))}
+        onPress={() =>
+          void copyText(value!).then(() => toast.show("Webhook URL copied", { variant: "success" }))
+        }
       />
-      <SettingsAction label="New URL" hint="POST to it from this computer; the body reaches the bot as data, not instructions." actionLabel="Replace" disabled={!value} onPress={() => void rotate()} />
+      <SettingsAction
+        label="New URL"
+        hint="POST to it from this computer; the body reaches the bot as data, not instructions."
+        actionLabel="Replace"
+        disabled={!value}
+        onPress={() => void rotate()}
+      />
     </>
   );
 }

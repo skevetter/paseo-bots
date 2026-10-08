@@ -15,9 +15,18 @@ export function rememberSent(messageId: string, text: string, attachments: Compo
 }
 
 /** Matches by message id, then by text for providers that assign their own ids. */
-export function sentAttachments(item: { text: string; messageId?: string; clientMessageId?: string }): ComposerAttachment[] {
+export function sentAttachments(item: {
+  text: string;
+  messageId?: string;
+  clientMessageId?: string;
+}): ComposerAttachment[] {
   const ids = [item.messageId, item.clientMessageId].filter(Boolean);
-  return (sent.find((entry) => ids.includes(entry.messageId)) ?? sent.find((entry) => entry.text === item.text.trim()))?.attachments ?? [];
+  return (
+    (
+      sent.find((entry) => ids.includes(entry.messageId)) ??
+      sent.find((entry) => entry.text === item.text.trim())
+    )?.attachments ?? []
+  );
 }
 
 export function newMessageId(): string {

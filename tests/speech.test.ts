@@ -3,7 +3,8 @@ import { speakableText, speechChunks } from "../shared/speech";
 
 describe("reading replies aloud", () => {
   it("reads the words, not the markdown", () => {
-    const reply = "## Done\n\nI **saved** the [report](https://x.test/r) as `report.md`:\n\n```ts\nconst a = 1;\n```\n\n- first\n- second\n\nSee https://example.com for more.";
+    const reply =
+      "## Done\n\nI **saved** the [report](https://x.test/r) as `report.md`:\n\n```ts\nconst a = 1;\n```\n\n- first\n- second\n\nSee https://example.com for more.";
     expect(speakableText(reply)).toBe("Done I saved the report as report.md: first second See for more.");
   });
 

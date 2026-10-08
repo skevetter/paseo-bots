@@ -18,7 +18,7 @@ function storePath(): string {
 
 async function load(): Promise<Proposal[]> {
   try {
-    return ((JSON.parse(await readFile(storePath(), "utf8")) as { proposals?: Proposal[] }).proposals ?? []);
+    return (JSON.parse(await readFile(storePath(), "utf8")) as { proposals?: Proposal[] }).proposals ?? [];
   } catch {
     return [];
   }
@@ -40,7 +40,13 @@ function update<T>(change: (proposals: Proposal[]) => { proposals: Proposal[]; r
 }
 
 export function createProposal(input: NewProposal): Promise<Proposal> {
-  const proposal = { ...input, id: `p-${randomBytes(5).toString("hex")}`, status: "pending", createdAt: new Date().toISOString(), resolvedAt: null } as Proposal;
+  const proposal = {
+    ...input,
+    id: `p-${randomBytes(5).toString("hex")}`,
+    status: "pending",
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
+  } as Proposal;
   return update((proposals) => ({ proposals: [...proposals, proposal], result: proposal }));
 }
 
@@ -52,9 +58,13 @@ function resolve(id: string, status: "accepted" | "dismissed"): Promise<Proposal
   return update((proposals) => {
     const current = proposals.find((proposal) => proposal.id === id);
     if (!current) throw new Error("This proposal is no longer available.");
-    if (current.status !== "pending") throw new Error(current.status === "accepted" ? "It's already saved." : "It was dismissed.");
+    if (current.status !== "pending")
+      throw new Error(current.status === "accepted" ? "It's already saved." : "It was dismissed.");
     const resolved = { ...current, status, resolvedAt: new Date().toISOString() };
-    return { proposals: proposals.map((proposal) => (proposal.id === id ? resolved : proposal)), result: resolved };
+    return {
+      proposals: proposals.map((proposal) => (proposal.id === id ? resolved : proposal)),
+      result: resolved,
+    };
   });
 }
 
@@ -66,9 +76,13 @@ export function dismissProposal(id: string): Promise<Proposal> {
 export async function acceptProposal(id: string) {
   const proposal = await getProposal(id);
   if (!proposal) throw new Error("This proposal is no longer available.");
-  if (proposal.status !== "pending") throw new Error(proposal.status === "accepted" ? "It's already saved." : "It was dismissed.");
+  if (proposal.status !== "pending")
+    throw new Error(proposal.status === "accepted" ? "It's already saved." : "It was dismissed.");
   if (proposal.kind !== "skill") return { proposal: await resolve(id, "accepted") };
   const saved = await writeSkill({ id: proposal.data.name, text: proposal.data.text });
   const accepted = await resolve(id, "accepted");
-  return { proposal: accepted, skill: { id: proposal.data.name, description: saved.description, sha: saved.sha } };
+  return {
+    proposal: accepted,
+    skill: { id: proposal.data.name, description: saved.description, sha: saved.sha },
+  };
 }

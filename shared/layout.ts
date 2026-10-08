@@ -11,7 +11,11 @@ const clamp = (value: number, min: number, max: number) => Math.min(max, Math.ma
  * Fits the list and settings columns into `total`, keeping the chat at least
  * CENTER_MIN_WIDTH wide: the settings panel gives way first, then the list.
  */
-export function fitColumns(total: number, list: number, panel: number | null): { list: number; panel: number | null } {
+export function fitColumns(
+  total: number,
+  list: number,
+  panel: number | null,
+): { list: number; panel: number | null } {
   let listWidth = clamp(list, LIST_WIDTH.min, LIST_WIDTH.max);
   if (panel === null) {
     return { list: Math.max(LIST_WIDTH.min, Math.min(listWidth, total - CENTER_MIN_WIDTH)), panel: null };

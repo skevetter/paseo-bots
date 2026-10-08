@@ -32,7 +32,15 @@ const OUTCOME = { pending: "pending", accepted: "approved", dismissed: "rejected
  * for the bot; routines are added to the bot and report back to this chat;
  * setup changes are applied together.
  */
-export function ProposalCard({ colors, compact, proposalId }: { colors: Colors; compact: boolean; proposalId: string }) {
+export function ProposalCard({
+  colors,
+  compact,
+  proposalId,
+}: {
+  colors: Colors;
+  compact: boolean;
+  proposalId: string;
+}) {
   const get = useRpc(proposalGetRpc);
   const accept = useRpc(proposalAcceptRpc);
   const dismiss = useRpc(proposalDismissRpc);
@@ -45,7 +53,13 @@ export function ProposalCard({ colors, compact, proposalId }: { colors: Colors; 
 
   if (query.isPending) return null;
   if (!proposal) {
-    return <Text style={{ marginVertical: 12, fontSize: ui(14), color: colors.foregroundMuted }}>{query.isError ? `Couldn't load the proposal: ${errorText(query.error)}` : "This proposal is no longer available."}</Text>;
+    return (
+      <Text style={{ marginVertical: 12, fontSize: ui(14), color: colors.foregroundMuted }}>
+        {query.isError
+          ? `Couldn't load the proposal: ${errorText(query.error)}`
+          : "This proposal is no longer available."}
+      </Text>
+    );
   }
 
   const values = settings.status === "ready" ? settings.values : null;
@@ -70,14 +84,32 @@ export function ProposalCard({ colors, compact, proposalId }: { colors: Colors; 
       const { proposal: saved, skill } = await accept({ id: proposal.id });
       await commit((current) => {
         if (proposal.kind === "routine") {
-          const routine = { id: newRoutineId(), ...proposal.data, enabled: true, createdAt: new Date().toISOString() };
-          return { ...current, bots: current.bots.map((entry) => (entry.id === saved.botId ? { ...entry, routines: [...entry.routines, routine] } : entry)) };
+          const routine = {
+            id: newRoutineId(),
+            ...proposal.data,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+          };
+          return {
+            ...current,
+            bots: current.bots.map((entry) =>
+              entry.id === saved.botId ? { ...entry, routines: [...entry.routines, routine] } : entry,
+            ),
+          };
         }
         if (!skill) return current;
         return {
           ...current,
-          library: updateSkill(upsertSkills(current.library ?? EMPTY_LIBRARY, [{ id: skill.id, description: skill.description, source: "", reviewedSha: skill.sha }]), skill.id, { enabled: true }),
-          bots: current.bots.map((entry) => (entry.id === saved.botId ? setBotUses(entry, "skill", skill.id, true) : entry)),
+          library: updateSkill(
+            upsertSkills(current.library ?? EMPTY_LIBRARY, [
+              { id: skill.id, description: skill.description, source: "", reviewedSha: skill.sha },
+            ]),
+            skill.id,
+            { enabled: true },
+          ),
+          bots: current.bots.map((entry) =>
+            entry.id === saved.botId ? setBotUses(entry, "skill", skill.id, true) : entry,
+          ),
         };
       });
       queryClient.setQueryData(proposalQueryKey(proposal.id), { proposal: saved });
@@ -105,20 +137,52 @@ export function ProposalCard({ colors, compact, proposalId }: { colors: Colors; 
   const footer =
     proposal.status === "pending" ? (
       <>
-        {view.warnings.length ? <Alert colors={colors} variant="warning" title="Check these first" description={view.warnings} /> : null}
+        {view.warnings.length ? (
+          <Alert colors={colors} variant="warning" title="Check these first" description={view.warnings} />
+        ) : null}
         {view.notes.map((note) => (
           <Text key={note} style={{ fontSize: ui(14), color: colors.foregroundMuted }}>
             {note}
           </Text>
         ))}
-        <View style={compact ? { gap: 8, marginTop: 4 } : { gap: 8, marginTop: 4, flexDirection: "row", flexWrap: "wrap", alignItems: "center" }}>
-          <CardButton colors={colors} label="Dismiss" icon="X" busy={!!busy} spinning={busy === "dismiss"} onPress={() => void drop()} />
-          <CardButton colors={colors} label={view.action} icon="Check" primary busy={!!busy} spinning={busy === "save"} onPress={() => void save()} />
+        <View
+          style={
+            compact
+              ? { gap: 8, marginTop: 4 }
+              : { gap: 8, marginTop: 4, flexDirection: "row", flexWrap: "wrap", alignItems: "center" }
+          }
+        >
+          <CardButton
+            colors={colors}
+            label="Dismiss"
+            icon="X"
+            busy={!!busy}
+            spinning={busy === "dismiss"}
+            onPress={() => void drop()}
+          />
+          <CardButton
+            colors={colors}
+            label={view.action}
+            icon="Check"
+            primary
+            busy={!!busy}
+            spinning={busy === "save"}
+            onPress={() => void save()}
+          />
         </View>
       </>
     ) : undefined;
 
-  return <PlanCard colors={colors} title={view.titles[proposal.status]} description={view.description} text={view.text} outcome={OUTCOME[proposal.status]} footer={footer} />;
+  return (
+    <PlanCard
+      colors={colors}
+      title={view.titles[proposal.status]}
+      description={view.description}
+      text={view.text}
+      outcome={OUTCOME[proposal.status]}
+      footer={footer}
+    />
+  );
 }
 
 interface ProposalView {
@@ -131,14 +195,24 @@ interface ProposalView {
   action: string;
 }
 
-function skillView(proposal: Extract<Proposal, { kind: "skill" }>, bot: Bot | undefined, exists: boolean): ProposalView {
+function skillView(
+  proposal: Extract<Proposal, { kind: "skill" }>,
+  bot: Bot | undefined,
+  exists: boolean,
+): ProposalView {
   const { name, description, text } = proposal.data;
   return {
-    titles: { pending: `${exists ? "Updated" : "New"} skill: ${name}`, accepted: `Saved skill: ${name}`, dismissed: `Dismissed skill: ${name}` },
+    titles: {
+      pending: `${exists ? "Updated" : "New"} skill: ${name}`,
+      accepted: `Saved skill: ${name}`,
+      dismissed: `Dismissed skill: ${name}`,
+    },
     description,
     text: skillBody(text),
     warnings: scanSkillText(text),
-    notes: [`${exists ? `Replace ${name} in Skills & Tools` : "Save it to Skills & Tools"}${bot ? ` and turn it on for ${bot.name}?` : "?"}`],
+    notes: [
+      `${exists ? `Replace ${name} in Skills & Tools` : "Save it to Skills & Tools"}${bot ? ` and turn it on for ${bot.name}?` : "?"}`,
+    ],
     action: exists ? "Update skill" : "Save skill",
   };
 }
@@ -154,7 +228,11 @@ function routineView(proposal: Extract<Proposal, { kind: "routine" }>, bot: Bot 
         ? `Next ${next.length === 1 ? "run" : `${next.length} runs`}: ${next.map((at) => at.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })).join(" · ")}`
         : "It has no upcoming runs.";
   return {
-    titles: { pending: `New routine: ${name}`, accepted: `Scheduled routine: ${name}`, dismissed: `Dismissed routine: ${name}` },
+    titles: {
+      pending: `New routine: ${name}`,
+      accepted: `Scheduled routine: ${name}`,
+      dismissed: `Dismissed routine: ${name}`,
+    },
     description: describeSchedule(schedule),
     text: prompt,
     warnings: [],
@@ -167,7 +245,11 @@ function changesView(proposal: Extract<Proposal, { kind: "changes" }>): Proposal
   const { summary, changes } = proposal.data;
   const count = changes.length === 1 ? "the change" : `all ${changes.length} changes`;
   return {
-    titles: { pending: "Setup changes", accepted: "Applied setup changes", dismissed: "Dismissed setup changes" },
+    titles: {
+      pending: "Setup changes",
+      accepted: "Applied setup changes",
+      dismissed: "Dismissed setup changes",
+    },
     description: summary,
     text: changes.map((change) => `- ${describeChange(change)}`).join("\n"),
     warnings: changeWarnings(changes),

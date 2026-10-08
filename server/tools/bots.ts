@@ -9,7 +9,8 @@ import { defineTool, type ToolCaller } from "./mcp";
 
 export const listBots = defineTool({
   name: "list_bots",
-  description: "List the other bots on this Paseo host: id, name, what each does. Use it before asking another bot for help.",
+  description:
+    "List the other bots on this Paseo host: id, name, what each does. Use it before asking another bot for help.",
   input: z.object({}),
   async run(_args, { bot, host }) {
     const others = (await host.bots()).filter((entry) => entry.id !== bot.id && !entry.archived);
@@ -41,18 +42,34 @@ interface ChatState {
   reply: string;
 }
 
-async function readChat(paseo: PaseoApi, chatId: string): Promise<ChatState & { labels: Record<string, string> }> {
-  const snapshot = await paseo.agents.ref(chatId).refresh().catch(() => null);
+async function readChat(
+  paseo: PaseoApi,
+  chatId: string,
+): Promise<ChatState & { labels: Record<string, string> }> {
+  const snapshot = await paseo.agents
+    .ref(chatId)
+    .refresh()
+    .catch(() => null);
   const agent = snapshot?.agent;
   if (!agent) throw new Error("There's no chat with that id.");
-  const page = await paseo.agents.ref(chatId).timeline.refetch({ direction: "tail", projection: "projected", limit: 80 });
+  const page = await paseo.agents
+    .ref(chatId)
+    .timeline.refetch({ direction: "tail", projection: "projected", limit: 80 });
   const busy = agent.status === "running" || agent.status === "initializing";
   return {
     title: agent.title ?? "Untitled chat",
     labels: agent.labels ?? {},
-    state: agent.pendingPermissions?.length ? "permission" : busy ? "running" : agent.status === "error" ? "error" : "idle",
+    state: agent.pendingPermissions?.length
+      ? "permission"
+      : busy
+        ? "running"
+        : agent.status === "error"
+          ? "error"
+          : "idle",
     error: agent.lastError ?? null,
-    reply: lastTurn(page.entries.map((entry) => entry.item as { type: string; text?: unknown; name?: unknown })).reply,
+    reply: lastTurn(
+      page.entries.map((entry) => entry.item as { type: string; text?: unknown; name?: unknown }),
+    ).reply,
   };
 }
 
@@ -65,7 +82,9 @@ function describeChat(chat: ChatState, who: string, chatId: string): string {
     case "error":
       return `${who}'s chat ${chatId} stopped with an error: ${chat.error ?? "unknown error"}`;
     case "idle":
-      return chat.reply.trim() ? `${who} answered (chat ${chatId}):\n\n${chat.reply.length > REPLY_MAX ? `${chat.reply.slice(0, REPLY_MAX)}\n[cut at ${REPLY_MAX} characters]` : chat.reply}` : `${who} finished in chat ${chatId} without a reply.`;
+      return chat.reply.trim()
+        ? `${who} answered (chat ${chatId}):\n\n${chat.reply.length > REPLY_MAX ? `${chat.reply.slice(0, REPLY_MAX)}\n[cut at ${REPLY_MAX} characters]` : chat.reply}`
+        : `${who} finished in chat ${chatId} without a reply.`;
   }
 }
 
@@ -82,38 +101,69 @@ export const askBot = defineTool({
     "Ask another bot on this Paseo for help. It gets your message in a new chat of its own, works with its own tools and settings, and its answer comes back here. Use list_bots to see who does what.",
   input: z.object({
     bot: z.string().min(1).max(100).describe("The other bot's name or id."),
-    message: z.string().min(1).max(20_000).describe("What you need, written so the other bot can act on it without this chat."),
-    wait: z.boolean().optional().describe("Wait up to about 50 seconds for the answer (the default). With false, return at once and use check_chat later."),
+    message: z
+      .string()
+      .min(1)
+      .max(20_000)
+      .describe("What you need, written so the other bot can act on it without this chat."),
+    wait: z
+      .boolean()
+      .optional()
+      .describe(
+        "Wait up to about 50 seconds for the answer (the default). With false, return at once and use check_chat later.",
+      ),
   }),
   available: mayAsk,
   async run({ bot: wanted, message, wait = true }, caller) {
     const { bot, host, relay } = caller;
     const others = (await host.bots()).filter((entry) => entry.id !== bot.id && !entry.archived);
     const key = wanted.trim().toLowerCase();
-    const target = others.find((entry) => entry.id === wanted.trim()) ?? others.find((entry) => entry.name.trim().toLowerCase() === key);
-    if (!target) throw new Error(others.length ? `There's no other bot called "${wanted}". Ask one of: ${others.map((entry) => entry.name).join(", ")}.` : "There are no other bots to ask.");
-    const chatId = await startChat(host, relay, target, { prompt: askPrompt(bot.name, message), title: `${bot.name}: ${foldText(message, 60)}`, labels: { [ASKED_BY_LABEL]: bot.id } });
+    const target =
+      others.find((entry) => entry.id === wanted.trim()) ??
+      others.find((entry) => entry.name.trim().toLowerCase() === key);
+    if (!target)
+      throw new Error(
+        others.length
+          ? `There's no other bot called "${wanted}". Ask one of: ${others.map((entry) => entry.name).join(", ")}.`
+          : "There are no other bots to ask.",
+      );
+    const chatId = await startChat(host, relay, target, {
+      prompt: askPrompt(bot.name, message),
+      title: `${bot.name}: ${foldText(message, 60)}`,
+      labels: { [ASKED_BY_LABEL]: bot.id },
+    });
     if (!wait) return `Asked ${target.name} in chat ${chatId}. Use check_chat with that id for the answer.`;
     const paseo = host.requirePaseo();
-    await paseo.agents.ref(chatId).waitForFinish(ASK_WAIT_MS).catch(() => null);
+    await paseo.agents
+      .ref(chatId)
+      .waitForFinish(ASK_WAIT_MS)
+      .catch(() => null);
     return describeChat(await readChat(paseo, chatId), target.name, chatId);
   },
 });
 
 export const checkChat = defineTool({
   name: "check_chat",
-  description: "Check a chat you started with ask_bot (or one of your own chats): whether it's still working, and its latest answer.",
+  description:
+    "Check a chat you started with ask_bot (or one of your own chats): whether it's still working, and its latest answer.",
   input: z.object({
     chat_id: z.string().min(1).max(100).describe("The chat id ask_bot or search_chats gave you."),
-    wait: z.boolean().optional().describe("If it's still working, wait up to about 50 seconds for it to finish."),
+    wait: z
+      .boolean()
+      .optional()
+      .describe("If it's still working, wait up to about 50 seconds for it to finish."),
   }),
   async run({ chat_id: chatId, wait = false }, { bot, host }) {
     const paseo = host.requirePaseo();
     let chat = await readChat(paseo, chatId.trim());
     const owner = chat.labels[BOT_LABEL];
-    if (owner !== bot.id && chat.labels[ASKED_BY_LABEL] !== bot.id) throw new Error("You can only check your own chats and ones you started with ask_bot.");
+    if (owner !== bot.id && chat.labels[ASKED_BY_LABEL] !== bot.id)
+      throw new Error("You can only check your own chats and ones you started with ask_bot.");
     if (wait && chat.state === "running") {
-      await paseo.agents.ref(chatId.trim()).waitForFinish(ASK_WAIT_MS).catch(() => null);
+      await paseo.agents
+        .ref(chatId.trim())
+        .waitForFinish(ASK_WAIT_MS)
+        .catch(() => null);
       chat = await readChat(paseo, chatId.trim());
     }
     const who = owner === bot.id ? "You" : ((await host.bot(owner ?? ""))?.name ?? "The other bot");

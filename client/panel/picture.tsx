@@ -17,20 +17,47 @@ const MAX_UPLOAD = 20 * 1024 * 1024;
 
 /** Picks an image file (web) and returns it as a square data URL; null when nothing was picked. */
 export async function pickPicture(): Promise<string | null> {
-  const [file] = await pickFileHandles({ accept: "image/png,image/jpeg,image/webp,image/gif", multiple: false });
+  const [file] = await pickFileHandles({
+    accept: "image/png,image/jpeg,image/webp,image/gif",
+    multiple: false,
+  });
   if (!file) return null;
   if (file.size > MAX_UPLOAD) throw new Error("Pick a picture under 20 MB.");
   return squareImage(`data:${file.mimeType};base64,${await file.readBase64()}`, PICTURE_SIZE);
 }
 
 /** The generated picture's colour: automatic, or one of the palettes. */
-export function ColourRow({ colors, value, onChange }: { colors: Colors; value: number | null; onChange(palette: number | null): void }) {
+export function ColourRow({
+  colors,
+  value,
+  onChange,
+}: {
+  colors: Colors;
+  value: number | null;
+  onChange(palette: number | null): void;
+}) {
   return (
     <StackedRow colors={colors} label="Colour">
-      <View accessibilityRole="radiogroup" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12 }}>
-        <Swatch colors={colors} label="Automatic colour" color={null} selected={value === null} onPress={() => onChange(null)} />
+      <View
+        accessibilityRole="radiogroup"
+        style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 12 }}
+      >
+        <Swatch
+          colors={colors}
+          label="Automatic colour"
+          color={null}
+          selected={value === null}
+          onPress={() => onChange(null)}
+        />
         {Array.from({ length: PALETTE_COUNT }, (_, index) => (
-          <Swatch key={index} colors={colors} label={`Colour ${index + 1}`} color={paletteSwatch(index)} selected={value === index} onPress={() => onChange(index)} />
+          <Swatch
+            key={index}
+            colors={colors}
+            label={`Colour ${index + 1}`}
+            color={paletteSwatch(index)}
+            selected={value === index}
+            onPress={() => onChange(index)}
+          />
         ))}
       </View>
     </StackedRow>
@@ -42,7 +69,19 @@ export function ColourRow({ colors, value, onChange }: { colors: Colors; value: 
  * inside the box when selected, 12pt hit slop to reach 44pt, radio semantics. The automatic
  * option is an outlined circle.
  */
-function Swatch({ colors, label, color, selected, onPress }: { colors: Colors; label: string; color: string | null; selected: boolean; onPress(): void }) {
+function Swatch({
+  colors,
+  label,
+  color,
+  selected,
+  onPress,
+}: {
+  colors: Colors;
+  label: string;
+  color: string | null;
+  selected: boolean;
+  onPress(): void;
+}) {
   return (
     <Pressable
       accessibilityRole="radio"
@@ -65,12 +104,38 @@ function Swatch({ colors, label, color, selected, onPress }: { colors: Colors; l
 }
 
 /** A stored picture (uploaded or generated) with Remove, or the Image URL field. */
-export function PictureSource(props: { colors: Colors; imageUrl: string | null; hint: string; placeholder: string; onChange(imageUrl: string | null): void }) {
-  if (props.imageUrl?.startsWith("data:")) return <SettingsAction label="Image" hint="Uploaded or generated" actionLabel="Remove" onPress={() => props.onChange(null)} />;
+export function PictureSource(props: {
+  colors: Colors;
+  imageUrl: string | null;
+  hint: string;
+  placeholder: string;
+  onChange(imageUrl: string | null): void;
+}) {
+  if (props.imageUrl?.startsWith("data:"))
+    return (
+      <SettingsAction
+        label="Image"
+        hint="Uploaded or generated"
+        actionLabel="Remove"
+        onPress={() => props.onChange(null)}
+      />
+    );
   return <ImageUrlField {...props} />;
 }
 
-function ImageUrlField({ colors, imageUrl, hint, placeholder, onChange }: { colors: Colors; imageUrl: string | null; hint: string; placeholder: string; onChange(imageUrl: string | null): void }) {
+function ImageUrlField({
+  colors,
+  imageUrl,
+  hint,
+  placeholder,
+  onChange,
+}: {
+  colors: Colors;
+  imageUrl: string | null;
+  hint: string;
+  placeholder: string;
+  onChange(imageUrl: string | null): void;
+}) {
   const [text, setText] = useState(imageUrl ?? "");
   return (
     <InputField

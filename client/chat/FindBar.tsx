@@ -1,7 +1,16 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useRef } from "react";
-import { ActivityIndicator, Platform, Pressable, Text, TextInput, View, type NativeSyntheticEvent, type TextInputKeyPressEventData } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  Text,
+  TextInput,
+  View,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
+} from "react-native";
 import { CONTENT_MAX_WIDTH, nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
 import { tooltip } from "../ui/Tooltip";
@@ -48,7 +57,16 @@ export function FindBar({
     }
   };
   return (
-    <View style={{ paddingHorizontal: 16, paddingVertical: 8, alignItems: "center", borderBottomWidth: 1, borderBottomColor: colors.border, backgroundColor: colors.surface0 }}>
+    <View
+      style={{
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        alignItems: "center",
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+        backgroundColor: colors.surface0,
+      }}
+    >
       <View
         style={{
           width: "100%",
@@ -80,10 +98,22 @@ export function FindBar({
           autoCapitalize="none"
           autoCorrect={false}
           returnKeyType="search"
-          style={{ flex: 1, minWidth: 0, padding: 0, height: 24, fontSize: ui(14), color: colors.foreground, outlineWidth: 0 }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: 0,
+            height: 24,
+            fontSize: ui(14),
+            color: colors.foreground,
+            outlineWidth: 0,
+          }}
         />
         {busy ? <ActivityIndicator size="small" color={colors.foregroundMuted} /> : null}
-        {!busy && query.trim() ? <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>{total ? `${position} of ${total}` : "No matches"}</Text> : null}
+        {!busy && query.trim() ? (
+          <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>
+            {total ? `${position} of ${total}` : "No matches"}
+          </Text>
+        ) : null}
         <FindButton colors={colors} icon="ChevronUp" label="Older match" onPress={onOlder} />
         <FindButton colors={colors} icon="ChevronDown" label="Newer match" onPress={onNewer} />
         <FindButton colors={colors} icon="X" label="Close find" onPress={onClose} />
@@ -92,7 +122,17 @@ export function FindBar({
   );
 }
 
-function FindButton({ colors, icon, label, onPress }: { colors: Colors; icon: string; label: string; onPress(): void }) {
+function FindButton({
+  colors,
+  icon,
+  label,
+  onPress,
+}: {
+  colors: Colors;
+  icon: string;
+  label: string;
+  onPress(): void;
+}) {
   const tokens = nativeTokens(colors);
   const { hovered, hoverProps } = useHover();
   return (
@@ -102,7 +142,14 @@ function FindButton({ colors, icon, label, onPress }: { colors: Colors; icon: st
       {...tooltip(label, "bottom")}
       onPress={onPress}
       {...hoverProps}
-      style={({ pressed }) => ({ width: 24, height: 24, borderRadius: 4, alignItems: "center", justifyContent: "center", backgroundColor: hovered || pressed ? tokens.interactionHighlight : "transparent" })}
+      style={({ pressed }) => ({
+        width: 24,
+        height: 24,
+        borderRadius: 4,
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: hovered || pressed ? tokens.interactionHighlight : "transparent",
+      })}
     >
       <Icon name={icon} size={14} color={hovered ? colors.foreground : colors.foregroundMuted} />
     </Pressable>

@@ -4,8 +4,26 @@ import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { View, type LayoutRectangle } from "react-native";
-import { EMPTY_LIBRARY, type Bot, type BotMcpServer, type BotSettingsValues, type Library, type LibraryMcpServer, type LibrarySkill } from "../../shared/bot";
-import { addMcpServers, forgetItem, newMcpServerId, renameGrants, setBotUses, updateMcpServer, updateSkill, upsertSkills, type LibraryKind } from "../../shared/library";
+import {
+  EMPTY_LIBRARY,
+  type Bot,
+  type BotMcpServer,
+  type BotSettingsValues,
+  type Library,
+  type LibraryMcpServer,
+  type LibrarySkill,
+} from "../../shared/bot";
+import {
+  addMcpServers,
+  forgetItem,
+  newMcpServerId,
+  renameGrants,
+  setBotUses,
+  updateMcpServer,
+  updateSkill,
+  upsertSkills,
+  type LibraryKind,
+} from "../../shared/library";
 import { appsConnectRpc, skillDeleteRpc } from "../../shared/rpc";
 import type { LibraryTarget } from "../navigation";
 import { errorText, nativeTokens } from "../native";
@@ -21,11 +39,14 @@ import { BackBar, PAGE_STYLE } from "./parts";
 import { ImportSkillsSheet, NewSkillSheet, type SavedSkill } from "./SkillSheets";
 import { skillQueryKey, SkillPage } from "./SkillPage";
 
-
 /** Settings sidebar width (constants/layout.ts SETTINGS_DESKTOP_SIDEBAR_WIDTH). */
 const LIST_WIDTH = 320;
 
-type Sheet = { kind: "import-skills" } | { kind: "new-skill" } | { kind: "new-server"; initial: McpDraft } | { kind: "paste-servers" };
+type Sheet =
+  | { kind: "import-skills" }
+  | { kind: "new-skill" }
+  | { kind: "new-server"; initial: McpDraft }
+  | { kind: "paste-servers" };
 
 interface LibraryViewProps {
   colors: PluginSurfaceProps["theme"]["colors"];
@@ -48,7 +69,16 @@ interface LibraryViewProps {
  * back row and a 720-wide page on desktop; on compact the list is a screen
  * that pushes the page.
  */
-export function LibraryView({ colors, layout, values, commit, target, onTarget: setTarget, onBack, bottomInset }: LibraryViewProps) {
+export function LibraryView({
+  colors,
+  layout,
+  values,
+  commit,
+  target,
+  onTarget: setTarget,
+  onBack,
+  bottomInset,
+}: LibraryViewProps) {
   const compact = layout.compact;
   const toast = useToast();
   const menu = useMenu();
@@ -69,7 +99,10 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
   useEffect(() => {
     if (!pending) return;
     // A new account: signing in to another account of a connected app mustn't finish at once.
-    const account = appAccounts.data?.accounts.find((entry) => entry.slug === pending.slug && entry.status === "connected" && !pending.known.includes(entry.id));
+    const account = appAccounts.data?.accounts.find(
+      (entry) =>
+        entry.slug === pending.slug && entry.status === "connected" && !pending.known.includes(entry.id),
+    );
     if (account) {
       const name = appCatalog.data?.apps.find((app) => app.slug === pending.slug)?.name ?? pending.slug;
       toast.show(`Connected ${name}`, { variant: "success" });
@@ -119,24 +152,44 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
   const createServer = async (draft: McpDraft) => {
     const now = new Date().toISOString();
     // Off until a test connects to it.
-    const server: LibraryMcpServer = { ...draft, id: newMcpServerId(), enabled: false, tools: null, checkedAt: null, checkError: null, createdAt: now, updatedAt: now };
-    if (await save((current) => ({ library: { ...current, mcpServers: [...current.mcpServers, server] } }))) setTarget({ kind: "mcp", id: server.id });
+    const server: LibraryMcpServer = {
+      ...draft,
+      id: newMcpServerId(),
+      enabled: false,
+      tools: null,
+      checkedAt: null,
+      checkError: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    if (await save((current) => ({ library: { ...current, mcpServers: [...current.mcpServers, server] } })))
+      setTarget({ kind: "mcp", id: server.id });
   };
 
-  const patchSkill = (id: string, patch: Partial<LibrarySkill>) => void save((current) => ({ library: updateSkill(current, id, patch) }));
+  const patchSkill = (id: string, patch: Partial<LibrarySkill>) =>
+    void save((current) => ({ library: updateSkill(current, id, patch) }));
 
   const patchServer = (id: string, patch: Partial<LibraryMcpServer>) =>
     void save((current, currentBots) => {
       const before = current.mcpServers.find((server) => server.id === id);
       const renamed = patch.name !== undefined && before && patch.name !== before.name;
-      return { library: updateMcpServer(current, id, patch), bots: renamed ? renameGrants(currentBots, before.name, patch.name!) : currentBots };
+      return {
+        library: updateMcpServer(current, id, patch),
+        bots: renamed ? renameGrants(currentBots, before.name, patch.name!) : currentBots,
+      };
     });
 
   /** Opens Composio's sign-in page in the browser; the accounts query polls until it's done. */
   const startConnect = async (slug: string, alias?: string) => {
     try {
       const { url } = await connectApp({ slug, ...(alias?.trim() ? { alias: alias.trim() } : {}) });
-      setPending({ slug, since: Date.now(), known: (appAccounts.data?.accounts ?? []).filter((entry) => entry.slug === slug).map((entry) => entry.id) });
+      setPending({
+        slug,
+        since: Date.now(),
+        known: (appAccounts.data?.accounts ?? [])
+          .filter((entry) => entry.slug === slug)
+          .map((entry) => entry.id),
+      });
       await openExternalUrl(url);
     } catch (error) {
       setPending(null);
@@ -146,11 +199,20 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
 
   const toggleApp = (slug: string, bot: Bot, on: boolean) =>
     void save((_current, currentBots) => ({
-      bots: currentBots.map((entry) => (entry.id !== bot.id ? entry : { ...entry, apps: on ? [...new Set([...entry.apps, slug])] : entry.apps.filter((app) => app !== slug) })),
+      bots: currentBots.map((entry) =>
+        entry.id !== bot.id
+          ? entry
+          : {
+              ...entry,
+              apps: on ? [...new Set([...entry.apps, slug])] : entry.apps.filter((app) => app !== slug),
+            },
+      ),
     }));
 
   const toggleBot = (kind: LibraryKind, id: string, bot: Bot, on: boolean) =>
-    void save((_current, currentBots) => ({ bots: currentBots.map((entry) => (entry.id === bot.id ? setBotUses(entry, kind, id, on) : entry)) }));
+    void save((_current, currentBots) => ({
+      bots: currentBots.map((entry) => (entry.id === bot.id ? setBotUses(entry, kind, id, on) : entry)),
+    }));
 
   const removeSkill = async (id: string) => {
     try {
@@ -159,13 +221,23 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
       toast.error(`Couldn't delete the files: ${errorText(error)}`);
       return;
     }
-    if (await save((current, currentBots) => ({ library: { ...current, skills: current.skills.filter((skill) => skill.id !== id) }, bots: forgetItem(currentBots, "skill", id) }))) {
+    if (
+      await save((current, currentBots) => ({
+        library: { ...current, skills: current.skills.filter((skill) => skill.id !== id) },
+        bots: forgetItem(currentBots, "skill", id),
+      }))
+    ) {
       setTarget(null);
     }
   };
 
   const removeServer = async (id: string) => {
-    if (await save((current, currentBots) => ({ library: { ...current, mcpServers: current.mcpServers.filter((server) => server.id !== id) }, bots: forgetItem(currentBots, "mcp", id) }))) {
+    if (
+      await save((current, currentBots) => ({
+        library: { ...current, mcpServers: current.mcpServers.filter((server) => server.id !== id) },
+        bots: forgetItem(currentBots, "mcp", id),
+      }))
+    ) {
       setTarget(null);
     }
   };
@@ -189,7 +261,11 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
       width: 220,
       title: "Add MCP server",
       entries: [
-        { label: "New server", icon: "Plus", onSelect: () => setSheet({ kind: "new-server", initial: BLANK_SERVER }) },
+        {
+          label: "New server",
+          icon: "Plus",
+          onSelect: () => setSheet({ kind: "new-server", initial: BLANK_SERVER }),
+        },
         { label: "Import config", icon: "Import", onSelect: () => setSheet({ kind: "paste-servers" }) },
       ],
     });
@@ -199,16 +275,39 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
   // Desktop always shows a page, like Paseo's settings: the first item until one is picked.
   const firstSkill = library.skills.map((entry) => entry.id).sort((a, b) => a.localeCompare(b))[0];
   const firstServer = library.mcpServers.slice().sort((a, b) => a.name.localeCompare(b.name))[0];
-  const first: LibraryTarget = firstSkill ? { kind: "skill", id: firstSkill } : firstServer ? { kind: "mcp", id: firstServer.id } : { kind: "apps" };
+  const first: LibraryTarget = firstSkill
+    ? { kind: "skill", id: firstSkill }
+    : firstServer
+      ? { kind: "mcp", id: firstServer.id }
+      : { kind: "apps" };
   const shown = target ?? (compact ? null : first);
   const skill = shown?.kind === "skill" ? library.skills.find((entry) => entry.id === shown.id) : undefined;
-  const server = shown?.kind === "mcp" ? library.mcpServers.find((entry) => entry.id === shown.id) : undefined;
-  const appAccountsFor = shown?.kind === "app" ? (appAccounts.data?.accounts ?? []).filter((account) => account.slug === shown.id) : [];
+  const server =
+    shown?.kind === "mcp" ? library.mcpServers.find((entry) => entry.id === shown.id) : undefined;
+  const appAccountsFor =
+    shown?.kind === "app"
+      ? (appAccounts.data?.accounts ?? []).filter((account) => account.slug === shown.id)
+      : [];
   const app =
     shown?.kind === "app" && appAccountsFor.length
-      ? (appCatalog.data?.apps.find((entry) => entry.slug === shown.id) ?? { slug: shown.id, name: shown.id, description: "", logo: null, domain: null, noAuth: false })
+      ? (appCatalog.data?.apps.find((entry) => entry.slug === shown.id) ?? {
+          slug: shown.id,
+          name: shown.id,
+          description: "",
+          logo: null,
+          domain: null,
+          noAuth: false,
+        })
       : undefined;
-  const pageTitle = skill ? skill.id : server ? server.name : app ? app.name : shown?.kind === "apps" ? "Connected apps" : "";
+  const pageTitle = skill
+    ? skill.id
+    : server
+      ? server.name
+      : app
+        ? app.name
+        : shown?.kind === "apps"
+          ? "Connected apps"
+          : "";
   const showTitle = !compact;
 
   const page = skill ? (
@@ -248,7 +347,12 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
       onConnect={(alias) => startConnect(app.slug, alias)}
     />
   ) : (
-    <AppsPage colors={colors} showTitle={showTitle} pending={pending?.slug ?? null} onConnect={(slug) => void startConnect(slug)} />
+    <AppsPage
+      colors={colors}
+      showTitle={showTitle}
+      pending={pending?.slug ?? null}
+      onConnect={(slug) => void startConnect(slug)}
+    />
   );
 
   const list = (
@@ -268,7 +372,10 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
   );
 
   const scrollPage = (
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[PAGE_STYLE, { paddingBottom: PAGE_STYLE.paddingBottom + bottomInset }]}>
+    <ScrollView
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={[PAGE_STYLE, { paddingBottom: PAGE_STYLE.paddingBottom + bottomInset }]}
+    >
       {page}
     </ScrollView>
   );
@@ -293,7 +400,16 @@ export function LibraryView({ colors, layout, values, commit, target, onTarget: 
         </View>
       ) : (
         <>
-          <View style={{ width: LIST_WIDTH, borderRightWidth: 1, borderRightColor: colors.border, backgroundColor: nativeTokens(colors).surfaceSidebar }}>{list}</View>
+          <View
+            style={{
+              width: LIST_WIDTH,
+              borderRightWidth: 1,
+              borderRightColor: colors.border,
+              backgroundColor: nativeTokens(colors).surfaceSidebar,
+            }}
+          >
+            {list}
+          </View>
           <View style={{ flex: 1, minWidth: 0 }}>{scrollPage}</View>
         </>
       )}

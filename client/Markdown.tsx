@@ -18,7 +18,17 @@ function headingSize(tier: number): number {
   return Math.round(content() * (tier / 14));
 }
 
-const HEADINGS: Record<number, { tier: number; weight: TextStyle["fontWeight"]; top: number; bottom: number; rule?: boolean; muted?: boolean }> = {
+const HEADINGS: Record<
+  number,
+  {
+    tier: number;
+    weight: TextStyle["fontWeight"];
+    top: number;
+    bottom: number;
+    rule?: boolean;
+    muted?: boolean;
+  }
+> = {
   1: { tier: 26, weight: "bold", top: 24, bottom: 12, rule: true },
   2: { tier: 22, weight: "bold", top: 24, bottom: 12, rule: true },
   3: { tier: 20, weight: "600", top: 16, bottom: 8 },
@@ -36,7 +46,9 @@ declare const window: { matchMedia?: (query: string) => { matches: boolean } } |
 function hoverCapable(): boolean {
   if (compact()) return false;
   try {
-    return typeof window !== "undefined" && window?.matchMedia ? window.matchMedia("(hover: hover)").matches : true;
+    return typeof window !== "undefined" && window?.matchMedia
+      ? window.matchMedia("(hover: hover)").matches
+      : true;
   } catch {
     return true;
   }
@@ -51,7 +63,12 @@ interface MarkdownProps {
   linkify?: boolean;
 }
 
-export const Markdown = memo(function Markdown({ colors, text, streaming = false, linkify = true }: MarkdownProps) {
+export const Markdown = memo(function Markdown({
+  colors,
+  text,
+  streaming = false,
+  linkify = true,
+}: MarkdownProps) {
   const blocks = useMemo(() => parseMarkdown(text, { streaming, linkify }), [text, streaming, linkify]);
   return <Blocks colors={colors} blocks={blocks} />;
 });
@@ -60,7 +77,14 @@ function Blocks({ colors, blocks, tight }: { colors: Colors; blocks: Block[]; ti
   return (
     <>
       {blocks.map((block, index) => (
-        <BlockView key={index} colors={colors} block={block} last={index === blocks.length - 1} next={blocks[index + 1]} tight={tight} />
+        <BlockView
+          key={index}
+          colors={colors}
+          block={block}
+          last={index === blocks.length - 1}
+          next={blocks[index + 1]}
+          tight={tight}
+        />
       ))}
     </>
   );
@@ -70,7 +94,19 @@ function bodyStyle(colors: Colors): TextStyle {
   return { color: colors.foreground, fontSize: content(), lineHeight: contentLine() };
 }
 
-function BlockView({ colors, block, last, next, tight }: { colors: Colors; block: Block; last: boolean; next?: Block; tight?: boolean }) {
+function BlockView({
+  colors,
+  block,
+  last,
+  next,
+  tight,
+}: {
+  colors: Colors;
+  block: Block;
+  last: boolean;
+  next?: Block;
+  tight?: boolean;
+}) {
   const body = bodyStyle(colors);
   switch (block.kind) {
     case "paragraph":
@@ -87,7 +123,9 @@ function BlockView({ colors, block, last, next, tight }: { colors: Colors; block
           style={{
             marginTop: spec.top,
             marginBottom: spec.bottom,
-            ...(spec.rule ? { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 8 } : {}),
+            ...(spec.rule
+              ? { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 8 }
+              : {}),
           }}
         >
           <Text
@@ -107,7 +145,16 @@ function BlockView({ colors, block, last, next, tight }: { colors: Colors; block
       );
     }
     case "list":
-      return <ListView colors={colors} ordered={block.ordered} items={block.items} tight={block.tight} next={next} nested={tight !== undefined} />;
+      return (
+        <ListView
+          colors={colors}
+          ordered={block.ordered}
+          items={block.items}
+          tight={block.tight}
+          next={next}
+          nested={tight !== undefined}
+        />
+      );
     case "code":
       return <CodeBlock colors={colors} text={block.text} />;
     case "quote":
@@ -128,7 +175,13 @@ function BlockView({ colors, block, last, next, tight }: { colors: Colors; block
         >
           {block.blocks.map((inner, index) => (
             // Quoted paragraphs keep their bottom margin: the quote has no bottom padding.
-            <BlockView key={index} colors={colors} block={inner} last={false} next={block.blocks[index + 1]} />
+            <BlockView
+              key={index}
+              colors={colors}
+              block={inner}
+              last={false}
+              next={block.blocks[index + 1]}
+            />
           ))}
         </View>
       );
@@ -146,7 +199,21 @@ function listSpacing(nested: boolean, next: Block | undefined): { marginTop: num
   return { marginTop: 4, marginBottom: next.kind === "list" ? 8 : 16 };
 }
 
-function ListView({ colors, ordered, items, tight, next, nested }: { colors: Colors; ordered: boolean; items: ListItem[]; tight: boolean; next?: Block; nested: boolean }) {
+function ListView({
+  colors,
+  ordered,
+  items,
+  tight,
+  next,
+  nested,
+}: {
+  colors: Colors;
+  ordered: boolean;
+  items: ListItem[];
+  tight: boolean;
+  next?: Block;
+  nested: boolean;
+}) {
   const marker: TextStyle = {
     color: colors.foregroundMuted,
     marginRight: 4,
@@ -157,7 +224,10 @@ function ListView({ colors, ordered, items, tight, next, nested }: { colors: Col
   return (
     <View style={{ width: "100%", ...listSpacing(nested, next) }}>
       {items.map((item, index) => (
-        <View key={index} style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 4, flexShrink: 1 }}>
+        <View
+          key={index}
+          style={{ flexDirection: "row", alignItems: "flex-start", marginBottom: 4, flexShrink: 1 }}
+        >
           <Text style={marker}>{item.marker}</Text>
           <View style={{ flex: 1, flexShrink: 1, minWidth: 0 }}>
             <Blocks colors={colors} blocks={item.blocks} tight={tight} />
@@ -173,10 +243,28 @@ function TableView({ colors, block }: { colors: Colors; block: Extract<Block, { 
   const cell = { padding: 8, borderRightWidth: 1, borderColor: colors.border, flex: 1 } as const;
   const text = { color: colors.foreground, fontSize: content(), lineHeight: contentLine() } as const;
   return (
-    <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: 6, marginVertical: 12, overflow: "hidden" }}>
-      <View style={{ flexDirection: "row", backgroundColor: colors.surface2, borderBottomWidth: 1, borderColor: colors.border }}>
+    <View
+      style={{
+        borderWidth: 1,
+        borderColor: colors.border,
+        borderRadius: 6,
+        marginVertical: 12,
+        overflow: "hidden",
+      }}
+    >
+      <View
+        style={{
+          flexDirection: "row",
+          backgroundColor: colors.surface2,
+          borderBottomWidth: 1,
+          borderColor: colors.border,
+        }}
+      >
         {block.header.map((inlines, index) => (
-          <View key={index} style={[cell, index === block.header.length - 1 ? { borderRightWidth: 0 } : null]}>
+          <View
+            key={index}
+            style={[cell, index === block.header.length - 1 ? { borderRightWidth: 0 } : null]}
+          >
             <Text selectable style={[text, { fontWeight: "600", textAlign: align(index) }]}>
               <Inlines colors={colors} inlines={inlines} />
             </Text>
@@ -184,7 +272,14 @@ function TableView({ colors, block }: { colors: Colors; block: Extract<Block, { 
         ))}
       </View>
       {block.rows.map((row, rowIndex) => (
-        <View key={rowIndex} style={{ flexDirection: "row", borderBottomWidth: rowIndex === block.rows.length - 1 ? 0 : 1, borderColor: colors.border }}>
+        <View
+          key={rowIndex}
+          style={{
+            flexDirection: "row",
+            borderBottomWidth: rowIndex === block.rows.length - 1 ? 0 : 1,
+            borderColor: colors.border,
+          }}
+        >
           {row.map((inlines, index) => (
             <View key={index} style={[cell, index === row.length - 1 ? { borderRightWidth: 0 } : null]}>
               <Text selectable style={[text, { textAlign: align(index) }]}>
@@ -235,7 +330,15 @@ function renderInline(colors: Colors, inline: Inline, key: number): ReactNode {
         <Text
           key={key}
           {...MONO_PROPS}
-          style={{ fontFamily: MONO_FONT, fontSize: code(), color: colors.foreground, backgroundColor: colors.surface2, borderRadius: 6, paddingHorizontal: 4, paddingVertical: 2 }}
+          style={{
+            fontFamily: MONO_FONT,
+            fontSize: code(),
+            color: colors.foreground,
+            backgroundColor: colors.surface2,
+            borderRadius: 6,
+            paddingHorizontal: 4,
+            paddingVertical: 2,
+          }}
         >
           {inline.text}
         </Text>
@@ -244,7 +347,14 @@ function renderInline(colors: Colors, inline: Inline, key: number): ReactNode {
       return <Link key={key} colors={colors} url={inline.url} inlines={inline.children} />;
     case "image":
       // Paseo loads the image inline; plugins can't fetch workspace files, so web images open as links.
-      return <Link key={key} colors={colors} url={inline.url} inlines={[{ kind: "text", text: inline.alt || inline.url }]} />;
+      return (
+        <Link
+          key={key}
+          colors={colors}
+          url={inline.url}
+          inlines={[{ kind: "text", text: inline.alt || inline.url }]}
+        />
+      );
   }
 }
 
@@ -262,7 +372,11 @@ function Link({ colors, url, inlines }: { colors: Colors; url: string; inlines: 
       .catch(() => toast.error("Couldn't copy the path."));
   };
   return (
-    <Text accessibilityRole="link" style={{ color: nativeTokens(colors).accentBright, textDecorationLine: "none" }} onPress={onPress}>
+    <Text
+      accessibilityRole="link"
+      style={{ color: nativeTokens(colors).accentBright, textDecorationLine: "none" }}
+      onPress={onPress}
+    >
       <Inlines colors={colors} inlines={inlines} />
     </Text>
   );
@@ -288,10 +402,27 @@ function CodeBlock({ colors, text }: { colors: Colors; text: string }) {
   const Container = Platform.OS === "web" ? Pressable : View;
   return (
     <Container
-      {...(Platform.OS === "web" ? { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) } : {})}
-      style={{ position: "relative", backgroundColor: colors.surface2, padding: 12, borderRadius: 6, borderWidth: 1, borderColor: colors.border, marginVertical: 12, cursor: "auto" } as object}
+      {...(Platform.OS === "web"
+        ? { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) }
+        : {})}
+      style={
+        {
+          position: "relative",
+          backgroundColor: colors.surface2,
+          padding: 12,
+          borderRadius: 6,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginVertical: 12,
+          cursor: "auto",
+        } as object
+      }
     >
-      <Text selectable {...MONO_PROPS} style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foreground }}>
+      <Text
+        selectable
+        {...MONO_PROPS}
+        style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foreground }}
+      >
         {text}
       </Text>
       <Pressable
@@ -305,7 +436,11 @@ function CodeBlock({ colors, text }: { colors: Colors; text: string }) {
         pointerEvents={visible ? "auto" : "none"}
         style={{ position: "absolute", top: 8, right: 8, padding: 4, opacity: visible ? 1 : 0 }}
       >
-        <Icon name={copied ? "Check" : "Copy"} size={14} color={buttonHovered ? colors.foreground : colors.foregroundMuted} />
+        <Icon
+          name={copied ? "Check" : "Copy"}
+          size={14}
+          color={buttonHovered ? colors.foreground : colors.foregroundMuted}
+        />
       </Pressable>
     </Container>
   );

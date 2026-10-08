@@ -14,8 +14,17 @@ function plain(text: string): string {
   return text.replace(/[\r\n]+/g, " ").replace(/[\\`*_[\]<>#]/g, "\\$&");
 }
 
-export function chatTranscript(input: { title: string; botName: string; entries: readonly TranscriptEntry[]; exportedAt: Date }): string {
-  const lines = [`# ${plain(input.title)}`, "", `_${plain(input.botName)} · exported ${input.exportedAt.toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}_`];
+export function chatTranscript(input: {
+  title: string;
+  botName: string;
+  entries: readonly TranscriptEntry[];
+  exportedAt: Date;
+}): string {
+  const lines = [
+    `# ${plain(input.title)}`,
+    "",
+    `_${plain(input.botName)} · exported ${input.exportedAt.toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" })}_`,
+  ];
   let speaker: string | null = null;
   let tools: string[] = [];
   const say = (who: string, at: string) => {
@@ -24,7 +33,8 @@ export function chatTranscript(input: { title: string; botName: string; entries:
     speaker = who;
   };
   const flushTools = () => {
-    if (tools.length) lines.push("", `> Used ${tools.map((tool) => `\`${tool.replace(/`/g, "'")}\``).join(", ")}`);
+    if (tools.length)
+      lines.push("", `> Used ${tools.map((tool) => `\`${tool.replace(/`/g, "'")}\``).join(", ")}`);
     tools = [];
   };
   for (const { item, timestamp } of input.entries) {

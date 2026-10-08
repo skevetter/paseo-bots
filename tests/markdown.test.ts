@@ -1,22 +1,40 @@
 import { describe, expect, it } from "vitest";
-import { capMessageForRender, formatDuration, parseInline, parseMarkdown, utf8ByteLength, type Block, type Inline } from "../shared/markdown";
+import {
+  capMessageForRender,
+  formatDuration,
+  parseInline,
+  parseMarkdown,
+  utf8ByteLength,
+  type Block,
+  type Inline,
+} from "../shared/markdown";
 
 const text = (value: string): Inline => ({ kind: "text", text: value });
 
 describe("parseMarkdown blocks", () => {
   it("splits paragraphs, lists, headings and fences", () => {
-    const blocks = parseMarkdown("# Title\n\nHello **world** and `code`.\n\n1. one\n2. two\n\n- a\n\n```ts\nconst x = 1;\n```");
+    const blocks = parseMarkdown(
+      "# Title\n\nHello **world** and `code`.\n\n1. one\n2. two\n\n- a\n\n```ts\nconst x = 1;\n```",
+    );
     expect(blocks.map((block) => block.kind)).toEqual(["heading", "paragraph", "list", "list", "code"]);
     expect(blocks[1]).toEqual({
       kind: "paragraph",
-      inlines: [text("Hello "), { kind: "bold", children: [text("world")] }, text(" and "), { kind: "code", text: "code" }, text(".")],
+      inlines: [
+        text("Hello "),
+        { kind: "bold", children: [text("world")] },
+        text(" and "),
+        { kind: "code", text: "code" },
+        text("."),
+      ],
     });
     expect(blocks[2]).toMatchObject({ ordered: true, start: 1, items: [{ marker: "1." }, { marker: "2." }] });
     expect(blocks[4]).toEqual({ kind: "code", language: "ts", text: "const x = 1;" });
   });
 
   it("keeps single newlines as line breaks", () => {
-    expect(parseMarkdown("one\ntwo")).toEqual([{ kind: "paragraph", inlines: [text("one"), { kind: "break" }, text("two")] }]);
+    expect(parseMarkdown("one\ntwo")).toEqual([
+      { kind: "paragraph", inlines: [text("one"), { kind: "break" }, text("two")] },
+    ]);
   });
 
   it("keeps an unterminated fence while streaming", () => {
@@ -24,8 +42,12 @@ describe("parseMarkdown blocks", () => {
   });
 
   it("parses tilde fences and indented code", () => {
-    expect(parseMarkdown("~~~py\nprint(1)\n~~~")).toEqual([{ kind: "code", language: "py", text: "print(1)" }]);
-    expect(parseMarkdown("    let x;\n    x = 1;")).toEqual([{ kind: "code", language: "", text: "let x;\nx = 1;" }]);
+    expect(parseMarkdown("~~~py\nprint(1)\n~~~")).toEqual([
+      { kind: "code", language: "py", text: "print(1)" },
+    ]);
+    expect(parseMarkdown("    let x;\n    x = 1;")).toEqual([
+      { kind: "code", language: "", text: "let x;\nx = 1;" },
+    ]);
   });
 
   it("parses setext headings and keeps thematic breaks", () => {
@@ -47,7 +69,10 @@ describe("parseMarkdown blocks", () => {
     expect(quote).toMatchObject({ kind: "quote" });
     const inner = (quote as Extract<Block, { kind: "quote" }>).blocks;
     expect(inner.map((block) => block.kind)).toEqual(["paragraph", "list"]);
-    expect(inner[0]).toEqual({ kind: "paragraph", inlines: [text("first"), { kind: "break" }, text("second"), { kind: "break" }, text("lazy")] });
+    expect(inner[0]).toEqual({
+      kind: "paragraph",
+      inlines: [text("first"), { kind: "break" }, text("second"), { kind: "break" }, text("lazy")],
+    });
   });
 
   it("parses nested lists and ordered starts", () => {
@@ -56,7 +81,11 @@ describe("parseMarkdown blocks", () => {
     const items = (list as Extract<Block, { kind: "list" }>).items;
     expect(items.map((item) => item.marker)).toEqual(["3.", "4."]);
     expect(items[0]!.blocks.map((block) => block.kind)).toEqual(["paragraph", "list"]);
-    expect(items[0]!.blocks[1]).toMatchObject({ kind: "list", ordered: false, items: [{ marker: "•" }, { marker: "•" }] });
+    expect(items[0]!.blocks[1]).toMatchObject({
+      kind: "list",
+      ordered: false,
+      items: [{ marker: "•" }, { marker: "•" }],
+    });
   });
 
   it("marks lists with blank lines between items as loose", () => {
@@ -82,7 +111,11 @@ describe("parseMarkdown blocks", () => {
     const [paragraph] = parseMarkdown("See [the docs][docs].\n\n[docs]: https://paseo.sh");
     expect(paragraph).toEqual({
       kind: "paragraph",
-      inlines: [text("See "), { kind: "link", url: "https://paseo.sh", children: [text("the docs")] }, text(".")],
+      inlines: [
+        text("See "),
+        { kind: "link", url: "https://paseo.sh", children: [text("the docs")] },
+        text("."),
+      ],
     });
   });
 });
@@ -103,12 +136,19 @@ describe("parseInline", () => {
   });
 
   it("nests emphasis", () => {
-    expect(parseInline("***both***")).toEqual([{ kind: "italic", children: [{ kind: "bold", children: [text("both")] }] }]);
-    expect(parseInline("**bold *and italic***")).toEqual([{ kind: "bold", children: [text("bold "), { kind: "italic", children: [text("and italic")] }] }]);
+    expect(parseInline("***both***")).toEqual([
+      { kind: "italic", children: [{ kind: "bold", children: [text("both")] }] },
+    ]);
+    expect(parseInline("**bold *and italic***")).toEqual([
+      { kind: "bold", children: [text("bold "), { kind: "italic", children: [text("and italic")] }] },
+    ]);
   });
 
   it("parses strikethrough", () => {
-    expect(parseInline("~~gone~~ ~one~")).toEqual([{ kind: "strike", children: [text("gone")] }, text(" ~one~")]);
+    expect(parseInline("~~gone~~ ~one~")).toEqual([
+      { kind: "strike", children: [text("gone")] },
+      text(" ~one~"),
+    ]);
   });
 
   it("honours backslash escapes and entities", () => {
@@ -116,29 +156,45 @@ describe("parseInline", () => {
   });
 
   it("parses autolinks and bare URLs", () => {
-    expect(parseInline("<https://a.b/c>")).toEqual([{ kind: "link", url: "https://a.b/c", children: [text("https://a.b/c")] }]);
+    expect(parseInline("<https://a.b/c>")).toEqual([
+      { kind: "link", url: "https://a.b/c", children: [text("https://a.b/c")] },
+    ]);
     expect(parseInline("go to https://paseo.sh/docs.")).toEqual([
       text("go to "),
       { kind: "link", url: "https://paseo.sh/docs", children: [text("https://paseo.sh/docs")] },
       text("."),
     ]);
-    expect(parseInline("go to https://paseo.sh", { linkify: false })).toEqual([text("go to https://paseo.sh")]);
+    expect(parseInline("go to https://paseo.sh", { linkify: false })).toEqual([
+      text("go to https://paseo.sh"),
+    ]);
   });
 
   it("keeps code spans literal", () => {
-    expect(parseInline("``a `b` c`` and `*x*`")).toEqual([{ kind: "code", text: "a `b` c" }, text(" and "), { kind: "code", text: "*x*" }]);
+    expect(parseInline("``a `b` c`` and `*x*`")).toEqual([
+      { kind: "code", text: "a `b` c" },
+      text(" and "),
+      { kind: "code", text: "*x*" },
+    ]);
     expect(parseInline("`unclosed")).toEqual([text("`unclosed")]);
   });
 
   it("completes unclosed marks while streaming", () => {
-    expect(parseInline("a **bol", { streaming: true })).toEqual([text("a "), { kind: "bold", children: [text("bol")] }]);
-    expect(parseInline("run `npm i", { streaming: true })).toEqual([text("run "), { kind: "code", text: "npm i" }]);
+    expect(parseInline("a **bol", { streaming: true })).toEqual([
+      text("a "),
+      { kind: "bold", children: [text("bol")] },
+    ]);
+    expect(parseInline("run `npm i", { streaming: true })).toEqual([
+      text("run "),
+      { kind: "code", text: "npm i" },
+    ]);
     expect(parseInline("wait *", { streaming: true })).toEqual([text("wait ")]);
     expect(parseInline("see [docs](https://pas", { streaming: true })).toEqual([text("see docs")]);
   });
 
   it("parses images", () => {
-    expect(parseInline("![alt text](https://x/y.png)")).toEqual([{ kind: "image", url: "https://x/y.png", alt: "alt text" }]);
+    expect(parseInline("![alt text](https://x/y.png)")).toEqual([
+      { kind: "image", url: "https://x/y.png", alt: "alt text" },
+    ]);
   });
 });
 

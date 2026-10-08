@@ -96,7 +96,11 @@ export async function ensureBotsHome() {
   await migrateLegacyHome();
   const path = botsHomePath();
   await mkdir(path, { recursive: true });
-  await writeFile(join(path, "README.md"), "paseo-bots: one folder per bot, each the working folder of that bot's workspace.\n", { flag: "w" });
+  await writeFile(
+    join(path, "README.md"),
+    "paseo-bots: one folder per bot, each the working folder of that bot's workspace.\n",
+    { flag: "w" },
+  );
   await writeFile(join(path, "icon.svg"), PROJECT_ICON, { flag: "w" });
   return { path };
 }

@@ -1,7 +1,20 @@
 import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
-import { BotMcpServerSchema, BotSchema, botMcpServers, botSkills, newBotId, newRoutineId, TeamFileTeamSchema, type Bot, type BotGroup, type BotMcpServer, type Library, type TeamFileTeam } from "../shared/bot";
+import {
+  BotMcpServerSchema,
+  BotSchema,
+  botMcpServers,
+  botSkills,
+  newBotId,
+  newRoutineId,
+  TeamFileTeamSchema,
+  type Bot,
+  type BotGroup,
+  type BotMcpServer,
+  type Library,
+  type TeamFileTeam,
+} from "../shared/bot";
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
 import { librarySkillPath, type ImportedSkill } from "./library";
@@ -25,7 +38,11 @@ const BotFields = BotSchema.pick({
   playbooks: true,
 });
 
-const SharedSkillSchema = z.object({ id: z.string(), description: z.string().default(""), source: z.string().default("") });
+const SharedSkillSchema = z.object({
+  id: z.string(),
+  description: z.string().default(""),
+  source: z.string().default(""),
+});
 
 /** v2: skills and MCP servers travel next to the bot and join the importer's library. */
 const ExportV2Schema = z.object({
@@ -43,17 +60,30 @@ const ExportV1Schema = z.object({
   version: z.literal(1),
   bot: BotFields.extend({
     mcpServers: z.array(BotMcpServerSchema).default([]),
-    skills: z.array(z.object({ name: z.string(), description: z.string().default(""), source: z.string().default(""), enabled: z.boolean().default(true) })).default([]),
+    skills: z
+      .array(
+        z.object({
+          name: z.string(),
+          description: z.string().default(""),
+          source: z.string().default(""),
+          enabled: z.boolean().default(true),
+        }),
+      )
+      .default([]),
   }),
   files: z.record(z.string(), z.string()),
 });
 
 /** Env values and headers can hold keys; exports keep the names and drop the values. */
 function redact(servers: BotMcpServer[]): BotMcpServer[] {
-  const blank = (record: Record<string, string>) => Object.fromEntries(Object.keys(record).map((key) => [key, "<redacted>"]));
+  const blank = (record: Record<string, string>) =>
+    Object.fromEntries(Object.keys(record).map((key) => [key, "<redacted>"]));
   return servers.map((server) => ({
     ...server,
-    config: server.config.type === "stdio" ? { ...server.config, env: blank(server.config.env) } : { ...server.config, headers: blank(server.config.headers) },
+    config:
+      server.config.type === "stdio"
+        ? { ...server.config, env: blank(server.config.env) }
+        : { ...server.config, headers: blank(server.config.headers) },
   }));
 }
 
@@ -81,14 +111,21 @@ async function collect(root: string, include: (path: string) => boolean): Promis
   return files;
 }
 
-export async function exportBot({ bot, includeMemory }: { bot: Bot; includeMemory: boolean }, library: Library) {
+export async function exportBot(
+  { bot, includeMemory }: { bot: Bot; includeMemory: boolean },
+  library: Library,
+) {
   const skills = botSkills(bot, library);
   const files: Record<string, string> = {};
   for (const skill of skills) {
     const skillFiles = await collect(librarySkillPath(skill.id), () => true);
     for (const [path, text] of Object.entries(skillFiles)) files[`skills/${skill.id}/${path}`] = text;
   }
-  if (includeMemory) Object.assign(files, await collect(botDataPath(bot.id), (path) => path === "MEMORY.md" || path.startsWith("memory/")));
+  if (includeMemory)
+    Object.assign(
+      files,
+      await collect(botDataPath(bot.id), (path) => path === "MEMORY.md" || path.startsWith("memory/")),
+    );
   const payload: z.input<typeof ExportV2Schema> = {
     format: FORMAT,
     version: 2,
@@ -108,7 +145,13 @@ export async function exportBot({ bot, includeMemory }: { bot: Bot; includeMemor
       playbooks: bot.playbooks,
     },
     skills: skills.map((skill) => ({ id: skill.id, description: skill.description, source: skill.source })),
-    mcpServers: redact(botMcpServers(bot, library).map((server) => ({ name: server.name, enabled: true, config: server.config }))),
+    mcpServers: redact(
+      botMcpServers(bot, library).map((server) => ({
+        name: server.name,
+        enabled: true,
+        config: server.config,
+      })),
+    ),
     files,
   };
   return { json: JSON.stringify(payload, null, 2) };
@@ -130,7 +173,9 @@ function parseExport(json: string): z.infer<typeof ExportV2Schema> {
     format: FORMAT,
     version: 2,
     bot,
-    skills: skills.filter((skill) => skill.enabled).map((skill) => ({ id: skill.name, description: skill.description, source: skill.source })),
+    skills: skills
+      .filter((skill) => skill.enabled)
+      .map((skill) => ({ id: skill.name, description: skill.description, source: skill.source })),
     mcpServers: mcpServers.filter((server) => server.enabled),
     files: v1.data.files,
   };
@@ -145,7 +190,13 @@ async function exists(path: string): Promise<boolean> {
  * (a skill already in the library is kept as is). Returns the bot fields to
  * save and the skills and MCP servers to add to the library.
  */
-export async function importBot({ botId, json }: { botId: string; json: string }): Promise<{ bot: Bot; skills: ImportedSkill[]; mcpServers: BotMcpServer[] }> {
+export async function importBot({
+  botId,
+  json,
+}: {
+  botId: string;
+  json: string;
+}): Promise<{ bot: Bot; skills: ImportedSkill[]; mcpServers: BotMcpServer[] }> {
   const parsed = parseExport(json);
   const skills = parsed.skills.map((skill) => ({ ...skill, id: sanitizeSkillName(skill.id) }));
   const fresh = new Set<string>();
@@ -179,7 +230,13 @@ export async function importBot({ botId, json }: { botId: string; json: string }
     voice: { name: null, readReplies: false },
     // Contact with other bots starts at asking, as on a new bot.
     contactBots: "ask",
-    routines: parsed.bot.routines.map((routine) => ({ ...routine, id: newRoutineId(), enabled: false, resultsChatId: null, createdAt: now })),
+    routines: parsed.bot.routines.map((routine) => ({
+      ...routine,
+      id: newRoutineId(),
+      enabled: false,
+      resultsChatId: null,
+      createdAt: now,
+    })),
     pinned: false,
     archived: false,
     createdAt: now,
@@ -193,7 +250,12 @@ export async function importBot({ botId, json }: { botId: string; json: string }
 const TEAM_FORMAT = "paseo-bots-team";
 const MAX_TEAM = 50;
 
-const TeamSchema = z.object({ format: z.literal(TEAM_FORMAT), version: z.literal(1), bots: z.array(z.unknown()).min(1).max(MAX_TEAM), teams: z.array(TeamFileTeamSchema).max(MAX_TEAM).default([]) });
+const TeamSchema = z.object({
+  format: z.literal(TEAM_FORMAT),
+  version: z.literal(1),
+  bots: z.array(z.unknown()).min(1).max(MAX_TEAM),
+  teams: z.array(TeamFileTeamSchema).max(MAX_TEAM).default([]),
+});
 
 export function isTeamFile(json: string): boolean {
   try {
@@ -207,7 +269,9 @@ export function isTeamFile(json: string): boolean {
 function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFileTeam[] {
   const index = new Map(bots.map((bot, position) => [bot.id, position]));
   return groups.flatMap((group) => {
-    const members = [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])].flatMap((id) => index.get(id) ?? []);
+    const members = [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])].flatMap(
+      (id) => index.get(id) ?? [],
+    );
     if (members.length === 0) return [];
     const lead = group.leadId ? (index.get(group.leadId) ?? null) : null;
     return [{ name: group.name, logo: group.logo, lead, members, instructions: group.instructions }];
@@ -215,11 +279,20 @@ function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFil
 }
 
 /** Several bots in one file, each as its own bot export, and the teams they're on. */
-export async function exportTeam({ bots, groups, includeMemory }: { bots: Bot[]; groups: BotGroup[]; includeMemory: boolean }, library: Library) {
+export async function exportTeam(
+  { bots, groups, includeMemory }: { bots: Bot[]; groups: BotGroup[]; includeMemory: boolean },
+  library: Library,
+) {
   const shared = bots.slice(0, MAX_TEAM);
   const entries: unknown[] = [];
   for (const bot of shared) entries.push(JSON.parse((await exportBot({ bot, includeMemory }, library)).json));
-  return { json: JSON.stringify({ format: TEAM_FORMAT, version: 1, bots: entries, teams: teamsInFile(shared, groups) }, null, 2) };
+  return {
+    json: JSON.stringify(
+      { format: TEAM_FORMAT, version: 1, bots: entries, teams: teamsInFile(shared, groups) },
+      null,
+      2,
+    ),
+  };
 }
 
 /** Imports every bot of a team file (or a single bot file) as new bots, with its teams. */
@@ -228,8 +301,13 @@ export async function importTeam({ json }: { json: string }) {
   const parsed = TeamSchema.safeParse(JSON.parse(json));
   if (!parsed.success) throw new Error("That team file is damaged or from a newer version.");
   const bots = [];
-  for (const entry of parsed.data.bots) bots.push(await importBot({ botId: newBotId(), json: JSON.stringify(entry) }));
+  for (const entry of parsed.data.bots)
+    bots.push(await importBot({ botId: newBotId(), json: JSON.stringify(entry) }));
   const inRange = (position: number) => position < bots.length;
-  const teams = parsed.data.teams.map((team) => ({ ...team, lead: team.lead !== null && inRange(team.lead) ? team.lead : null, members: team.members.filter(inRange) }));
+  const teams = parsed.data.teams.map((team) => ({
+    ...team,
+    lead: team.lead !== null && inRange(team.lead) ? team.lead : null,
+    members: team.members.filter(inRange),
+  }));
   return { bots, teams };
 }

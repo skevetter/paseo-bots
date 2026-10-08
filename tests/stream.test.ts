@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildRows, deriveTurnTiming, findRows, gapBetween, layoutStream, mergeEntries, retainLayout, type StreamEntry, type StreamRow } from "../client/chat/stream/model";
+import {
+  buildRows,
+  deriveTurnTiming,
+  findRows,
+  gapBetween,
+  layoutStream,
+  mergeEntries,
+  retainLayout,
+  type StreamEntry,
+  type StreamRow,
+} from "../client/chat/stream/model";
 import { proposalIdOf } from "../shared/proposals";
 import {
   areQuestionsAnswered,
@@ -20,7 +30,10 @@ import {
 } from "../shared/tools";
 
 let seq = 0;
-function entry(item: StreamEntry["item"], options: { at?: number; turnId?: string; provider?: string; seqStart?: number } = {}): StreamEntry {
+function entry(
+  item: StreamEntry["item"],
+  options: { at?: number; turnId?: string; provider?: string; seqStart?: number } = {},
+): StreamEntry {
   const start = options.seqStart ?? ++seq;
   return {
     provider: options.provider ?? "claude",
@@ -34,12 +47,30 @@ function entry(item: StreamEntry["item"], options: { at?: number; turnId?: strin
 const user = (text: string, at = 0) => entry({ type: "user_message", text }, { at });
 const assistant = (text: string, at = 0) => entry({ type: "assistant_message", text }, { at });
 const tool = (name: string, detail: unknown, extra: Record<string, unknown> = {}, at = 0) =>
-  entry({ type: "tool_call", callId: `call-${name}-${seq + 1}`, name, status: "completed", error: null, detail, ...extra }, { at });
+  entry(
+    {
+      type: "tool_call",
+      callId: `call-${name}-${seq + 1}`,
+      name,
+      status: "completed",
+      error: null,
+      detail,
+      ...extra,
+    },
+    { at },
+  );
 
 describe("buildRows", () => {
   it("keys rows by first seq and tool call id so streaming never remounts them", () => {
-    const rows = buildRows([user("hi"), assistant("hello"), tool("Bash", { type: "shell", command: "ls" })], true);
-    expect(rows.map((row) => row.key)).toEqual([expect.stringMatching(/^e\d+$/), expect.stringMatching(/^e\d+$/), expect.stringMatching(/^tool:call-Bash-/)]);
+    const rows = buildRows(
+      [user("hi"), assistant("hello"), tool("Bash", { type: "shell", command: "ls" })],
+      true,
+    );
+    expect(rows.map((row) => row.key)).toEqual([
+      expect.stringMatching(/^e\d+$/),
+      expect.stringMatching(/^e\d+$/),
+      expect.stringMatching(/^tool:call-Bash-/),
+    ]);
     const streaming = buildRows([user("hi"), assistant("hel")], true);
     expect(streaming[1]).toMatchObject({ kind: "assistant", phase: "streaming" });
     expect(buildRows([user("hi"), assistant("hel")], false)[1]).toMatchObject({ phase: "complete" });
@@ -47,7 +78,16 @@ describe("buildRows", () => {
 
   it("names an ACP provider's tool rows after the tool in their title, so proposals get their card", () => {
     const output = "Proposal p-0123456789: the user sees...";
-    const [row] = buildRows([tool("other", { type: "unknown", input: {}, output }, { metadata: { kind: "other", title: "mcp__bots__propose_changes: Add a Researcher bot" } })], false);
+    const [row] = buildRows(
+      [
+        tool(
+          "other",
+          { type: "unknown", input: {}, output },
+          { metadata: { kind: "other", title: "mcp__bots__propose_changes: Add a Researcher bot" } },
+        ),
+      ],
+      false,
+    );
     expect(row).toMatchObject({ kind: "tool", name: "mcp__bots__propose_changes" });
     expect(row?.kind === "tool" ? proposalIdOf(row) : null).toBe("p-0123456789");
   });
@@ -56,7 +96,14 @@ describe("buildRows", () => {
     const rows = buildRows(
       [
         tool("ExitPlanMode", { type: "unknown", input: {}, output: null }),
-        entry({ type: "tool_call", callId: "p", name: "plan_approval", status: "running", error: null, detail: { type: "plan", text: "x" } }),
+        entry({
+          type: "tool_call",
+          callId: "p",
+          name: "plan_approval",
+          status: "running",
+          error: null,
+          detail: { type: "plan", text: "x" },
+        }),
         tool("TaskCreate", { type: "unknown", input: {}, output: null }),
         tool("Read", { type: "read", filePath: "/a" }),
       ],
@@ -66,13 +113,31 @@ describe("buildRows", () => {
   });
 
   it("marks only the last reasoning of a running turn as loading", () => {
-    const rows = buildRows([entry({ type: "reasoning", text: "a" }), assistant("b"), entry({ type: "reasoning", text: "c" })], true);
-    expect(rows.filter((row) => row.kind === "thought").map((row) => (row as Extract<StreamRow, { kind: "thought" }>).loading)).toEqual([false, true]);
+    const rows = buildRows(
+      [entry({ type: "reasoning", text: "a" }), assistant("b"), entry({ type: "reasoning", text: "c" })],
+      true,
+    );
+    expect(
+      rows
+        .filter((row) => row.kind === "thought")
+        .map((row) => (row as Extract<StreamRow, { kind: "thought" }>).loading),
+    ).toEqual([false, true]);
   });
 
   it("turns TodoWrite updates into per-change task rows (status beyond done/not done is dropped, as in Paseo)", () => {
-    const todos = (statuses: string[]) => ({ type: "unknown", input: { todos: statuses.map((status, i) => ({ content: `task ${i}`, status })) }, output: null });
-    const rows = buildRows([tool("TodoWrite", todos(["pending", "pending"])), tool("TodoWrite", todos(["in_progress", "pending"])), tool("TodoWrite", todos(["completed", "in_progress"]))], false);
+    const todos = (statuses: string[]) => ({
+      type: "unknown",
+      input: { todos: statuses.map((status, i) => ({ content: `task ${i}`, status })) },
+      output: null,
+    });
+    const rows = buildRows(
+      [
+        tool("TodoWrite", todos(["pending", "pending"])),
+        tool("TodoWrite", todos(["in_progress", "pending"])),
+        tool("TodoWrite", todos(["completed", "in_progress"])),
+      ],
+      false,
+    );
     expect(rows.map((row) => row.kind === "todo" && row.activity)).toEqual([
       { type: "created", count: 2 },
       { type: "completed", task: "task 0" },
@@ -113,7 +178,18 @@ describe("buildRows", () => {
 });
 
 describe("spacing", () => {
-  const rows = buildRows([user("a"), user("b"), assistant("c"), tool("Bash", { type: "shell", command: "x" }), entry({ type: "todo", items: [{ text: "t", completed: false }] }), assistant("d"), entry({ type: "error", message: "e" })], false);
+  const rows = buildRows(
+    [
+      user("a"),
+      user("b"),
+      assistant("c"),
+      tool("Bash", { type: "shell", command: "x" }),
+      entry({ type: "todo", items: [{ text: "t", completed: false }] }),
+      assistant("d"),
+      entry({ type: "error", message: "e" }),
+    ],
+    false,
+  );
   it("follows Paseo's gaps", () => {
     expect(gapBetween(rows[0]!, rows[1]!)).toBe(4); // user → user
     expect(gapBetween(rows[1]!, rows[2]!)).toBe(0); // user → assistant
@@ -127,15 +203,38 @@ describe("spacing", () => {
 
 describe("turn footers", () => {
   it("adds a footer only to responses with assistant text", () => {
-    const rows = buildRows([user("q1", 0), tool("Bash", { type: "shell", command: "ls" }, {}, 1000), user("q2", 2000), assistant("a2", 5000)], false);
+    const rows = buildRows(
+      [
+        user("q1", 0),
+        tool("Bash", { type: "shell", command: "ls" }, {}, 1000),
+        user("q2", 2000),
+        assistant("a2", 5000),
+      ],
+      false,
+    );
     const layout = layoutStream(rows, false);
     expect(layout.items.map((item) => item.footer?.key ?? null)).toEqual([null, null, null, null]);
-    expect(layout.auxiliaryFooter).toMatchObject({ key: rows[3]!.key, copy: "a2", durationMs: 3000, completedAt: 5000 });
+    expect(layout.auxiliaryFooter).toMatchObject({
+      key: rows[3]!.key,
+      copy: "a2",
+      durationMs: 3000,
+      completedAt: 5000,
+    });
     expect(layout.items[3]!.compactBottom).toBe(true);
   });
 
   it("places completed footers at response boundaries with the response text", () => {
-    const rows = buildRows([user("q1", 0), assistant("one", 1000), tool("Read", { type: "read", filePath: "/a" }, {}, 1500), assistant("two", 64_000), user("q2", 70_000), assistant("three", 71_000)], false);
+    const rows = buildRows(
+      [
+        user("q1", 0),
+        assistant("one", 1000),
+        tool("Read", { type: "read", filePath: "/a" }, {}, 1500),
+        assistant("two", 64_000),
+        user("q2", 70_000),
+        assistant("three", 71_000),
+      ],
+      false,
+    );
     const layout = layoutStream(rows, false);
     const footer = layout.items[3]!.footer;
     expect(footer).toMatchObject({ key: rows[3]!.key, copy: "one\n\ntwo", durationMs: 64_000 });
@@ -153,13 +252,34 @@ describe("turn footers", () => {
   });
 
   it("shows this plugin's routine run cards apart from the turn before them", () => {
-    const card = { routineName: "Inbox", trigger: "manual", scheduledFor: new Date(60_000).toISOString(), status: "running", agentId: "a", output: null, error: null };
+    const card = {
+      routineName: "Inbox",
+      trigger: "manual",
+      scheduledFor: new Date(60_000).toISOString(),
+      status: "running",
+      agentId: "a",
+      output: null,
+      error: null,
+    };
     const rows = buildRows(
       [
         user("q", 0),
         assistant("done", 8000),
-        entry({ type: "plugin", pluginId: "paseo-bots", id: "run-1", kind: "routine-run", version: 1, data: card }, { at: 60_000 }),
-        entry({ type: "plugin", pluginId: "other", id: "x", kind: "routine-run", version: 1, data: card }, { at: 61_000 }),
+        entry(
+          {
+            type: "plugin",
+            pluginId: "paseo-bots",
+            id: "run-1",
+            kind: "routine-run",
+            version: 1,
+            data: card,
+          },
+          { at: 60_000 },
+        ),
+        entry(
+          { type: "plugin", pluginId: "other", id: "x", kind: "routine-run", version: 1, data: card },
+          { at: 61_000 },
+        ),
       ],
       false,
     );
@@ -186,7 +306,10 @@ describe("retainLayout", () => {
   it("keeps unchanged rows and items by identity", () => {
     const entries = [user("q"), assistant("partial")];
     const first = layoutStream(buildRows(entries, true), true);
-    const grown = [entries[0]!, { ...entries[1]!, item: { type: "assistant_message", text: "partial and more" } }];
+    const grown = [
+      entries[0]!,
+      { ...entries[1]!, item: { type: "assistant_message", text: "partial and more" } },
+    ];
     const second = retainLayout(first, layoutStream(buildRows(grown, true), true));
     expect(second.items[0]).toBe(first.items[0]);
     expect(second.items[1]).not.toBe(first.items[1]);
@@ -200,28 +323,109 @@ describe("mergeEntries", () => {
     const a = { seqStart: 1, seqEnd: 1, text: "a" };
     const b = { seqStart: 2, seqEnd: 3, text: "b" };
     const current = [a, b];
-    const merged = mergeEntries(current, [{ seqStart: 2, seqEnd: 5, text: "bb" }, { seqStart: 6, seqEnd: 6, text: "c" }]);
+    const merged = mergeEntries(current, [
+      { seqStart: 2, seqEnd: 5, text: "bb" },
+      { seqStart: 6, seqEnd: 6, text: "c" },
+    ]);
     expect(merged.map((entry) => entry.text)).toEqual(["a", "bb", "c"]);
     expect(merged[0]).toBe(a);
     expect(mergeEntries(current, [{ seqStart: 2, seqEnd: 3, text: "b" }])).toBe(current);
-    expect(mergeEntries(current, [{ seqStart: 0, seqEnd: 0, text: "older" }]).map((entry) => entry.text)).toEqual(["older", "a", "b"]);
+    expect(
+      mergeEntries(current, [{ seqStart: 0, seqEnd: 0, text: "older" }]).map((entry) => entry.text),
+    ).toEqual(["older", "a", "b"]);
   });
 });
 
 describe("tool display model", () => {
   it("matches Paseo's labels and summaries", () => {
-    expect(buildToolCallDisplayModel({ name: "Bash", status: "completed", error: null, detail: { type: "shell", command: "npm test" } })).toEqual({ displayName: "Shell", summary: "npm test" });
-    expect(buildToolCallDisplayModel({ name: "Read", status: "completed", error: null, detail: { type: "read", filePath: "/repo/src/a.ts" }, cwd: "/repo" })).toEqual({ displayName: "Read", summary: "src/a.ts" });
-    expect(buildToolCallDisplayModel({ name: "Grep", status: "completed", error: null, detail: { type: "search", query: "foo" } })).toEqual({ displayName: "Search", summary: "foo" });
-    expect(buildToolCallDisplayModel({ name: "Task", status: "running", error: null, detail: { type: "sub_agent", subAgentType: "Explore", description: "Find it", log: "" } })).toEqual({ displayName: "Explore", summary: "Find it" });
-    expect(buildToolCallDisplayModel({ name: "mcp__paseo__list_workspaces", status: "completed", error: null, detail: { type: "unknown", input: null, output: null } }).displayName).toBe("List workspaces");
-    expect(buildToolCallDisplayModel({ name: "mcp__bots__search_chats", status: "completed", error: null, detail: { type: "unknown", input: null, output: null } }).displayName).toBe("Search chats");
-    expect(buildToolCallDisplayModel({ name: "mcp__other__search_chats", status: "completed", error: null, detail: { type: "unknown", input: null, output: null } }).displayName).toBe("mcp__other__search_chats");
-    const acp = { name: "other", status: "completed", error: null, detail: { type: "unknown", input: null, output: null } } as const;
-    expect(buildToolCallDisplayModel({ ...acp, metadata: { kind: "other", title: "mcp__bots__search_chats: invoices: march" } }).displayName).toBe("Search chats");
-    expect(buildToolCallDisplayModel({ ...acp, metadata: { kind: "other", title: "Run the linter" } }).displayName).toBe("Other");
-    expect(buildToolCallDisplayModel({ name: "thinking", status: "completed", error: null, detail: { type: "unknown", input: "x", output: null } }).displayName).toBe("Thinking");
-    expect(buildToolCallDisplayModel({ name: "Bash", status: "failed", error: { content: "exit 1" }, detail: { type: "shell", command: "false" } }).errorText).toBe("exit 1");
+    expect(
+      buildToolCallDisplayModel({
+        name: "Bash",
+        status: "completed",
+        error: null,
+        detail: { type: "shell", command: "npm test" },
+      }),
+    ).toEqual({ displayName: "Shell", summary: "npm test" });
+    expect(
+      buildToolCallDisplayModel({
+        name: "Read",
+        status: "completed",
+        error: null,
+        detail: { type: "read", filePath: "/repo/src/a.ts" },
+        cwd: "/repo",
+      }),
+    ).toEqual({ displayName: "Read", summary: "src/a.ts" });
+    expect(
+      buildToolCallDisplayModel({
+        name: "Grep",
+        status: "completed",
+        error: null,
+        detail: { type: "search", query: "foo" },
+      }),
+    ).toEqual({ displayName: "Search", summary: "foo" });
+    expect(
+      buildToolCallDisplayModel({
+        name: "Task",
+        status: "running",
+        error: null,
+        detail: { type: "sub_agent", subAgentType: "Explore", description: "Find it", log: "" },
+      }),
+    ).toEqual({ displayName: "Explore", summary: "Find it" });
+    expect(
+      buildToolCallDisplayModel({
+        name: "mcp__paseo__list_workspaces",
+        status: "completed",
+        error: null,
+        detail: { type: "unknown", input: null, output: null },
+      }).displayName,
+    ).toBe("List workspaces");
+    expect(
+      buildToolCallDisplayModel({
+        name: "mcp__bots__search_chats",
+        status: "completed",
+        error: null,
+        detail: { type: "unknown", input: null, output: null },
+      }).displayName,
+    ).toBe("Search chats");
+    expect(
+      buildToolCallDisplayModel({
+        name: "mcp__other__search_chats",
+        status: "completed",
+        error: null,
+        detail: { type: "unknown", input: null, output: null },
+      }).displayName,
+    ).toBe("mcp__other__search_chats");
+    const acp = {
+      name: "other",
+      status: "completed",
+      error: null,
+      detail: { type: "unknown", input: null, output: null },
+    } as const;
+    expect(
+      buildToolCallDisplayModel({
+        ...acp,
+        metadata: { kind: "other", title: "mcp__bots__search_chats: invoices: march" },
+      }).displayName,
+    ).toBe("Search chats");
+    expect(
+      buildToolCallDisplayModel({ ...acp, metadata: { kind: "other", title: "Run the linter" } }).displayName,
+    ).toBe("Other");
+    expect(
+      buildToolCallDisplayModel({
+        name: "thinking",
+        status: "completed",
+        error: null,
+        detail: { type: "unknown", input: "x", output: null },
+      }).displayName,
+    ).toBe("Thinking");
+    expect(
+      buildToolCallDisplayModel({
+        name: "Bash",
+        status: "failed",
+        error: { content: "exit 1" },
+        detail: { type: "shell", command: "false" },
+      }).errorText,
+    ).toBe("exit 1");
   });
 
   it("keeps the old label and icon helpers", () => {
@@ -235,25 +439,55 @@ describe("tool display model", () => {
   });
 
   it("knows when details can open and when they're loading", () => {
-    const running = buildToolCallPresentation({ name: "Read", status: "running", error: null, detail: { type: "unknown", input: null, output: null } });
+    const running = buildToolCallPresentation({
+      name: "Read",
+      status: "running",
+      error: null,
+      detail: { type: "unknown", input: null, output: null },
+    });
     expect(running).toMatchObject({ isLoadingDetails: true, canOpenDetails: true });
-    const empty = buildToolCallPresentation({ name: "X", status: "completed", error: null, detail: { type: "unknown", input: {}, output: null } });
+    const empty = buildToolCallPresentation({
+      name: "X",
+      status: "completed",
+      error: null,
+      detail: { type: "unknown", input: {}, output: null },
+    });
     expect(empty.canOpenDetails).toBe(false);
-    const plan = buildToolCallPresentation({ name: "plan", status: "completed", error: null, detail: { type: "plan", text: "do" }, metadata: { approved: true } });
+    const plan = buildToolCallPresentation({
+      name: "plan",
+      status: "completed",
+      error: null,
+      detail: { type: "plan", text: "do" },
+      metadata: { approved: true },
+    });
     expect(plan).toMatchObject({ isPlan: true, planOutcome: "approved" });
   });
 });
 
 describe("task lists", () => {
   it("parses TodoWrite and update_plan", () => {
-    expect(extractTaskEntriesFromToolCall("TodoWrite", { todos: [{ content: "a", status: "completed", activeForm: "Doing a" }] })).toEqual([{ text: "Doing a", completed: true }]);
-    expect(extractTaskEntriesFromToolCall("update_plan", { plan: [{ step: " b ", status: "weird" }] })).toEqual([{ text: "b", completed: false }]);
+    expect(
+      extractTaskEntriesFromToolCall("TodoWrite", {
+        todos: [{ content: "a", status: "completed", activeForm: "Doing a" }],
+      }),
+    ).toEqual([{ text: "Doing a", completed: true }]);
+    expect(
+      extractTaskEntriesFromToolCall("update_plan", { plan: [{ step: " b ", status: "weird" }] }),
+    ).toEqual([{ text: "b", completed: false }]);
     expect(extractTaskEntriesFromToolCall("TodoWrite", { todos: [{ content: "a" }] })).toBeNull();
     expect(extractTaskEntriesFromToolCall("Read", {})).toBeNull();
   });
 
   it("derives added tasks", () => {
-    expect(deriveTaskActivities([{ text: "a", completed: false }], [{ text: "a", completed: false }, { text: "b", completed: false }])).toEqual([{ type: "added", task: "b" }]);
+    expect(
+      deriveTaskActivities(
+        [{ text: "a", completed: false }],
+        [
+          { text: "a", completed: false },
+          { text: "b", completed: false },
+        ],
+      ),
+    ).toEqual([{ type: "added", task: "b" }]);
   });
 });
 
@@ -268,15 +502,30 @@ describe("diffs", () => {
   });
 
   it("parses unified diffs", () => {
-    expect(parseUnifiedDiff("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b").map((line) => line.type)).toEqual(["header", "remove", "add"]);
+    expect(parseUnifiedDiff("--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b").map((line) => line.type)).toEqual([
+      "header",
+      "remove",
+      "add",
+    ]);
   });
 });
 
 describe("question forms", () => {
   const input = {
     questions: [
-      { question: "Pick one", header: "Color", options: [{ label: "Red" }, { label: "Blue" }], multiSelect: false },
-      { question: "Pick many", header: "Tags", options: [{ label: "a" }, { label: "b" }], multiSelect: true, allowOther: true },
+      {
+        question: "Pick one",
+        header: "Color",
+        options: [{ label: "Red" }, { label: "Blue" }],
+        multiSelect: false,
+      },
+      {
+        question: "Pick many",
+        header: "Tags",
+        options: [{ label: "a" }, { label: "b" }],
+        multiSelect: true,
+        allowOther: true,
+      },
     ],
   };
 
@@ -285,7 +534,9 @@ describe("question forms", () => {
     expect(questions).toHaveLength(2);
     expect(areQuestionsAnswered(questions, { 0: new Set([1]) }, {})).toBe(false);
     expect(areQuestionsAnswered(questions, { 0: new Set([1]), 1: new Set([0]) }, {})).toBe(true);
-    expect(buildQuestionFormAnswers(questions, { 0: new Set([1]), 1: new Set([0, 1]) }, { 1: "custom" })).toEqual({ Color: "Blue", Tags: "a, b, custom" });
+    expect(
+      buildQuestionFormAnswers(questions, { 0: new Set([1]), 1: new Set([0, 1]) }, { 1: "custom" }),
+    ).toEqual({ Color: "Blue", Tags: "a, b, custom" });
     expect(resolveDismissLabel(questions)).toBe("Dismiss");
     expect(shouldSubmitEmptyOnDismiss(questions)).toBe(false);
     expect(parseQuestionFormQuestions({ questions: [{ question: 1 }] })).toBeNull();
@@ -299,7 +550,10 @@ describe("find in chat", () => {
         [
           entry({ type: "user_message", text: "Where is the Invoice?" }, { seqStart: 1 }),
           entry({ type: "reasoning", text: "invoice lookup" }, { seqStart: 2 }),
-          entry({ type: "tool_call", name: "invoice_search", status: "completed", callId: "c1" }, { seqStart: 3 }),
+          entry(
+            { type: "tool_call", name: "invoice_search", status: "completed", callId: "c1" },
+            { seqStart: 3 },
+          ),
           entry({ type: "assistant_message", text: "The invoice is in Drive." }, { seqStart: 4 }),
         ],
         false,

@@ -35,7 +35,16 @@ function updateSource(source: string): string | null {
   return /^https?:\/\//i.test(source) ? source : null;
 }
 
-export function SkillPage({ colors, skill, bots, showTitle, onPatch, onToggleBot, onImported, onDelete }: SkillPageProps) {
+export function SkillPage({
+  colors,
+  skill,
+  bots,
+  showTitle,
+  onPatch,
+  onToggleBot,
+  onImported,
+  onDelete,
+}: SkillPageProps) {
   const read = useRpc(skillReadRpc);
   const importSkills = useRpc(skillImportRpc);
   const queryClient = useQueryClient();
@@ -71,11 +80,23 @@ export function SkillPage({ colors, skill, bots, showTitle, onPatch, onToggleBot
           <Alert
             colors={colors}
             variant="warning"
-            title={changedSinceReview ? "SKILL.md changed since you reviewed it" : "Review before bots use it"}
-            description={changedSinceReview ? "Bots stop using it until you read the new version." : "Skills from outside arrive switched off. Read it, then turn it on."}
+            title={
+              changedSinceReview ? "SKILL.md changed since you reviewed it" : "Review before bots use it"
+            }
+            description={
+              changedSinceReview
+                ? "Bots stop using it until you read the new version."
+                : "Skills from outside arrive switched off. Read it, then turn it on."
+            }
           />
           <View style={{ alignItems: "flex-start" }}>
-            <Button colors={colors} variant="outline" icon="ScanEye" label="Review" onPress={() => setReviewing(true)} />
+            <Button
+              colors={colors}
+              variant="outline"
+              icon="ScanEye"
+              label="Review"
+              onPress={() => setReviewing(true)}
+            />
           </View>
         </View>
       ) : null}
@@ -87,16 +108,34 @@ export function SkillPage({ colors, skill, bots, showTitle, onPatch, onToggleBot
             value={skill.enabled && !needsReview}
             onValueChange={(enabled) => (enabled && needsReview ? setReviewing(true) : onPatch({ enabled }))}
           />
-          {source ? <SettingsAction label="Source" hint={skill.source} actionLabel={updating ? "Updating..." : "Update"} disabled={updating} onPress={() => void update()} /> : null}
+          {source ? (
+            <SettingsAction
+              label="Source"
+              hint={skill.source}
+              actionLabel={updating ? "Updating..." : "Update"}
+              disabled={updating}
+              onPress={() => void update()}
+            />
+          ) : null}
         </SettingsCard>
       </SettingsSection>
 
-      <BotsCard colors={colors} bots={bots} noun="skill" uses={(bot) => bot.skillIds.includes(skill.id)} onToggle={onToggleBot} />
+      <BotsCard
+        colors={colors}
+        bots={bots}
+        noun="skill"
+        uses={(bot) => bot.skillIds.includes(skill.id)}
+        onToggle={onToggleBot}
+      />
 
       <SettingsSection
         title="SKILL.md"
         info="What a bot reads before a task this skill covers."
-        trailing={file.data && !file.data.missing ? <SectionLink colors={colors} icon="Pencil" label="Edit" onPress={() => setEditing(true)} /> : undefined}
+        trailing={
+          file.data && !file.data.missing ? (
+            <SectionLink colors={colors} icon="Pencil" label="Edit" onPress={() => setEditing(true)} />
+          ) : undefined
+        }
       >
         <SettingsCard>
           {file.isLoading ? (
@@ -104,10 +143,24 @@ export function SkillPage({ colors, skill, bots, showTitle, onPatch, onToggleBot
               <ActivityIndicator size="small" color={colors.foregroundMuted} />
             </View>
           ) : file.data?.missing ? (
-            <CardNote colors={colors} text={source ? "SKILL.md is missing. Update the skill to fetch it again." : "SKILL.md is missing."} />
+            <CardNote
+              colors={colors}
+              text={
+                source ? "SKILL.md is missing. Update the skill to fetch it again." : "SKILL.md is missing."
+              }
+            />
           ) : (
             <View style={{ padding: 16 }}>
-              <Text selectable {...MONO_PROPS} style={{ fontFamily: MONO_FONT, fontSize: code(), lineHeight: codeLine(), color: colors.foreground }}>
+              <Text
+                selectable
+                {...MONO_PROPS}
+                style={{
+                  fontFamily: MONO_FONT,
+                  fontSize: code(),
+                  lineHeight: codeLine(),
+                  color: colors.foreground,
+                }}
+              >
                 {file.data?.text ?? ""}
               </Text>
             </View>

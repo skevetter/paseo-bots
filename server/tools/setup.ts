@@ -1,5 +1,15 @@
 import { z } from "zod";
-import { applyChanges, botDetails, ChangesSchema, providerInfo, readyProvider, resolveChanges, setupOverview, type AppAccountInfo, type ApplyContext } from "../../shared/changes";
+import {
+  applyChanges,
+  botDetails,
+  ChangesSchema,
+  providerInfo,
+  readyProvider,
+  resolveChanges,
+  setupOverview,
+  type AppAccountInfo,
+  type ApplyContext,
+} from "../../shared/changes";
 import { proposalReply } from "../../shared/proposals";
 import { accounts, status } from "../composio";
 import type { BotsHost } from "../host";
@@ -16,9 +26,20 @@ async function hostContext(host: BotsHost): Promise<ApplyContext> {
   if ((await status()).configured) {
     // Accounts go by the names the user gave them, or Composio's word ids; their sign-in (an email) only matches.
     const list = await accounts().catch(() => null);
-    apps = list ? list.accounts.map((account) => ({ id: account.id, slug: account.slug, names: [account.alias, account.wordId, account.name].filter((name): name is string => !!name) })) : null;
+    apps = list
+      ? list.accounts.map((account) => ({
+          id: account.id,
+          slug: account.slug,
+          names: [account.alias, account.wordId, account.name].filter((name): name is string => !!name),
+        }))
+      : null;
   }
-  return { now: new Date().toISOString(), provider: snapshot ? readyProvider(snapshot.entries) : "", providers: snapshot ? providerInfo(snapshot.entries) : null, accounts: apps };
+  return {
+    now: new Date().toISOString(),
+    provider: snapshot ? readyProvider(snapshot.entries) : "",
+    providers: snapshot ? providerInfo(snapshot.entries) : null,
+    accounts: apps,
+  };
 }
 
 async function readValues(host: BotsHost) {
@@ -31,7 +52,9 @@ export const getSetup = defineTool({
   name: "get_setup",
   description:
     "Read the bot setup on this Paseo: the bots, teams, the library of skills and MCP servers, connected apps, what new bots start with, presets, and the providers with their models and approval modes. Name a bot to get everything about it, including its instructions, playbooks and routines. Read it before propose_changes.",
-  input: z.object({ bot: z.string().max(100).optional().describe("A bot's name or id, for its full details.") }),
+  input: z.object({
+    bot: z.string().max(100).optional().describe("A bot's name or id, for its full details."),
+  }),
   async run({ bot }, { host }) {
     const values = await readValues(host);
     if (bot) return botDetails(values, bot);
@@ -54,7 +77,15 @@ export const proposeChanges = defineTool({
     const resolved = resolveChanges(changes, context);
     // A dry run finds mistakes now, while they can still be fixed; the app applies the changes for real.
     applyChanges(values, resolved, context);
-    const proposal = await createProposal({ botId: bot.id, agentId, kind: "changes", data: { summary: summary.trim(), changes: resolved, provider: context.provider } });
-    return proposalReply(proposal.id, changes.length === 1 ? "the change" : `these ${changes.length} changes`);
+    const proposal = await createProposal({
+      botId: bot.id,
+      agentId,
+      kind: "changes",
+      data: { summary: summary.trim(), changes: resolved, provider: context.provider },
+    });
+    return proposalReply(
+      proposal.id,
+      changes.length === 1 ? "the change" : `these ${changes.length} changes`,
+    );
   },
 });

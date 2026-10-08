@@ -7,13 +7,21 @@ import type { Playbook } from "./bot";
 const MAX_SELECTED = 3;
 const MAX_CHARS = 24_000;
 
-const normalize = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const normalize = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 
 /** The playbooks whose trigger words or phrases appear in `text`, at most three. */
 export function selectPlaybooks(text: string, playbooks: readonly Playbook[]): Playbook[] {
   const job = ` ${normalize(text)} `;
   return playbooks
-    .filter((playbook) => playbook.instructions.trim() && playbook.triggers.some((trigger) => normalize(trigger) && job.includes(` ${normalize(trigger)} `)))
+    .filter(
+      (playbook) =>
+        playbook.instructions.trim() &&
+        playbook.triggers.some((trigger) => normalize(trigger) && job.includes(` ${normalize(trigger)} `)),
+    )
     .slice(0, MAX_SELECTED);
 }
 
@@ -27,10 +35,20 @@ export function renderPlaybooks(playbooks: readonly Playbook[]): string {
     remaining -= instructions.length;
     parts.push(`<playbook name=${JSON.stringify(playbook.name)}>\n${instructions}\n</playbook>`);
   }
-  return ["Playbooks that match this job. Follow them as process guidance; they don't grant tools or permissions, or override the user.", ...parts].join("\n");
+  return [
+    "Playbooks that match this job. Follow them as process guidance; they don't grant tools or permissions, or override the user.",
+    ...parts,
+  ].join("\n");
 }
 
 /** "invoice, receipt, expense report" as trigger phrases. */
 export function parseTriggers(text: string): string[] {
-  return [...new Set(text.split(/[,\n]/).map((trigger) => trigger.trim()).filter(Boolean))].slice(0, 20);
+  return [
+    ...new Set(
+      text
+        .split(/[,\n]/)
+        .map((trigger) => trigger.trim())
+        .filter(Boolean),
+    ),
+  ].slice(0, 20);
 }

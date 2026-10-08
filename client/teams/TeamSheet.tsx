@@ -1,6 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsCard, SettingsRow, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import {
+  SettingsAction,
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+  SettingsSelect,
+  SettingsSwitch,
+} from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { View } from "react-native";
 import { randomSeed } from "../../shared/avatar";
@@ -39,15 +46,20 @@ export function TeamSheet({
 }) {
   const toast = useToast();
   const [name, setName] = useState(group?.name ?? "");
-  const [logo, setLogo] = useState<Logo>(() => (group ? teamLogoOf(group) : { seed: randomSeed(), palette: null, imageUrl: null }));
-  const [memberIds, setMemberIds] = useState<string[]>(group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : []);
+  const [logo, setLogo] = useState<Logo>(() =>
+    group ? teamLogoOf(group) : { seed: randomSeed(), palette: null, imageUrl: null },
+  );
+  const [memberIds, setMemberIds] = useState<string[]>(
+    group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : [],
+  );
   const [leadId, setLeadId] = useState<string | null>(group?.leadId ?? null);
   const [instructions, setInstructions] = useState(group?.instructions ?? "");
   const live = bots.filter((bot) => !bot.archived);
   const members = live.filter((bot) => memberIds.includes(bot.id));
   const lead = leadId && memberIds.includes(leadId) ? leadId : null;
 
-  const toggle = (botId: string, on: boolean) => setMemberIds((current) => (on ? [...current, botId] : current.filter((id) => id !== botId)));
+  const toggle = (botId: string, on: boolean) =>
+    setMemberIds((current) => (on ? [...current, botId] : current.filter((id) => id !== botId)));
   const patchLogo = (patch: Partial<Logo>) => setLogo((current) => ({ ...current, ...patch }));
   const upload = () =>
     void pickPicture()
@@ -59,23 +71,60 @@ export function TeamSheet({
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <View style={{ marginBottom: 24 }}>
           <SettingsCard>
-            <InputField colors={colors} label="Name" initialValue={name} placeholder="Operations" onChangeText={setName} />
+            <InputField
+              colors={colors}
+              label="Name"
+              initialValue={name}
+              placeholder="Operations"
+              onChangeText={setName}
+            />
           </SettingsCard>
         </View>
         <SettingsSection title="Logo">
           <SettingsCard>
-            <SettingsRow label="Picture" hint={logo.imageUrl?.startsWith("data:") ? "Your picture" : logo.imageUrl ? "The image from its URL" : "Pixel art drawn for this team"}>
+            <SettingsRow
+              label="Picture"
+              hint={
+                logo.imageUrl?.startsWith("data:")
+                  ? "Your picture"
+                  : logo.imageUrl
+                    ? "The image from its URL"
+                    : "Pixel art drawn for this team"
+              }
+            >
               <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                 <TeamLogo group={{ id: group?.id ?? "", logo }} size={40} dark={nativeTokens(colors).dark} />
-                <Button colors={colors} variant="outline" size="sm" label="Reroll" onPress={() => patchLogo({ seed: randomSeed(), imageUrl: null })} />
+                <Button
+                  colors={colors}
+                  variant="outline"
+                  size="sm"
+                  label="Reroll"
+                  onPress={() => patchLogo({ seed: randomSeed(), imageUrl: null })}
+                />
               </View>
             </SettingsRow>
-            {canPickFiles ? <SettingsAction label="Upload a picture" hint="Cropped to a square" actionLabel="Upload" onPress={upload} /> : null}
+            {canPickFiles ? (
+              <SettingsAction
+                label="Upload a picture"
+                hint="Cropped to a square"
+                actionLabel="Upload"
+                onPress={upload}
+              />
+            ) : null}
             <ColourRow colors={colors} value={logo.palette} onChange={(palette) => patchLogo({ palette })} />
-            <PictureSource colors={colors} imageUrl={logo.imageUrl} hint="Optional. Replaces the pixel logo" placeholder="https://example.com/logo.png" onChange={(imageUrl) => patchLogo({ imageUrl })} />
+            <PictureSource
+              colors={colors}
+              imageUrl={logo.imageUrl}
+              hint="Optional. Replaces the pixel logo"
+              placeholder="https://example.com/logo.png"
+              onChange={(imageUrl) => patchLogo({ imageUrl })}
+            />
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection title="Members" info="Every member gets the roster and the shared instructions in its prompt. A bot can be on one team at a time.">
+        <SettingsSection
+          title="Members"
+          info="Every member gets the roster and the shared instructions in its prompt. A bot can be on one team at a time."
+        >
           <SettingsCard>
             {live.map((bot) => {
               const other = teamOf(bot.id, groups);
@@ -84,7 +133,11 @@ export function TeamSheet({
                 <SettingsSwitch
                   key={bot.id}
                   label={bot.name}
-                  hint={elsewhere ? `On ${elsewhere.name || "another team"}; adding moves it here` : bot.title || undefined}
+                  hint={
+                    elsewhere
+                      ? `On ${elsewhere.name || "another team"}; adding moves it here`
+                      : bot.title || undefined
+                  }
                   value={memberIds.includes(bot.id)}
                   onValueChange={(on) => toggle(bot.id, on)}
                 />
@@ -92,30 +145,60 @@ export function TeamSheet({
             })}
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection title="Chief of Staff" info="Your main contact for the team. It decides what to handle itself and asks teammates for the rest.">
+        <SettingsSection
+          title="Chief of Staff"
+          info="Your main contact for the team. It decides what to handle itself and asks teammates for the rest."
+        >
           <SettingsCard>
             <SettingsSelect
               label="Lead"
               value={lead ?? ""}
               disabled={members.length === 0}
-              options={[{ label: "None", value: "" }, ...members.map((bot) => ({ label: bot.name, value: bot.id }))]}
+              options={[
+                { label: "None", value: "" },
+                ...members.map((bot) => ({ label: bot.name, value: bot.id })),
+              ]}
               onValueChange={(value) => setLeadId(value || null)}
             />
           </SettingsCard>
         </SettingsSection>
-        <SettingsSection title="Shared instructions" info="Added to every member's prompt. Only you edit them.">
+        <SettingsSection
+          title="Shared instructions"
+          info="Added to every member's prompt. Only you edit them."
+        >
           <SettingsCard>
-            <TextAreaField colors={colors} accessibilityLabel="Shared instructions" value={instructions} onChangeText={setInstructions} minHeight={160} placeholder="We handle the family's paperwork. Keep anything with an account number out of replies." />
+            <TextAreaField
+              colors={colors}
+              accessibilityLabel="Shared instructions"
+              value={instructions}
+              onChangeText={setInstructions}
+              minHeight={160}
+              placeholder="We handle the family's paperwork. Keep anything with an account number out of replies."
+            />
           </SettingsCard>
         </SettingsSection>
-        <SheetActions leading={onDelete ? <Button colors={colors} variant="ghost" label="Delete team" icon="Trash2" onPress={onDelete} /> : null}>
+        <SheetActions
+          leading={
+            onDelete ? (
+              <Button colors={colors} variant="ghost" label="Delete team" icon="Trash2" onPress={onDelete} />
+            ) : null
+          }
+        >
           <Button colors={colors} variant="ghost" label="Cancel" onPress={onClose} />
           <Button
             colors={colors}
             variant="default"
             label={group ? "Save" : "Create team"}
             disabled={!name.trim()}
-            onPress={() => onSave({ name: name.trim().slice(0, 60), logo, leadId: lead, memberIds: members.map((bot) => bot.id), instructions })}
+            onPress={() =>
+              onSave({
+                name: name.trim().slice(0, 60),
+                logo,
+                leadId: lead,
+                memberIds: members.map((bot) => bot.id),
+                instructions,
+              })
+            }
           />
         </SheetActions>
       </Modal.Content>

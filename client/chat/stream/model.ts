@@ -50,7 +50,12 @@ export type StreamRow =
   | (RowBase & { kind: "speak"; text: string })
   | (RowBase & { kind: "todo"; items: TaskEntry[]; activity: TaskActivity })
   | (RowBase & { kind: "notification"; level: "info" | "warning" | "error"; message: string })
-  | (RowBase & { kind: "compaction"; status: "loading" | "completed"; trigger?: "auto" | "manual"; preTokens?: number })
+  | (RowBase & {
+      kind: "compaction";
+      status: "loading" | "completed";
+      trigger?: "auto" | "manual";
+      preTokens?: number;
+    })
   | (RowBase & { kind: "routine-run"; card: RoutineRunCard });
 
 export interface TurnFooterInfo {
@@ -122,7 +127,14 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
       return;
     }
     activities.forEach((activity, index) => {
-      const row: Extract<StreamRow, { kind: "todo" }> = { key: `${entry.seqStart}:todo:${index}`, kind: "todo", turnId: entry.turnId, timestamp, items, activity };
+      const row: Extract<StreamRow, { kind: "todo" }> = {
+        key: `${entry.seqStart}:todo:${index}`,
+        kind: "todo",
+        turnId: entry.turnId,
+        timestamp,
+        items,
+        activity,
+      };
       rows.push(row);
       lastTodo = row;
     });
@@ -143,7 +155,12 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
         });
         break;
       case "assistant_message":
-        rows.push({ ...base, kind: "assistant", text: String(item.text ?? ""), phase: running && isLast ? "streaming" : "complete" });
+        rows.push({
+          ...base,
+          kind: "assistant",
+          text: String(item.text ?? ""),
+          phase: running && isLast ? "streaming" : "complete",
+        });
         break;
       case "reasoning": {
         const text = String(item.text ?? "");
@@ -161,7 +178,12 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
           break;
         }
         const key = typeof item.callId === "string" && item.callId ? `tool:${item.callId}` : base.key;
-        if (name === "speak" && detail.type === "unknown" && typeof detail.input === "string" && detail.input.trim()) {
+        if (
+          name === "speak" &&
+          detail.type === "unknown" &&
+          typeof detail.input === "string" &&
+          detail.input.trim()
+        ) {
           rows.push({ ...base, key, kind: "speak", text: detail.input });
           break;
         }
@@ -173,7 +195,9 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
           status,
           error: item.error ?? null,
           detail,
-          ...(item.metadata && typeof item.metadata === "object" ? { metadata: item.metadata as Record<string, unknown> } : {}),
+          ...(item.metadata && typeof item.metadata === "object"
+            ? { metadata: item.metadata as Record<string, unknown> }
+            : {}),
         });
         break;
       }
@@ -203,7 +227,13 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
         // This plugin's routine result cards; other plugins' items belong to their renderers.
         if (item.pluginId !== PLUGIN_ID || item.kind !== ROUTINE_RUN_CARD.kind) break;
         const card = RoutineRunCardSchema.safeParse(item.data);
-        if (card.success) rows.push({ ...base, key: `plugin:${String(item.id ?? entry.seqStart)}`, kind: "routine-run", card: card.data });
+        if (card.success)
+          rows.push({
+            ...base,
+            key: `plugin:${String(item.id ?? entry.seqStart)}`,
+            kind: "routine-run",
+            card: card.data,
+          });
         break;
       }
       default:
@@ -332,10 +362,19 @@ function responseText(rows: readonly StreamRow[], index: number): string {
   return messages.reverse().join("\n\n");
 }
 
-function footerFor(rows: readonly StreamRow[], assistantIndex: number, timing: Map<string, TurnTiming>): TurnFooterInfo {
+function footerFor(
+  rows: readonly StreamRow[],
+  assistantIndex: number,
+  timing: Map<string, TurnTiming>,
+): TurnFooterInfo {
   const row = rows[assistantIndex]!;
   const time = timing.get(row.key);
-  return { key: row.key, copy: responseText(rows, assistantIndex), completedAt: time?.completedAt ?? null, durationMs: time?.durationMs ?? null };
+  return {
+    key: row.key,
+    copy: responseText(rows, assistantIndex),
+    completedAt: time?.completedAt ?? null,
+    durationMs: time?.durationMs ?? null,
+  };
 }
 
 /** layout.ts layoutStream for a forward (oldest-first) list. */
@@ -352,9 +391,11 @@ export function layoutStream(rows: readonly StreamRow[], running: boolean): Stre
     let footer: TurnFooterInfo | null = null;
     if (row.kind !== "user" && isResponseBoundary(row, below)) {
       const assistant = latestAssistantInResponse(rows, index);
-      if (assistant !== null && rows[assistant]!.key !== auxiliaryFooter?.key) footer = footerFor(rows, assistant, timing);
+      if (assistant !== null && rows[assistant]!.key !== auxiliaryFooter?.key)
+        footer = footerFor(rows, assistant, timing);
     }
-    const compactBottom = row.kind === "assistant" && (footer !== null || (hasAuxiliaryFooter && below === null));
+    const compactBottom =
+      row.kind === "assistant" && (footer !== null || (hasAuxiliaryFooter && below === null));
     return { row, gapBelow: footer ? 0 : gapBetween(row, below), compactBottom, footer };
   });
   return { items, auxiliaryFooter };
@@ -386,7 +427,9 @@ function shallowEqual(a: object, b: object): boolean {
 function sameFooter(a: TurnFooterInfo | null, b: TurnFooterInfo | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.key === b.key && a.copy === b.copy && a.completedAt === b.completedAt && a.durationMs === b.durationMs;
+  return (
+    a.key === b.key && a.copy === b.copy && a.completedAt === b.completedAt && a.durationMs === b.durationMs
+  );
 }
 
 /**
@@ -403,13 +446,22 @@ export function retainLayout(previous: StreamLayout | null, next: StreamLayout):
       changed = true;
       return item;
     }
-    const row = old.row === item.row || (old.row.kind === item.row.kind && shallowEqual(old.row, item.row)) ? old.row : item.row;
-    const same = row === old.row && old.gapBelow === item.gapBelow && old.compactBottom === item.compactBottom && sameFooter(old.footer, item.footer);
+    const row =
+      old.row === item.row || (old.row.kind === item.row.kind && shallowEqual(old.row, item.row))
+        ? old.row
+        : item.row;
+    const same =
+      row === old.row &&
+      old.gapBelow === item.gapBelow &&
+      old.compactBottom === item.compactBottom &&
+      sameFooter(old.footer, item.footer);
     const kept = same ? old : { ...item, row };
     if (kept !== previous.items[index]) changed = true;
     return kept;
   });
-  const auxiliaryFooter = sameFooter(previous.auxiliaryFooter, next.auxiliaryFooter) ? previous.auxiliaryFooter : next.auxiliaryFooter;
+  const auxiliaryFooter = sameFooter(previous.auxiliaryFooter, next.auxiliaryFooter)
+    ? previous.auxiliaryFooter
+    : next.auxiliaryFooter;
   if (!changed && auxiliaryFooter === previous.auxiliaryFooter) return previous;
   return { items: changed ? items : previous.items, auxiliaryFooter };
 }
