@@ -11,6 +11,7 @@ import { answerMcp, type BotTool } from "./tools/mcp";
 
 const MAX_BODY = 5 * 1024 * 1024;
 const MAX_RESPONSE = 20 * 1024 * 1024;
+const DISCARD_MS = 2_000;
 const ID = /^[a-z0-9-]+$/;
 
 function sign(secret: string, subject: string): string {
@@ -33,19 +34,34 @@ function tokenMatches(expected: string, header: string | undefined): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+export class BodyTooLargeError extends Error {
+  constructor(readonly limit: number) {
+    super(`The request body is over ${limit} bytes.`);
+    this.name = "BodyTooLargeError";
+  }
+}
+
+/**
+ * Past `limit` the rest of the body is discarded, not buffered, until it ends (or for DISCARD_MS) so the
+ * client is done sending and reads the 413 instead of a reset; then rejects with BodyTooLargeError.
+ */
 export function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<string> {
+  const tooLarge = new BodyTooLargeError(limit);
+  if (Number(request.headers["content-length"]) > limit) return Promise.reject(tooLarge);
   return new Promise((resolve, reject) => {
     let size = 0;
-    const chunks: Buffer[] = [];
+    let chunks: Buffer[] | null = [];
     request.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > limit) {
-        reject(new Error("Request too large"));
-        request.destroy();
-      } else chunks.push(chunk);
+      if (chunks && size > limit) {
+        chunks = null;
+        setTimeout(() => reject(tooLarge), DISCARD_MS).unref();
+      }
+      chunks?.push(chunk);
     });
-    request.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    request.on("end", () => (chunks ? resolve(Buffer.concat(chunks).toString("utf8")) : reject(tooLarge)));
     request.on("error", reject);
+    request.on("close", () => reject(new Error("The request closed before its body arrived.")));
   });
 }
 
@@ -86,6 +102,22 @@ async function accountLimit(accountId: string | null): Promise<AppLimit["account
   return { id: accountId, alias };
 }
 
+async function readCapped(upstream: Response, limit: number): Promise<Buffer> {
+  const tooLarge = new Error(`The connected app's answer is over ${limit / 1024 / 1024} MB.`);
+  if (Number(upstream.headers.get("content-length")) > limit) {
+    await upstream.body?.cancel();
+    throw tooLarge;
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of upstream.body ?? []) {
+    size += chunk.length;
+    if (size > limit) throw tooLarge;
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 export class Relay {
   private server: Server | null = null;
   private listening: Promise<number> | null = null;
@@ -120,6 +152,7 @@ export class Relay {
         port = await listen(0);
       }
       this.server = server;
+      server.on("error", (error) => console.error("paseo-bots: the relay's server failed", error));
       if (port !== state.port) await writeState({ port });
       return port;
     })();
@@ -157,7 +190,8 @@ export class Relay {
     try {
       await this.dispatch(request, response);
     } catch (error) {
-      if (!response.headersSent)
+      if (response.headersSent || response.destroyed) response.destroy();
+      else
         json(response, 502, {
           jsonrpc: "2.0",
           id: null,
@@ -194,7 +228,18 @@ export class Relay {
     request: IncomingMessage,
     response: ServerResponse,
   ): Promise<{ body: string; message: Record<string, unknown> } | null> {
-    const body = await readBody(request);
+    const body = await readBody(request).catch((error: unknown) => {
+      if (error instanceof BodyTooLargeError) return null;
+      throw error;
+    });
+    if (body === null) {
+      json(response, 413, {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32600, message: `Send at most ${MAX_BODY / 1024 / 1024} MB.` },
+      });
+      return null;
+    }
     try {
       return { body, message: JSON.parse(body) as Record<string, unknown> };
     } catch {
@@ -301,8 +346,7 @@ export class Relay {
     let upstream = await send(false);
     // A Tool Router session Composio no longer knows: open a new one and let the client start over.
     if (upstream.status === 404 && !transport) upstream = await send(true);
-    const bytes = Buffer.from(await upstream.arrayBuffer());
-    if (bytes.length > MAX_RESPONSE) throw new Error("The connected app's answer is over 20 MB.");
+    const bytes = await readCapped(upstream, MAX_RESPONSE);
     const next = upstream.headers.get("mcp-session-id");
     response.writeHead(upstream.status, {
       "content-type": upstream.headers.get("content-type") ?? "application/json",
