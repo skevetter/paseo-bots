@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
@@ -62,17 +62,55 @@ function upgrade(entry: RoutineRecord | LegacyState): RoutineRecord {
   return { lastRunAt: legacy.lastRunAt, runs: [run] };
 }
 
-async function readJson<T>(path: string, fallback: T): Promise<T> {
+const fileLocks = new Map<string, Promise<unknown>>();
+
+/** Keeps a read that sets a broken file aside from racing a write that replaces it. */
+function withFileLock<T>(path: string, task: () => Promise<T>): Promise<T> {
+  const next = (fileLocks.get(path) ?? Promise.resolve()).then(task);
+  fileLocks.set(
+    path,
+    next.catch(() => {}),
+  );
+  return next;
+}
+
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+async function setAside(path: string, error: unknown): Promise<void> {
+  const aside = `${path}.corrupt-${Date.now()}`;
   try {
-    return JSON.parse(await readFile(path, "utf8")) as T;
-  } catch {
-    return fallback;
+    await rename(path, aside);
+    console.error(`paseo-bots: couldn't read ${path}; moved it to ${aside} and started fresh`, error);
+  } catch (renameError) {
+    if (!isMissing(renameError)) throw renameError;
   }
 }
 
-async function writeJson(path: string, value: unknown, mode?: number): Promise<void> {
-  await mkdir(pluginDataPath(), { recursive: true });
-  await writeFile(path, JSON.stringify(value, null, 2), { encoding: "utf8", ...(mode ? { mode } : {}) });
+/** A missing file reads as `fallback`; a broken one is moved aside first so its next write can't destroy it. */
+function readJson<T>(path: string, fallback: T): Promise<T> {
+  return withFileLock(path, async () => {
+    try {
+      return JSON.parse(await readFile(path, "utf8")) as T;
+    } catch (error) {
+      if (!isMissing(error)) await setAside(path, error);
+      return fallback;
+    }
+  });
+}
+
+/** Written whole and renamed into place, so a crash mid-write can't leave a truncated file. */
+function writeJson(path: string, value: unknown, mode?: number): Promise<void> {
+  return withFileLock(path, async () => {
+    await mkdir(pluginDataPath(), { recursive: true });
+    const temporary = `${path}.${randomBytes(4).toString("hex")}.tmp`;
+    await writeFile(temporary, JSON.stringify(value, null, 2), {
+      encoding: "utf8",
+      ...(mode ? { mode } : {}),
+    });
+    await rename(temporary, path);
+  });
 }
 
 export interface WebhookEvent {
@@ -136,6 +174,7 @@ export class RoutineScheduler {
   constructor(
     private readonly host: BotsHost,
     private readonly relay: Relay,
+    private readonly launch: typeof startChat = startChat,
   ) {
     host.onAttach(() => {
       if (this.timer) return;
@@ -216,8 +255,7 @@ export class RoutineScheduler {
       [...(record?.runs ?? [])]
         .reverse()
         .find((entry) => entry.agentId === agentId && entry.status === "running");
-    // Later turns in a run's chat are just chatting; only the run's own turn counts.
-    if (!waiting((await this.status()).routines[routineId])) return;
+    // Only the run's own turn counts; queued behind `run()` so a turn ending before it's recorded still matches.
     const run = await this.update((records) => {
       const found = waiting(records[routineId]);
       if (!found) return null;
@@ -253,7 +291,7 @@ export class RoutineScheduler {
   }
 
   private newChat(bot: Bot, routine: Routine, prompt: string): Promise<string> {
-    return startChat(this.host, this.relay, bot, {
+    return this.launch(this.host, this.relay, bot, {
       prompt,
       title: routine.name,
       labels: { [ROUTINE_LABEL]: routine.id },
@@ -355,34 +393,33 @@ export class RoutineScheduler {
   }
 
   private async tickRoutine(bot: Bot, routine: Routine, lastRunAt: string | null, now: Date): Promise<void> {
-    const decision = decide(routine, lastRunAt, now);
-    if (decision.action === "run") await this.run({ bot, routine, trigger: "schedule", due: decision.due });
-    else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
+    try {
+      const decision = decide(routine, lastRunAt, now);
+      if (decision.action === "run") await this.run({ bot, routine, trigger: "schedule", due: decision.due });
+      else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
+    } catch (error) {
+      console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
+    }
   }
 
   private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {
+    const at = now.toISOString();
+    const run: RoutineRun = {
+      id: `run-${randomBytes(4).toString("hex")}`,
+      trigger: "schedule",
+      scheduledFor: due.toISOString(),
+      startedAt: at,
+      endedAt: at,
+      status: "skipped-missed",
+      agentId: null,
+      output: null,
+      error: null,
+    };
     await this.update((records) => {
       const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
-      const at = now.toISOString();
-      records[routine.id] = {
-        ...record,
-        lastRunAt: at,
-        runs: [
-          ...record.runs,
-          {
-            id: `run-${randomBytes(4).toString("hex")}`,
-            trigger: "schedule" as const,
-            scheduledFor: due.toISOString(),
-            startedAt: at,
-            endedAt: at,
-            status: "skipped-missed" as const,
-            agentId: null,
-            output: null,
-            error: null,
-          },
-        ].slice(-KEEP_RUNS),
-      };
+      records[routine.id] = { ...record, lastRunAt: at, runs: [...record.runs, run].slice(-KEEP_RUNS) };
     });
+    await this.postCard(routine, run);
   }
 
   private async webhook(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {

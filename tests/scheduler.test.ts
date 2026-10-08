@@ -1,10 +1,13 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Routine } from "../shared/bot";
-import { upcomingRuns } from "../shared/routines";
-import { defined, fakeHost, makeBot } from "./helpers";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { pluginDataPath } from "../server/bot-home";
+import type { startChat } from "../server/chats";
+import { Relay } from "../server/relay";
+import { RoutineScheduler, runPrompt } from "../server/scheduler";
+import type { Bot, Routine } from "../shared/bot";
+import { scheduleFrom, upcomingRuns } from "../shared/routines";
+import { defined, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
 
@@ -21,9 +24,55 @@ function routine(patch: Partial<Routine> = {}): Routine {
   };
 }
 
+type Launch = typeof startChat;
+interface Card {
+  agentId: string;
+  item: { id: string; kind: string; data: { status: string; output: string | null; error: string | null } };
+}
+
+/** Cards posted to `brokenChat` throw, like a results chat that's gone. */
+async function startScheduler(bots: Bot[], launch: Launch, brokenChat?: string) {
+  const host = fakeHost(bots);
+  const appended: Card[] = [];
+  const status = new Map<string, string>();
+  host.attach({
+    agents: {
+      ref: (agentId: string) => ({
+        refresh: async () => ({ agent: { status: status.get(agentId) ?? "idle", archivedAt: null } }),
+        timeline: {
+          append: (item: never) => {
+            if (agentId === brokenChat) throw new Error("That chat is gone.");
+            appended.push({ agentId, item });
+            return Promise.resolve();
+          },
+        },
+      }),
+    },
+  } as never);
+  const relay = new Relay(host, []);
+  const scheduler = new RoutineScheduler(host, relay, launch);
+  scheduler.stop();
+  return { scheduler, relay, appended, status };
+}
+
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+
+async function writeState(name: string, text: string): Promise<void> {
+  await mkdir(pluginDataPath(), { recursive: true });
+  await writeFile(join(pluginDataPath(), name), text);
+}
+
+async function setAside(name: string): Promise<string[]> {
+  const files = (await readdir(pluginDataPath())).filter((file) => file.startsWith(`${name}.corrupt-`));
+  return Promise.all(files.map((file) => readFile(join(pluginDataPath(), file), "utf8")));
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("routine schedules from chat", () => {
   it("reads each schedule type and explains what's wrong", async () => {
-    const { scheduleFrom } = await import("../shared/routines");
     const now = local(27, 12);
     expect(scheduleFrom({ type: "daily", time: "08:30", weekdays: [5, 1, 1] }, now)).toEqual({
       kind: "daily",
@@ -71,7 +120,6 @@ describe("routine schedules from chat", () => {
   });
 
   it("hands a webhook's body to the bot as marked data", async () => {
-    const { runPrompt } = await import("../server/scheduler");
     const prompt = runPrompt(routine(), {
       body: '{"order": 42}',
       contentType: "application/json",
@@ -85,55 +133,25 @@ describe("routine schedules from chat", () => {
 });
 
 describe("the routine scheduler", () => {
-  let home: string;
-  beforeAll(async () => {
-    home = await mkdtemp(join(tmpdir(), "paseo-bots-scheduler-"));
-    process.env.PASEO_HOME = home;
-  });
-  afterAll(async () => {
-    delete process.env.PASEO_HOME;
-    await rm(home, { recursive: true, force: true });
-  });
+  useTempPaseoHome("paseo-bots-scheduler-");
 
   it("records runs, posts cards to the results chat, and finishes them when the chat's turn ends", async () => {
-    const { Relay } = await import("../server/relay");
-    const { RoutineScheduler } = await import("../server/scheduler");
     const hook = routine({
       id: "rt-hook",
       name: "Orders",
       schedule: { kind: "webhook" },
       resultsChatId: "results-chat",
     });
-    // Created now, so the first tick has no missed run to record.
-    const host = fakeHost([
-      makeBot({ id: "bot-r", routines: [routine({ createdAt: new Date().toISOString() }), hook] }),
-    ]);
-    const appended: {
-      agentId: string;
-      item: { id: string; kind: string; data: { status: string; output: string | null } };
-    }[] = [];
-    const status = new Map<string, string>();
-    host.attach({
-      agents: {
-        ref: (agentId: string) => ({
-          refresh: async () => ({ agent: { status: status.get(agentId) ?? "idle", archivedAt: null } }),
-          timeline: { append: async (item: never) => void appended.push({ agentId, item }) },
-        }),
-      },
-    } as never);
-    const relay = new Relay(host, []);
-    const scheduler = new RoutineScheduler(host, relay);
-    scheduler.stop();
     let started = 0;
     const prompts: string[] = [];
-    (scheduler as unknown as { newChat: (...args: unknown[]) => Promise<string> }).newChat = async (
-      _bot,
-      _routine,
-      prompt,
-    ) => {
-      prompts.push(prompt as string);
-      return `run-chat-${++started}`;
-    };
+    // Created now, so the first tick has no missed run to record.
+    const { scheduler, relay, appended, status } = await startScheduler(
+      [makeBot({ id: "bot-r", routines: [routine({ createdAt: new Date().toISOString() }), hook] })],
+      async (_host, _relay, _bot, { prompt }) => {
+        prompts.push(prompt);
+        return `run-chat-${++started}`;
+      },
+    );
     try {
       const manual = await scheduler.runNow("bot-r", "rt-1");
       expect(manual.run).toMatchObject({ trigger: "manual", status: "running", agentId: "run-chat-1" });
@@ -176,6 +194,117 @@ describe("the routine scheduler", () => {
       const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
       expect(fresh).not.toBe(url);
       expect((await fetch(url, { method: "POST" })).status).toBe(404);
+    } finally {
+      relay.stop();
+    }
+  });
+});
+
+describe("routine runs", () => {
+  useTempPaseoHome("paseo-bots-scheduler-runs-");
+
+  it("posts a card for a run it skipped because it was missed by too long", async () => {
+    const missed = routine({
+      id: "rt-missed",
+      schedule: { kind: "once", at: hoursAgo(13) },
+      resultsChatId: "digest-chat",
+      createdAt: hoursAgo(14),
+    });
+    const { scheduler, appended } = await startScheduler(
+      [makeBot({ id: "bot-m", routines: [missed] })],
+      async () => "never-started",
+    );
+    await vi.waitFor(() =>
+      expect(appended.map((card) => [card.agentId, card.item.data.status])).toEqual([
+        ["digest-chat", "skipped-missed"],
+      ]),
+    );
+    const { routines } = await scheduler.status();
+    expect(routines["rt-missed"]?.runs.map((run) => run.status)).toEqual(["skipped-missed"]);
+  });
+
+  it("keeps running the other routines when one of them fails", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const due = { schedule: { kind: "interval", minutes: 30 } as const, createdAt: hoursAgo(1) };
+    const { scheduler } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-t",
+          routines: [
+            routine({ id: "rt-broken", name: "Broken", resultsChatId: "gone-chat", ...due }),
+            routine({ id: "rt-after", name: "After", ...due }),
+          ],
+        }),
+      ],
+      async (_host, _relay, _bot, { title }) => `chat-${title}`,
+      "gone-chat",
+    );
+    await vi.waitFor(async () =>
+      expect((await scheduler.status()).routines["rt-after"]?.runs.map((run) => run.agentId)).toEqual([
+        "chat-After",
+      ]),
+    );
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining('"Broken" (rt-broken)'), expect.any(Error));
+  });
+
+  it("finishes a run whose turn ends before the run is recorded", async () => {
+    let finishing: Promise<void> = Promise.resolve();
+    const fast = routine({
+      id: "rt-fast",
+      schedule: { kind: "webhook" },
+      resultsChatId: "fast-results",
+    });
+    const { scheduler, appended } = await startScheduler(
+      [makeBot({ id: "bot-f", routines: [fast] })],
+      async () => {
+        finishing = scheduler.finished(
+          "rt-fast",
+          "fast-chat",
+          { kind: "failed", error: { message: "No credits left." } },
+          "",
+        );
+        return "fast-chat";
+      },
+    );
+    await scheduler.runNow("bot-f", "rt-fast");
+    await finishing;
+    const { routines } = await scheduler.status();
+    expect(routines["rt-fast"]?.runs.map((run) => [run.status, run.error])).toEqual([
+      ["failed", "No credits left."],
+    ]);
+    expect(appended.map((card) => card.item.data.status)).toEqual(["running", "failed"]);
+  });
+});
+
+describe("the routine scheduler's saved state", () => {
+  useTempPaseoHome("paseo-bots-scheduler-state-");
+
+  it("sets a broken routines.json aside instead of overwriting the run history", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const broken = '{"rt-1": {"lastRunAt": "2026-09-2';
+    await writeState("routines.json", broken);
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "bot-s", routines: [routine({ createdAt: new Date().toISOString() })] })],
+      async () => "chat-1",
+    );
+    await scheduler.runNow("bot-s", "rt-1");
+    expect(await setAside("routines.json")).toEqual([broken]);
+    expect((await scheduler.status()).routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running"]);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("routines.json"), expect.any(SyntaxError));
+  });
+
+  it("sets a broken webhooks.json aside instead of overwriting the secrets", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await writeState("webhooks.json", '{"rt-hook": "ab');
+    const hook = routine({ id: "rt-hook", schedule: { kind: "webhook" } });
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-w", routines: [hook] })],
+      async () => "chat-1",
+    );
+    try {
+      expect((await scheduler.webhookUrl("rt-hook")).url).toMatch(/\/hooks\/rt-hook\/[a-f0-9]{48}$/);
+      expect(await setAside("webhooks.json")).toEqual(['{"rt-hook": "ab']);
+      expect(errors).toHaveBeenCalledWith(expect.stringContaining("webhooks.json"), expect.any(SyntaxError));
     } finally {
       relay.stop();
     }
