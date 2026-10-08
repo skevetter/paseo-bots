@@ -196,18 +196,30 @@ async function readAnswer(response: Response, id: number): Promise<JsonRpcRespon
   return undefined;
 }
 
+async function nextMatch<T>(
+  events: AsyncGenerator<{ event: string; data: string }>,
+  pick: (message: { event: string; data: string }) => T | null,
+): Promise<T | null> {
+  for (;;) {
+    const next = await events.next();
+    if (next.done) return null;
+    const picked = pick(next.value);
+    if (picked !== null) return picked;
+  }
+}
+
 async function awaitAnswer(
   events: AsyncGenerator<{ event: string; data: string }>,
   id: number,
 ): Promise<unknown> {
-  for await (const { event, data } of events) {
-    if (event !== "message") continue;
+  const answer = await nextMatch(events, ({ event, data }) => {
+    if (event !== "message") return null;
     const parsed = JSON.parse(data) as JsonRpcResponse;
-    if (parsed.id !== id) continue;
-    if (parsed.error) throw rpcError(parsed);
-    return parsed.result;
-  }
-  throw new Error("The server closed the connection without answering.");
+    return parsed.id === id ? parsed : null;
+  });
+  if (!answer) throw new Error("The server closed the connection without answering.");
+  if (answer.error) throw rpcError(answer);
+  return answer.result;
 }
 
 async function httpFailure(response: Response): Promise<Error> {
@@ -277,18 +289,13 @@ async function probeSse(
   if (!stream.ok || !stream.body) throw await httpFailure(stream);
   const events = serverEvents(stream.body);
   try {
-    let endpoint: string | null = null;
-    for await (const { event, data } of events) {
-      if (event === "endpoint") {
-        endpoint = new URL(data, config.url).toString();
-        break;
-      }
-    }
+    const endpoint = await nextMatch(events, ({ event, data }) =>
+      event === "endpoint" ? new URL(data, config.url).toString() : null,
+    );
     if (!endpoint) throw new Error("The server's event stream didn't say where to send messages.");
-    const target = endpoint;
     let nextId = 1;
     const send = async (payload: object) => {
-      const response = await fetch(target, {
+      const response = await fetch(endpoint, {
         method: "POST",
         signal,
         headers: { ...config.headers, "Content-Type": "application/json" },

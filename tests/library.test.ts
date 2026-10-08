@@ -2,6 +2,7 @@ import { readFile, readlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { probeMcpServer } from "../server/mcp-probe";
 import { type Bot, type BotMcpServer, EMPTY_LIBRARY, type Library, parseMcpJson } from "../shared/bot";
 import {
   addMcpServers,
@@ -169,6 +170,26 @@ function answerMcp(request: IncomingMessage, response: ServerResponse, body: str
   );
 }
 
+function sseMcpServer() {
+  let stream: ServerResponse | null = null;
+  const answer = (id: number, result: unknown) =>
+    stream?.write(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id, result })}\n\n`);
+  return createServer((request, response) => {
+    if (request.method === "GET") {
+      stream = response.writeHead(200, { "Content-Type": "text/event-stream" });
+      return stream.write("event: endpoint\ndata: /messages?session=1\n\n");
+    }
+    let body = "";
+    request.on("data", (chunk: Buffer) => (body += chunk.toString()));
+    request.on("end", () => {
+      const msg = JSON.parse(body) as { id?: number; method: string };
+      response.writeHead(202).end();
+      if (msg.id === undefined) return;
+      answer(msg.id, msg.method === "initialize" ? {} : { tools: [{ name: "search", description: "Find" }] });
+    });
+  });
+}
+
 describe("server library", () => {
   useTempPaseoHome("paseo-bots-lib-");
 
@@ -326,7 +347,6 @@ describe("probeMcpServer", () => {
     });`;
 
   it("lists a stdio server's tools across pages", async () => {
-    const { probeMcpServer } = await import("../server/mcp-probe");
     const result = await probeMcpServer({
       config: { type: "stdio", command: process.execPath, args: ["-e", fakeServer], env: {} },
     });
@@ -340,7 +360,6 @@ describe("probeMcpServer", () => {
   });
 
   it("reports a command that can't start or exits, without leaking env values", async () => {
-    const { probeMcpServer } = await import("../server/mcp-probe");
     const missing = await probeMcpServer({
       config: { type: "stdio", command: "definitely-not-a-command-xyz", args: [], env: {} },
     });
@@ -359,7 +378,6 @@ describe("probeMcpServer", () => {
   });
 
   it("speaks streamable HTTP with a session and event-stream answers", async () => {
-    const { probeMcpServer } = await import("../server/mcp-probe");
     const seen: string[] = [];
     const http = createServer((request, response) => {
       let body = "";
@@ -375,6 +393,21 @@ describe("probeMcpServer", () => {
       expect(result).toEqual({ ok: true, tools: [{ name: "search", description: "Find" }] });
       expect(seen).toEqual(["- Bearer t", "s1 Bearer t", "s1 Bearer t"]);
     } finally {
+      http.close();
+    }
+  });
+
+  it("speaks HTTP+SSE, reading every answer from the one open event stream", async () => {
+    const http = sseMcpServer();
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    const { port } = http.address() as { port: number };
+    try {
+      const result = await probeMcpServer({
+        config: { type: "sse", url: `http://127.0.0.1:${port}/sse`, headers: {} },
+      });
+      expect(result).toEqual({ ok: true, tools: [{ name: "search", description: "Find" }] });
+    } finally {
+      http.closeAllConnections();
       http.close();
     }
   });
