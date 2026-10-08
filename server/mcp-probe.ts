@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawnProcess, terminateProcess } from "@getpaseo/plugin/server";
 import type { McpServerConfig, McpTool } from "../shared/bot";
 import { PLUGIN_VERSION } from "../shared/version";
 
@@ -49,13 +49,7 @@ function rpcError(response: JsonRpcResponse): Error {
 
 function probeStdio(config: Extract<McpServerConfig, { type: "stdio" }>, signal: AbortSignal): Promise<McpTool[]> {
   return new Promise((resolve, reject) => {
-    const child = spawn(config.command, config.args, {
-      env: { ...process.env, ...config.env },
-      stdio: ["pipe", "pipe", "pipe"],
-      // npx, uvx and friends are .cmd shims on Windows.
-      shell: process.platform === "win32",
-      windowsHide: true,
-    });
+    const child = spawnProcess(config.command, config.args, { env: { ...process.env, ...config.env }, stdio: "pipe" });
     let nextId = 1;
     const pending = new Map<number, { resolve(value: unknown): void; reject(error: Error): void }>();
     let stdout = "";
@@ -66,7 +60,7 @@ function probeStdio(config: Extract<McpServerConfig, { type: "stdio" }>, signal:
       if (settled) return;
       settled = true;
       signal.removeEventListener("abort", onAbort);
-      child.kill();
+      terminateProcess(child, "SIGTERM").catch((error: unknown) => console.error("paseo-bots: couldn't stop an MCP server probe", error));
       if (error) reject(error);
       else resolve(tools ?? []);
     };

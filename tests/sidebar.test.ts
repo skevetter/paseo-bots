@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { newBotScreen, takeNewBotRequest } from "../client/intent";
 import { pixelAvatar } from "../shared/avatar";
 import { darkBackground } from "../shared/pixel";
 import { botSettings, BotListUiSchema, DEFAULT_BOT_LIST_UI } from "../shared/bot";
@@ -136,5 +137,15 @@ describe("plugin version", () => {
   it("matches package.json", () => {
     const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string };
     expect(PLUGIN_VERSION).toBe(pkg.version);
+  });
+});
+
+describe("New bot from the Command Center", () => {
+  it("opens the create flow once per request, not again when the screen remounts with the same params", () => {
+    const { params } = newBotScreen();
+    expect(takeNewBotRequest(params ?? {})).toBe(true);
+    expect(takeNewBotRequest(params ?? {})).toBe(false);
+    expect(takeNewBotRequest({})).toBe(false);
+    expect(takeNewBotRequest({ newBot: "later" })).toBe(true);
   });
 });

@@ -1,6 +1,6 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import type { PaseoAgent } from "./paseo";
-import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
+import type { PluginScreenProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard } from "@getpaseo/plugin/client/ui";
@@ -21,7 +21,7 @@ import { botMenuEntries, chatMenuEntries, ExportDialog, NewBotDialog, RenameDial
 import { BotSidebar, type ChatMenuContext, type MenuSource, type Selection } from "./BotSidebar";
 import { ChatPane, type OutgoingMessage } from "./ChatPane";
 import { useBotHost, useChatInvalidation, useHostResolver, useProviders, type LocalHost } from "./data";
-import { takeIntent } from "./intent";
+import { takeNewBotRequest } from "./intent";
 import { LibraryView } from "./library/LibraryView";
 import { onLibraryTarget, type LibraryTarget } from "./navigation";
 import { Splash } from "./Splash";
@@ -50,7 +50,7 @@ const SETUP_PROMPT =
 /** Autosave delay after the last edit in the settings panel. */
 const SAVE_DELAY_MS = 600;
 
-export function BotsSurface(props: PluginSurfaceProps) {
+export function BotsSurface(props: PluginScreenProps) {
   const { colors } = props.theme;
   useTooltipTheme(colors);
   return (
@@ -63,7 +63,7 @@ export function BotsSurface(props: PluginSurfaceProps) {
 }
 
 
-function BotsSurfaceContent({ theme, layout, host, navigation }: PluginSurfaceProps) {
+function BotsSurfaceContent({ theme, layout, host, navigation, params }: PluginScreenProps) {
   const { colors } = theme;
   const { settings, latest, commit } = useBotSettings();
   const toast = useToast();
@@ -219,11 +219,9 @@ function BotsSurfaceContent({ theme, layout, host, navigation }: PluginSurfacePr
     return () => subscription.remove();
   }, []);
 
-  // "New bot" from the Command Center opens a fresh Bots screen; only that one consumes it.
   useEffect(() => {
-    const intent = takeIntent();
-    if (intent?.kind === "new-bot") setCreating(true);
-  }, []);
+    if (takeNewBotRequest(params)) setCreating(true);
+  }, [params]);
 
   if (settings.status !== "ready") {
     return (

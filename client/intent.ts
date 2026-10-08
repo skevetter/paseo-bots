@@ -1,16 +1,17 @@
-// Command Center items can open the surface but can't pass it arguments.
-// They leave an intent here; the surface consumes it when it mounts.
+import type { PluginOpenScreenInput, PluginScreenParams } from "@getpaseo/plugin/client";
 
-export type SurfaceIntent = { kind: "new-bot" };
+export const BOTS_SCREEN = "bots";
 
-let pending: SurfaceIntent | null = null;
-
-export function requestIntent(intent: SurfaceIntent): void {
-  pending = intent;
+export function newBotScreen(): PluginOpenScreenInput {
+  return { screenId: BOTS_SCREEN, params: { newBot: String(Date.now()) } };
 }
 
-export function takeIntent(): SurfaceIntent | null {
-  const intent = pending;
-  pending = null;
-  return intent;
+let handledNewBot: string | null = null;
+
+/** Whether these params ask for a new bot not asked for yet: back, forward and remounts keep the params. */
+export function takeNewBotRequest(params: PluginScreenParams): boolean {
+  const request = params.newBot;
+  if (!request || request === handledNewBot) return false;
+  handledNewBot = request;
+  return true;
 }

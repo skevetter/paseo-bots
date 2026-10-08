@@ -1,10 +1,11 @@
-import type { PluginClientContext } from "@getpaseo/plugin/client";
+import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
+import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { z } from "zod";
 import { BotsSurface } from "./client/BotsSurface";
 import { NativeConnectCard } from "./client/chat/stream/ConnectCard";
 import { ProposalCard } from "./client/chat/stream/ProposalCard";
 import { RoutineRunCard } from "./client/chat/stream/RoutineRunCard";
-import { requestIntent } from "./client/intent";
+import { BOTS_SCREEN, newBotScreen } from "./client/intent";
 import { BotsSettings } from "./client/settings/BotsSettings";
 import { installTooltips } from "./client/ui/Tooltip";
 import { appSignIns } from "./shared/apps";
@@ -13,12 +14,16 @@ import { proposalIdOf } from "./shared/proposals";
 import { APP_SIGN_IN_CARD, AppSignInSchema, helloRpc, ROUTINE_RUN_CARD, RoutineRunCardSchema } from "./shared/rpc";
 import { LEARN_COMMAND, learnPrompt } from "./shared/skills";
 
+function BotsSidebarItem({ currentScreen, openScreen }: PluginSidebarItemProps) {
+  return <SidebarRow icon="Bot" active={currentScreen?.screenId === BOTS_SCREEN} onPress={() => openScreen({ screenId: BOTS_SCREEN })} />;
+}
+
 export default function contribute(client: PluginClientContext) {
   // Hands the daemon side its Paseo API so bot routines can run.
   void client.rpc(helloRpc, {}).catch(() => {});
   const removeTooltips = installTooltips();
-  client.addSurface("bots", BotsSurface);
-  client.addSidebarItem({ id: "bots", title: "Bots", icon: "Bot", surface: "bots" });
+  client.addScreen({ id: BOTS_SCREEN, title: "Bots", Component: BotsSurface });
+  client.addSidebarHeaderItem({ id: BOTS_SCREEN, title: "Bots", Component: BotsSidebarItem });
   client.addSettingsScreen({ id: "bots", title: "Bots", icon: "Bot", Component: BotsSettings });
   client.addCommandCenterItem({
     id: "open-bots",
@@ -26,8 +31,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Bot",
     keywords: ["bot", "assistant", "persona"],
     context: "global",
-    onSelect({ openSurface }) {
-      openSurface("bots");
+    onSelect({ openScreen }) {
+      openScreen({ screenId: BOTS_SCREEN });
     },
   });
   client.addCommandCenterItem({
@@ -36,9 +41,8 @@ export default function contribute(client: PluginClientContext) {
     icon: "Plus",
     keywords: ["bot", "create", "assistant"],
     context: "global",
-    onSelect({ openSurface }) {
-      requestIntent({ kind: "new-bot" });
-      openSurface("bots");
+    onSelect({ openScreen }) {
+      openScreen(newBotScreen());
     },
   });
   // Bot chats opened in Paseo's own agent view get the same /learn and skill cards.
