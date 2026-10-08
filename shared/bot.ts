@@ -5,7 +5,7 @@ import { botToolsPrompt, QUIET_TOOLS, supportsToolGrants, TOOLS_MCP_NAME } from 
 import { PASEO_MCP_NAME, PASEO_TOOLS_PROMPT } from "./paseo-tools";
 import { renderPlaybooks } from "./playbooks";
 
-/** Agent label carrying the bot id. Chats are found by filtering on it. */
+/** Chats are found by filtering agents on this label. */
 export const BOT_LABEL = "paseo-bots.bot";
 
 const StringRecord = z.record(z.string(), z.string());
@@ -30,9 +30,8 @@ export const BotMcpServerSchema = z.object({
 export type BotMcpServer = z.infer<typeof BotMcpServerSchema>;
 
 const BotAvatarSchema = z.object({
-  /** Seed for the generated robot face. */
   seed: z.string(),
-  /** Palette override for the generated face; null lets the seed pick. */
+  /** Null lets the seed pick. */
   palette: z.number().int().nullable().default(null),
   shape: z.enum(["circle", "rounded", "square"]).default("circle"),
   /** An http(s) or data: image shown instead of the generated face. */
@@ -40,7 +39,7 @@ const BotAvatarSchema = z.object({
 });
 export type BotAvatar = z.infer<typeof BotAvatarSchema>;
 
-/** A skill folder in the shared library. `id` is the folder name and the name bots see. */
+/** `id` is the folder name and the name bots see. */
 const LibrarySkillSchema = z.object({
   id: z.string(),
   description: z.string().default(""),
@@ -49,9 +48,8 @@ const LibrarySkillSchema = z.object({
   /** Off keeps it in the library but out of every bot's prompt. */
   enabled: z.boolean().default(true),
   /**
-   * SHA-256 of the SKILL.md the user reviewed. Bots only get the skill while
-   * the file still matches, so an update, or a bot editing its own skill, needs
-   * a new review. Null: never reviewed. Absent: added before reviews existed.
+   * SHA-256 of the SKILL.md the user reviewed; bots get the skill only while the
+   * file still matches. Null: never reviewed. Absent: added before reviews existed.
    */
   reviewedSha: z.string().nullable().optional(),
   createdAt: z.string(),
@@ -59,7 +57,6 @@ const LibrarySkillSchema = z.object({
 });
 export type LibrarySkill = z.infer<typeof LibrarySkillSchema>;
 
-/** Whether a skill waits for review; pass the file's current hash when known. */
 export function skillNeedsReview(
   skill: Pick<LibrarySkill, "reviewedSha">,
   currentSha?: string | null,
@@ -72,7 +69,7 @@ export function skillNeedsReview(
 export const McpToolSchema = z.object({ name: z.string(), description: z.string().default("") });
 export type McpTool = z.infer<typeof McpToolSchema>;
 
-/** An MCP server in the shared library. `name` is the key agents see ("server/tool"). */
+/** `name` is the key agents see ("server/tool"). */
 const LibraryMcpServerSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -89,7 +86,6 @@ const LibraryMcpServerSchema = z.object({
 });
 export type LibraryMcpServer = z.infer<typeof LibraryMcpServerSchema>;
 
-/** Skills and MCP servers kept once and switched on per bot. */
 const LibrarySchema = z.object({
   skills: z.array(LibrarySkillSchema).default([]),
   mcpServers: z.array(LibraryMcpServerSchema).default([]),
@@ -106,9 +102,8 @@ export const RoutineScheduleSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("interval"), minutes: z.number().int().min(5).max(1440) }),
   z.object({ kind: z.literal("once"), at: z.string() }),
-  /** Five-field cron ("minute hour day-of-month month day-of-week") in the host's local time. */
+  /** Five-field cron in the host's local time. */
   z.object({ kind: z.literal("cron"), expression: z.string() }),
-  /** Runs when its webhook URL on this host is called; the request body comes with the prompt. */
   z.object({ kind: z.literal("webhook") }),
 ]);
 export type RoutineSchedule = z.infer<typeof RoutineScheduleSchema>;
@@ -119,13 +114,13 @@ const RoutineSchema = z.object({
   prompt: z.string(),
   enabled: z.boolean().default(true),
   schedule: RoutineScheduleSchema,
-  /** A chat of the bot that gets a card for each run (OpenMausBot's results thread); runs themselves always get their own chat. */
+  /** Gets a card for each run; runs themselves always get their own chat. */
   resultsChatId: z.string().nullable().default(null),
   createdAt: z.string(),
 });
 export type Routine = z.infer<typeof RoutineSchema>;
 
-/** Process guidance a chat gets when one of its trigger words appears in the chat's first message. */
+/** Applies when a trigger word appears in a chat's first message. */
 const PlaybookSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -135,9 +130,8 @@ const PlaybookSchema = z.object({
 export type Playbook = z.infer<typeof PlaybookSchema>;
 
 /**
- * How a bot may use one connected app: its tools ("all", "read" for the ones
- * Composio marks read-only, or exact tool names) and the account it must use
- * (a Composio account id; null lets it pick one by name).
+ * `"read"`: the tools Composio marks read-only. `account`: a Composio account
+ * id; null lets the bot pick one by name.
  */
 const AppRuleSchema = z.object({
   tools: z.union([z.enum(["all", "read"]), z.array(z.string())]).default("all"),
@@ -145,7 +139,7 @@ const AppRuleSchema = z.object({
 });
 export type AppRule = z.infer<typeof AppRuleSchema>;
 
-/** How a bot sounds when its replies are read aloud: a device voice by name (voices differ per device) and whether finished replies are read out. */
+/** `name` is a device voice; voices differ per device. */
 const BotVoiceSchema = z.object({
   name: z.string().nullable().default(null),
   readReplies: z.boolean().default(false),
@@ -155,12 +149,10 @@ export type BotVoice = z.infer<typeof BotVoiceSchema>;
 export const BotSchema = z.object({
   id: z.string(),
   name: z.string(),
-  /** One line: what the bot does. */
   title: z.string().default(""),
-  /** Longer blurb shown in the bot list and given to the agent. */
   description: z.string().default(""),
   avatar: BotAvatarSchema,
-  /** Daemon server id the bot runs on. Null means the host that stores the bot. */
+  /** Daemon server id; null means the host that stores the bot. */
   hostId: z.string().nullable().default(null),
   provider: z.string(),
   model: z.string().nullable().default(null),
@@ -169,22 +161,20 @@ export const BotSchema = z.object({
   thinkingOptionId: z.string().nullable().default(null),
   /** Standing instructions, placed right after the persona in the system prompt. */
   soul: z.string().default(""),
-  /** Library MCP servers this bot gets. */
   mcpServerIds: z.array(z.string()).default([]),
-  /** Exact MCP tool grants ("server/tool") the bot may use without asking. */
+  /** Exact MCP tool grants ("server/tool"). */
   alwaysAllow: z.array(z.string()).default([]),
-  /** Library skills this bot gets. */
   skillIds: z.array(z.string()).default([]),
-  /** Connected apps (Composio toolkit slugs) this bot may use. */
+  /** Composio toolkit slugs. */
   apps: z.array(z.string()).default([]),
-  /** Limits on connected apps, by slug. An app without one allows every tool and account. */
+  /** An app without a rule allows every tool and account. */
   appRules: z.record(z.string(), AppRuleSchema).default({}),
   voice: BotVoiceSchema.default({ name: null, readReplies: false }),
-  /** Whether the bot may ask other bots for help: after the user approves each request, freely, or not at all. */
+  /** ask: the user approves each request; allow: freely; off: never. */
   contactBots: z.enum(["ask", "allow", "off"]).default("ask"),
   routines: z.array(RoutineSchema).default([]),
   playbooks: z.array(PlaybookSchema).default([]),
-  /** Working folder. Null means the shared managed folder on the storing host. */
+  /** Null means the shared managed folder on the storing host. */
   cwd: z.string().nullable().default(null),
   pinned: z.boolean().default(false),
   archived: z.boolean().default(false),
@@ -201,20 +191,16 @@ const HISTORY_PER_BOT = 20;
 /** Edits closer together than this undo as one step. */
 const HISTORY_COALESCE_MS = 60_000;
 
-/** Bot list state that Paseo keeps per sidebar: collapsed groups, pins, manual order, display options. */
 export const BotListUiSchema = z.object({
-  /** Collapsed bot groups. */
   collapsed: z.array(z.string()).default([]),
   pinnedCollapsed: z.boolean().default(false),
-  /** Chats pinned to the top of the list, in pin order. */
+  /** In pin order. */
   pinnedChats: z.array(z.object({ botId: z.string(), chatId: z.string() })).default([]),
-  /** Manual chat order per bot (chat ids). */
   chatOrder: z.record(z.string(), z.array(z.string())).default({}),
   chatSort: z.enum(["manual", "activity"]).default("manual"),
   showArchived: z.boolean().default(false),
-  /** The open team tab: a team id, or OTHER_BOTS_TAB. Null opens the first. */
+  /** A team id, or OTHER_BOTS_TAB. Null opens the first. */
   tab: z.string().nullable().default(null),
-  /** Desktop column widths, like Paseo's resizable sidebar (default 320) and explorer (default 320). */
   listWidth: z.number().default(320),
   panelWidth: z.number().default(320),
 });
@@ -222,35 +208,32 @@ export type BotListUi = z.infer<typeof BotListUiSchema>;
 
 export const DEFAULT_BOT_LIST_UI: BotListUi = BotListUiSchema.parse({});
 
-/** A team's logo: a generated pixel-art motif, or a picture instead. */
 const TeamLogoSchema = z.object({
-  /** Seed for the generated logo. */
   seed: z.string(),
-  /** Palette override for the generated logo; null lets the seed pick. */
+  /** Null lets the seed pick. */
   palette: z.number().int().nullable().default(null),
   /** An http(s) or data: image shown instead of the generated logo. */
   imageUrl: z.string().nullable().default(null),
 });
 export type TeamLogo = z.infer<typeof TeamLogoSchema>;
 
-/** A team of bots, after OpenMausBot's teams: its members, its lead (Chief of Staff) and shared instructions. */
 export const BotGroupSchema = z.object({
   id: z.string(),
   name: z.string(),
   /** Null draws a logo from the team's id. */
   logo: TeamLogoSchema.nullable().default(null),
-  /** The user's main contact for the team, who hands work to the others; null until one is picked. */
+  /** Hands work to the others; null until one is picked. */
   leadId: z.string().nullable().default(null),
-  /** The team's bots; the lead is one of them. */
+  /** Includes the lead. */
   memberIds: z.array(z.string()).default([]),
-  /** Added to every member's prompt; only the user edits them. */
+  /** Added to every member's prompt; only the user edits it. */
   instructions: z.string().default(""),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
 export type BotGroup = z.infer<typeof BotGroupSchema>;
 
-/** A team in a team file: its bots by their place in the file's list of bots. */
+/** `lead` and `members` index the file's list of bots. */
 export const TeamFileTeamSchema = z.object({
   name: z.string().max(60),
   logo: TeamLogoSchema.nullable().default(null),
@@ -260,7 +243,7 @@ export const TeamFileTeamSchema = z.object({
 });
 export type TeamFileTeam = z.infer<typeof TeamFileTeamSchema>;
 
-/** What a new bot starts with, from the plugin's settings. An empty provider picks one that's ready. */
+/** An empty provider picks one that's ready. */
 const BotDefaultsSchema = z.object({
   provider: z.string().default(""),
   model: z.string().nullable().default(null),
@@ -271,11 +254,7 @@ const BotDefaultsSchema = z.object({
 export type BotDefaults = z.infer<typeof BotDefaultsSchema>;
 export const DEFAULT_BOT_DEFAULTS: BotDefaults = BotDefaultsSchema.parse({});
 
-/**
- * A bot saved as a starting point, as OpenMausBot's presets: who it is and how
- * it works (instructions, playbooks, skills). Access (MCP servers, connected
- * apps, folder), routines and the agent come from the defaults instead.
- */
+/** Who a bot is and how it works; access, routines and the agent come from the defaults. */
 const PresetSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -296,7 +275,7 @@ export const botSettings = defineSettings({
   schema: z.object({
     bots: z.array(BotSchema).default([]),
     history: z.array(HistoryEntrySchema).default([]),
-    /** Optional so documents written before it existed (and by older clients) stay valid. */
+    /** Optional so documents from before it existed, and from older clients, stay valid. */
     ui: BotListUiSchema.optional(),
     library: LibrarySchema.optional(),
     defaults: BotDefaultsSchema.optional(),
@@ -411,9 +390,8 @@ function migrateBotSkills(skills: readonly unknown[], target: MigrationTarget): 
 }
 
 /**
- * v2 kept MCP servers and skills on each bot. v3 moves them into the shared
- * library and leaves the bot with the ids it had switched on. Ids are derived
- * from names so every client migrating the same document agrees on them.
+ * v2 kept MCP servers and skills on each bot. Ids derive from names so every
+ * client migrating the same document agrees on them.
  */
 export function migrateV2(values: unknown): unknown {
   const root = (values ?? {}) as { bots?: RawBot[]; history?: { snapshot?: RawBot }[] };
@@ -441,13 +419,11 @@ export function migrateV2(values: unknown): unknown {
   };
 }
 
-/** `name`, or `name-2`, `name-3`... when it's taken. */
 export function uniqueName(name: string, taken: ReadonlySet<string>): string {
   if (!taken.has(name)) return name;
   for (let n = 2; ; n++) if (!taken.has(`${name}-${n}`)) return `${name}-${n}`;
 }
 
-/** Records `previous` so it can be undone, coalescing bursts of edits into one step. */
 export function pushHistory(
   history: readonly HistoryEntry[],
   previous: Bot,
@@ -487,13 +463,11 @@ export function presetFromBot(bot: Bot, now: string = new Date().toISOString()):
   };
 }
 
-/** "Inbox", or "Inbox 2", "Inbox 3"... when a bot already has the name (OpenMausBot's import naming). */
 export function numberedName(name: string, taken: ReadonlySet<string>): string {
   if (!taken.has(name)) return name;
   for (let n = 2; ; n++) if (!taken.has(`${name} ${n}`)) return `${name} ${n}`;
 }
 
-/** A new bot's agent settings from the defaults; `provider` is the one to use when the defaults leave it open. */
 export function applyDefaults(bot: Bot, defaults: BotDefaults, provider: string): Bot {
   const chosen = defaults.provider || provider;
   // A model, mode or thinking level only means something for the provider it was picked for.
@@ -517,22 +491,17 @@ export function newRoutineId(): string {
 }
 
 export interface PromptContext {
-  /** MEMORY.md, already trimmed to the injection budget. */
+  /** Already trimmed to the injection budget. */
   memory: string;
   memoryPath: string | null;
-  /** The recent-work brief: the newest line from each chat of the last two days. */
   recentWork: string[];
-  /** Playbooks whose triggers appear in the chat's first message. */
   playbooks: Playbook[];
-  /** In a team's chat, the lead's view of the team (teamPrompt). */
+  /** From teamPrompt, in a team's chat. */
   team?: string | null;
-  /** The bot's usable skills with the SKILL.md path the agent should read. Empty when the files aren't on the bot's host. */
+  /** Empty when the SKILL.md files aren't on the bot's host. */
   skills: { name: string; description: string; path: string }[];
-  /** Whether the host gives this bot's provider Paseo's own tools. */
   paseoTools: boolean;
-  /** Whether chats get the plugin's own tools (bots on the plugin's host). */
   botTools: boolean;
-  /** The connected apps the bot may use; empty when it has none. */
   apps: PromptApp[];
 }
 
@@ -589,10 +558,6 @@ function toolSections(bot: Bot, context: PromptContext): PromptSection[] {
   return sections;
 }
 
-/**
- * The bot's system prompt, in OpenMausBot's order: persona, standing
- * instructions, memory, then the skills index.
- */
 export function promptSections(bot: Bot, context: PromptContext): PromptSection[] {
   const sections: PromptSection[] = [{ title: "Persona", text: personaText(bot) }];
   if (bot.soul.trim()) {
@@ -611,11 +576,7 @@ export function composeSystemPrompt(bot: Bot, context: PromptContext): string {
     .join("\n\n");
 }
 
-/**
- * What a bot won't do, from its settings, for the Overview (OpenMausBot's
- * wontLines). `local` is whether it runs on this host, where the plugin's tools
- * and connected apps reach it.
- */
+/** `local`: runs on this host, where the plugin's tools and connected apps reach it. */
 export function botLimits(bot: Bot, facts: { local: boolean; appsConfigured: boolean }): string[] {
   const lines: string[] = [];
   // Modes that skip approvals: Claude's bypassPermissions, Codex's full-access and the like.
@@ -629,7 +590,6 @@ export function botLimits(bot: Bot, facts: { local: boolean; appsConfigured: boo
   return lines;
 }
 
-/** Rough token estimate (≈4 characters per token), as shown in the prompt preview. */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
@@ -645,7 +605,6 @@ export function utf8Bytes(text: string): number {
   return bytes;
 }
 
-/** The library MCP servers a bot gets: switched on for the bot and on in the library. */
 export function botMcpServers(bot: Pick<Bot, "mcpServerIds">, library: Library): LibraryMcpServer[] {
   return bot.mcpServerIds.flatMap((id) => {
     const server = library.mcpServers.find((entry) => entry.id === id);
@@ -653,7 +612,6 @@ export function botMcpServers(bot: Pick<Bot, "mcpServerIds">, library: Library):
   });
 }
 
-/** The library skills a bot gets: switched on for the bot and on in the library. */
 export function botSkills(bot: Pick<Bot, "skillIds">, library: Library): LibrarySkill[] {
   return bot.skillIds.flatMap((id) => {
     const skill = library.skills.find((entry) => entry.id === id);
@@ -673,16 +631,12 @@ function mcpServersRecord(
   return record;
 }
 
-/**
- * The `config` half of `paseo.agents.create()` for a bot. The SDK needs an
- * explicit model, so bots on "provider default" pass the resolved default in.
- */
-/** Servers the plugin itself adds to a local bot's chat: its tools and, when set up, connected apps. */
 export interface PluginServers {
   apps?: McpServerConfig | null;
   tools?: McpServerConfig | null;
 }
 
+/** The SDK needs an explicit model, so bots on "provider default" pass the resolved default in. */
 export function buildAgentConfig(
   bot: Bot,
   agent: { library: Library; model: string; systemPrompt: string; plugin?: PluginServers },
@@ -693,8 +647,7 @@ export function buildAgentConfig(
     ...(plugin.apps ? { [APPS_MCP_NAME]: plugin.apps } : {}),
     ...(plugin.tools ? { [TOOLS_MCP_NAME]: plugin.tools } : {}),
   };
-  // The plugin's quiet tools (reading, or proposing what the user confirms) run without prompts;
-  // asking another bot does too once the user allowed it for this bot.
+  // Quiet tools run without prompts; ask_bot too once the user allowed it for this bot.
   const quiet = plugin.tools
     ? [...QUIET_TOOLS, ...(bot.contactBots === "allow" ? ["ask_bot"] : [])].map(
         (tool) => `${TOOLS_MCP_NAME}/${tool}`,
@@ -716,7 +669,6 @@ export function buildAgentConfig(
   };
 }
 
-/** "server/tool" entries → Paseo's exact MCP tool grants. Malformed entries are skipped. */
 export function toolGrants(entries: readonly string[]): { kind: "mcp"; server: string; tool: string }[] {
   return entries.flatMap((entry) => {
     const match = /^([^/\s]+)\/([^/\s]+)$/.exec(entry.trim());
@@ -725,7 +677,6 @@ export function toolGrants(entries: readonly string[]): { kind: "mcp"; server: s
   });
 }
 
-/** The model a provider uses when none is chosen: its marked default, else its first selectable one. */
 export function defaultModelId(
   models: readonly { id: string; isDefault?: boolean; isSelectable?: boolean }[],
 ): string | null {
@@ -733,7 +684,7 @@ export function defaultModelId(
   return (selectable.find((model) => model.isDefault) ?? selectable[0])?.id ?? null;
 }
 
-/** Problems that block saving. `isLocalHost` is whether the bot runs on the storing host. */
+/** `isLocalHost`: the bot runs on the storing host. */
 export function botProblems(bot: Bot, isLocalHost: boolean): string[] {
   const problems: string[] = [];
   if (!bot.name.trim()) problems.push("Give the bot a name.");
@@ -744,10 +695,10 @@ export function botProblems(bot: Bot, isLocalHost: boolean): string[] {
   return problems;
 }
 
-/** MCP server names bots get from elsewhere, which library servers can't take. */
+/** Taken by MCP servers bots get from elsewhere. */
 export const RESERVED_MCP_NAMES: readonly string[] = [PASEO_MCP_NAME, APPS_MCP_NAME, TOOLS_MCP_NAME];
 
-/** Names agents accept as an MCP server key (it prefixes every tool name). */
+/** MCP server keys agents accept (the key prefixes every tool name). */
 export const MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 
 function stringRecord(value: unknown): Record<string, string> {
@@ -781,10 +732,7 @@ function mcpServerFromEntry(name: string, raw: unknown): BotMcpServer | null {
   };
 }
 
-/**
- * Reads MCP definitions in the common `{ "mcpServers": { name: config } }` shape
- * (Claude Code, Cursor, `.mcp.json`) or the bare `{ name: config }` map.
- */
+/** Accepts `{ "mcpServers": { name: config } }` (Claude Code, Cursor, `.mcp.json`) or a bare `{ name: config }` map. */
 export function parseMcpJson(text: string): BotMcpServer[] {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
@@ -804,7 +752,6 @@ export function parseMcpJson(text: string): BotMcpServer[] {
   return servers;
 }
 
-/** `KEY=value` lines, the editable form of env vars and headers. */
 export function formatPairs(record: Record<string, string>): string {
   return Object.entries(record)
     .map(([key, value]) => `${key}=${value}`)
@@ -842,7 +789,6 @@ function scanUnquoted(scan: ArgScan, char: string): void {
   }
 }
 
-/** Splits a command line into arguments, honouring single and double quotes. */
 export function splitArgs(text: string): string[] {
   const scan: ArgScan = { args: [], current: "", quote: null, started: false };
   for (const char of text) {

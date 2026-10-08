@@ -13,7 +13,6 @@ type Colors = PluginTheme["colors"];
 const AVATAR_SIZE = 48;
 const REPOSITORY_URL = "https://github.com/oliexe/paseo-bots";
 
-/** Shown in the chat pane before a bot is picked: six generated bots in grayscale over a small name and version footnote, and the repository at the bottom. */
 export function Splash({ colors, background }: { colors: Colors; background?: string }) {
   const dark = nativeTokens(colors).dark;
   const lineup = useMemo(

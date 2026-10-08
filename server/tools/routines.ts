@@ -4,9 +4,6 @@ import { describeSchedule, ScheduleInput, scheduleFrom, upcomingRuns } from "../
 import { createProposal } from "../proposals";
 import { defineTool } from "./mcp";
 
-// OpenMausBot's propose_routine: the bot suggests a routine, the user confirms
-// it on a card in the chat, and the runs report back to that chat.
-
 export const proposeRoutine = defineTool({
   name: "propose_routine",
   description:

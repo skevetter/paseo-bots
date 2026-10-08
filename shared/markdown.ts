@@ -1,7 +1,4 @@
-// Markdown for chat replies. The plugin SDK has no markdown component, so this
-// is a small CommonMark + GFM parser shaped after what Paseo's markdown-it setup
-// renders (utils/assistant-markdown-parser.ts): html off, linkify on, tables and
-// strikethrough on, soft line breaks kept as line breaks (message.tsx softbreak).
+// Must render like Paseo's markdown-it setup (utils/assistant-markdown-parser.ts).
 
 export type Inline =
   | { kind: "text"; text: string }
@@ -30,16 +27,13 @@ export type Block =
   | { kind: "rule" };
 
 export interface ParseOptions {
-  /** The text is still streaming: complete unclosed inline marks at its end, like Paseo's streaming parser. */
+  /** Complete unclosed inline marks at the end of still-streaming text. */
   streaming?: boolean;
-  /** Turn bare URLs into links (on for chat, off for plan cards, as in Paseo). Default true. */
+  /** Default true. */
   linkify?: boolean;
 }
 
-/** Link reference definitions, plus whether bare URLs become links. */
 type References = Map<string, string> & { linkify?: boolean };
-
-// ---------------------------------------------------------------- inline
 
 const PUNCTUATION = /[!-/:-@[-`{-~ -⁯⸀-⹿　-〿]/;
 const ESCAPABLE = /[!-/:-@[-`{-~]/;
@@ -119,7 +113,7 @@ interface LinkTarget {
   end: number;
 }
 
-/** Link destination and optional title after "](" ... ")". Returns the url and the index after ")". */
+/** `start` is just after "](", `end` just after ")". */
 function parseLinkTail(src: string, start: number): LinkTarget | null {
   const destination = parseLinkDestination(src, skipLinkWhitespace(src, start));
   if (!destination) return null;
@@ -183,11 +177,10 @@ function emphasisKind(char: Delim["char"], use: number): "strike" | "bold" | "it
   return use === 2 ? "bold" : "italic";
 }
 
-/** CommonMark's "process emphasis" over a token run; leftover delimiters become text. */
+/** CommonMark's "process emphasis"; leftover delimiters become text. */
 function processEmphasis(tokens: Token[], streaming: boolean): Inline[] {
   let i = 0;
   while (i < tokens.length) i = matchEmphasisAt(tokens, i);
-  // Paseo's streaming parser closes emphasis the model hasn't closed yet.
   if (streaming) closeStreamingEmphasis(tokens);
   return finish(tokens);
 }
@@ -279,7 +272,6 @@ const EMAIL_AUTOLINK =
 const BARE_URL = /(?:https?:\/\/|www\.)[^\s<]*[^\s<.,:;"')\]!?*_~]/g;
 const ENTITY = /^&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]{1,31}));/;
 
-/** markdown-it's linkify for http(s) and www. links in plain text. */
 function linkify(inlines: Inline[]): Inline[] {
   return inlines.flatMap((inline): Inline[] => {
     if (inline.kind === "text") return linkifyText(inline.text);
@@ -394,7 +386,7 @@ function scanCodeSpan(state: InlineScan): boolean {
     state.tokens.push({ kind: "code", text: codeSpanBody(src.slice(i + run, close)) });
     state.i = close + run;
   } else if (state.streaming) {
-    // Unclosed code at the streaming tail renders as code (streaming-markdown completeCode).
+    // Unclosed code at the streaming tail still renders as code.
     const body = src.slice(i + run).replace(/`+$/, "");
     flushText(state);
     if (body) state.tokens.push({ kind: "code", text: body.replace(/\n/g, " ") });
@@ -582,8 +574,6 @@ export function parseInline(
   return references.linkify === false || options.linkify === false ? inlines : linkify(inlines);
 }
 
-// ---------------------------------------------------------------- blocks
-
 const FENCE_OPEN = /^( {0,3})(`{3,}|~{3,})(.*)$/;
 const ATX = /^ {0,3}(#{1,6})(?:[ \t]+|$)(.*)$/;
 const RULE = /^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/;
@@ -678,7 +668,6 @@ function matchTableStart(lines: string[], i: number): { header: string[]; delimi
     : null;
 }
 
-/** Whether a line starts a block that ends (interrupts) a paragraph. */
 function interruptsParagraph(line: string): boolean {
   if (FENCE_OPEN.test(line) || ATX.test(line) || RULE.test(line) || QUOTE.test(line)) return true;
   const item = LIST_ITEM.exec(line);
@@ -1045,9 +1034,7 @@ export function parseMarkdown(source: string, options: ParseOptions = {}): Block
   return parseBlocks(lines, options.streaming === true, references);
 }
 
-// ---------------------------------------------------------------- limits
-
-/** Paseo caps what it renders of one assistant message (assistant-message-render-limit.ts). */
+/** Must match Paseo's cap (assistant-message-render-limit.ts). */
 const ASSISTANT_MESSAGE_RENDER_CHARACTER_LIMIT = 32_000;
 
 export function capMessageForRender(message: string): { text: string; capped: boolean } {
@@ -1073,12 +1060,7 @@ export function utf8ByteLength(message: string): number {
   return bytes;
 }
 
-// ---------------------------------------------------------------- time
-
-/**
- * Paseo's duration format (utils/time.ts formatDuration): whole seconds under a
- * minute, then "2m 12s" / "2m", then "1h 5m" / "1h". Always floors.
- */
+/** Mirrors Paseo's formatDuration (utils/time.ts); always floors. */
 export function formatDuration(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "0s";
   const totalSeconds = durationMs / 1000;
@@ -1100,10 +1082,7 @@ function calendarDaysBetween(earlier: Date, later: Date): number {
 
 let timeFormatter: Intl.DateTimeFormat | null = null;
 
-/**
- * Paseo's hover timestamp (utils/time.ts formatMessageTimestamp): the time today,
- * "Wednesday 10:11 PM" within the week, "14 May 2026, 10:11 PM" before that.
- */
+/** Mirrors Paseo's formatMessageTimestamp (utils/time.ts). */
 export function formatMessageTimestamp(date: Date, now: Date = new Date()): string {
   if (!timeFormatter) {
     const resolved = new Intl.DateTimeFormat(undefined, {

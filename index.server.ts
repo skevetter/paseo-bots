@@ -90,7 +90,6 @@ function prepareData() {
   } catch (error) {
     console.error("paseo-bots: couldn't move the data of the old paseo-bot plugin", error);
   }
-  // Moves the old folder if needed and writes the Bots project icon.
   void ensureBotsHome()
     .then(migrateBotSkills)
     .catch((error: unknown) => console.error("paseo-bots: couldn't prepare the Bots folder", error));
@@ -156,7 +155,6 @@ function handleChatEvents(
       console.error("paseo-bots: couldn't check memory before a turn", error),
     );
   });
-  // A bot's saved commands (exact command, exact folder) are approved here instead of asking.
   server.on("agent.permission_requested", async ({ agent, request }, context) => {
     host.attach(context.paseo);
     const shell = shellCommand(request, agent.cwd);
@@ -184,13 +182,12 @@ export default function contribute(server: PluginServerContext) {
     return state.status === "ready" ? (state.values.library ?? EMPTY_LIBRARY) : EMPTY_LIBRARY;
   };
   const host = new BotsHost(settings);
-  // Bots' tools and connected apps go through this relay; it reads the saved settings on every call.
+  // The relay reads the saved settings on every call.
   const relay = new Relay(host, BOT_TOOLS);
   void relay.start().catch((error: unknown) => console.error("paseo-bots: couldn't start the relay", error));
   const scheduler = new RoutineScheduler(host, relay);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
-  // Every handler and hook receives the plugin's Paseo API; features that start chats need it.
   const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
   server.handle(helloRpc, (_input, context) => {

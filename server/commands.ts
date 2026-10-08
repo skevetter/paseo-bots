@@ -4,9 +4,7 @@ import { isAbsolute, join } from "node:path";
 import { redactSecrets } from "../shared/activity";
 import { pluginDataPath } from "./bot-home";
 
-// OpenMausBot's command allowlist: an exact command in an exact folder that a
-// bot may run without asking, saved from the command's approval card. Rules
-// live on this host apart from the bots' settings, so they're never exported.
+// Rules live on this host apart from the bots' settings, so they're never exported.
 
 const MAX_COMMAND_BYTES = 16_384;
 const MAX_RULES_PER_BOT = 200;
@@ -23,7 +21,6 @@ function storePath(): string {
   return join(pluginDataPath(), "commands.json");
 }
 
-/** Throws a message the person can act on when a rule can't be saved. */
 function validateRule(command: string, cwd: string): void {
   if (
     !command.trim() ||
@@ -91,7 +88,7 @@ export class CommandAllowlist {
     });
   }
 
-  /** Exact command and folder only: a longer command or another folder still asks. */
+  /** Exact match only: a longer command or another folder still asks. */
   async matches(botId: string, command: string, cwd: string): Promise<boolean> {
     return (await this.load()).some(
       (rule) => rule.botId === botId && rule.command === command && rule.cwd === cwd,

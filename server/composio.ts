@@ -12,10 +12,7 @@ import {
 } from "../shared/apps";
 import { pluginDataPath } from "./bot-home";
 
-// Composio over its REST API, the way OpenMausBot's self-hosted mode does it:
-// one Tool Router Session per install, under one Composio user, so every
-// connected account belongs to this Paseo host. The project key stays in a
-// file only this process reads; clients never see it.
+// The project key stays in a file only this process reads; clients never see it.
 
 /** Tests point this at a local fake; its URLs are then trusted like composio.dev's. */
 const ORIGIN_OVERRIDE = () => process.env.PASEO_BOTS_COMPOSIO_ORIGIN?.replace(/\/$/, "");
@@ -73,7 +70,7 @@ export async function writeState(patch: Partial<State>): Promise<State> {
   return next;
 }
 
-/** An abort signal that fires after `ms` (AbortSignal.timeout isn't in this project's Node types). */
+/** AbortSignal.timeout isn't in this project's Node types. */
 export function deadline(ms: number): AbortSignal {
   const controller = new AbortController();
   setTimeout(() => controller.abort(), ms).unref?.();
@@ -103,8 +100,6 @@ async function failure(response: Response, fallback: string): Promise<Error> {
   return new Error(message || fallback);
 }
 
-// ---------------------------------------------------------------- session
-
 interface SessionResponse {
   session_id: string;
   mcp: { type: string; url: string };
@@ -121,7 +116,7 @@ async function createSession(apiKey: string, userId: string): Promise<SessionRes
         enable_wait_for_connections: true,
         enable_connection_removal: false,
       },
-      // Several accounts per app (work and personal Gmail); bots pick one by its alias.
+      // Bots pick among several accounts per app by alias.
       multi_account: { enable: true, max_accounts_per_toolkit: MAX_ACCOUNTS_PER_APP },
     }),
     signal: deadline(30_000),
@@ -143,7 +138,6 @@ async function sessionExists(apiKey: string, sessionId: string): Promise<boolean
   return true;
 }
 
-/** Saves a project key after proving it works by opening a session with it. */
 export async function setKey({ key }: { key: string }) {
   const apiKey = key.trim();
   if (!apiKey.startsWith("ak_")) throw new Error("Composio project keys start with ak_.");
@@ -165,7 +159,6 @@ export async function status() {
   return { configured: !!apiKey, keyHint: apiKey ? `ak_…${apiKey.slice(-4)}` : null };
 }
 
-/** The key and a live session, recreating the session when Composio has dropped it. */
 export async function session(
   options: { recreate?: boolean } = {},
 ): Promise<{ apiKey: string; sessionId: string; mcpUrl: string }> {
@@ -182,8 +175,6 @@ export async function session(
   await writeState({ sessionId: fresh.session_id, mcpUrl: fresh.mcp.url, multiAccount: true });
   return { apiKey: state.apiKey, sessionId: fresh.session_id, mcpUrl: fresh.mcp.url };
 }
-
-// ---------------------------------------------------------------- catalog and accounts
 
 let catalogCache: { key: string; at: number; apps: AppCard[] } | null = null;
 let connectedCache: { key: string; at: number; accounts: AppAccount[] } | null = null;
@@ -248,7 +239,6 @@ function appCard(item: ToolkitItem): AppCard | null {
   };
 }
 
-/** Every app Composio offers, most used first. Cached for ten minutes. */
 export async function catalog(): Promise<{ apps: AppCard[] }> {
   const { apiKey } = await readState();
   if (!apiKey) return { apps: [] };
@@ -296,7 +286,6 @@ function appTool(item: ToolItem): AppTool | null {
   };
 }
 
-/** An app's tools, without deprecated ones and ones Composio keeps out of MCP. Cached for ten minutes. */
 export async function appTools({ slug }: { slug: string }): Promise<{ tools: AppTool[] }> {
   const { apiKey } = await readState();
   if (!apiKey) return { tools: [] };
@@ -348,7 +337,7 @@ function appAccount(item: AccountItem): AppAccount | null {
   };
 }
 
-/** This host's accounts, newest first. Cached briefly; `fresh` skips the cache while a sign-in is pending. */
+/** Newest first. `fresh` skips the cache while a sign-in is pending. */
 export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ accounts: AppAccount[] }> {
   const { apiKey, userId } = await readState();
   if (!apiKey) return { accounts: [] };
@@ -372,7 +361,6 @@ export async function accounts({ fresh }: { fresh?: boolean } = {}): Promise<{ a
   return { accounts: found };
 }
 
-/** Slugs of apps with a working account. */
 export async function connectedSlugs(): Promise<string[]> {
   const { accounts: list } = await accounts().catch(() => ({ accounts: [] as AppAccount[] }));
   return [
@@ -380,7 +368,7 @@ export async function connectedSlugs(): Promise<string[]> {
   ];
 }
 
-/** A Composio-hosted sign-in link for an app, with an optional alias for the new account ("work"). The user finishes in their browser; the app polls `accounts`. */
+/** The user finishes signing in in their browser; the app polls `accounts`. */
 export async function connect({ slug, alias }: { slug: string; alias?: string }) {
   const name = alias?.trim();
   const link = async (sessionId: string, apiKey: string) =>
@@ -404,7 +392,7 @@ export async function connect({ slug, alias }: { slug: string; alias?: string })
   return { url: body.redirect_url };
 }
 
-/** Names an account ("work"), or clears the name with "". Aliases are unique per app. */
+/** "" clears the alias; aliases are unique per app. */
 export async function renameAccount({ accountId, alias }: { accountId: string; alias: string }) {
   const { apiKey } = await readState();
   if (!apiKey) throw new Error("Connected apps aren't set up.");
@@ -422,7 +410,7 @@ export async function renameAccount({ accountId, alias }: { accountId: string; a
   return { ok: true };
 }
 
-/** Disconnects one account after checking it belongs to this host's Composio user. */
+/** Refuses accounts that don't belong to this host's Composio user. */
 export async function disconnect({ accountId }: { accountId: string }) {
   const { apiKey } = await readState();
   if (!apiKey) throw new Error("Connected apps aren't set up.");

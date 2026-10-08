@@ -2,9 +2,7 @@ import { useSyncExternalStore } from "react";
 import { Platform } from "react-native";
 import { speechChunks } from "../shared/speech";
 
-// Replies read aloud with the device's own voices (the web's speech
-// synthesis), one reading at a time: starting another stops the last.
-// This plugin typechecks without the DOM library, so declare what's used.
+// This plugin typechecks without the DOM library.
 
 export interface DeviceVoice {
   name: string;
@@ -40,7 +38,7 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 
-/** Reads `text` with the named voice (the default one when it isn't on this device). `key` identifies the reading for useSpeaking. */
+/** `key` identifies the reading for useSpeaking. */
 export function speak(key: string, text: string, voiceName: string | null): void {
   if (!synth) return;
   synth.cancel();
@@ -72,7 +70,6 @@ export function stopSpeaking(): void {
   changed();
 }
 
-/** Whether the reading `key` is going on. */
 export function useSpeaking(key: string): boolean {
   return useSyncExternalStore(subscribe, () => speaking === key);
 }
@@ -90,7 +87,6 @@ const subscribeVoices = (listener: () => void) => {
   return () => synth?.removeEventListener("voiceschanged", listener);
 };
 
-/** This device's voices in the languages the user reads, or all of them when none match. */
 export function useVoices(): DeviceVoice[] {
   const all = useSyncExternalStore(subscribeVoices, readVoices);
   const languages = (

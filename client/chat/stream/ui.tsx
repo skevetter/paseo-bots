@@ -30,7 +30,7 @@ export function keysWithOccurrence(values: string[]): string[] {
   });
 }
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 interface StyleNode {
   id: string;
   textContent: string | null;
@@ -43,7 +43,6 @@ const dom = globalThis as unknown as {
   };
 };
 
-/** Adds a stylesheet to the page once (web only). */
 function ensureStyle(id: string, css: string): void {
   const document = dom.document;
   if (!isWeb || !document?.head) return;
@@ -58,7 +57,6 @@ function ensureStyle(id: string, css: string): void {
   document.head.appendChild(node);
 }
 
-/** Paseo's LoadingSpinner: an ActivityIndicator, scaled for sizes under the platform's small one. */
 export function Spinner({ color, size = 20 }: { color: string; size?: number }) {
   const scale = size / 20;
   return (
@@ -71,8 +69,6 @@ export function Spinner({ color, size = 20 }: { color: string; size?: number }) 
     </View>
   );
 }
-
-// ---------------------------------------------------------------- shimmer
 
 const SHIMMER_CSS = `
 @keyframes pbot-toolcall-shimmer { 0% { background-position: 120% 0; } 100% { background-position: -20% 0; } }
@@ -90,7 +86,6 @@ const SHIMMER_CSS = `
   animation-iteration-count: infinite;
 }`;
 
-/** message.tsx computeShimmerMetrics: a sweep slower for longer labels. */
 function shimmerDuration(label: string, secondary?: string): number {
   const chars = label.trim().length + (secondary?.trim().length ?? 0);
   const adjust = chars <= 12 ? 0.25 : 0;
@@ -102,11 +97,7 @@ interface Shimmer {
   style: StyleProp<TextStyle>;
 }
 
-/**
- * Props for a running tool label. On web the text gets Paseo's moving highlight
- * (a clipped gradient); phones pulse its opacity instead, since plugins have no
- * masked views.
- */
+/** Phones pulse the opacity instead of the web's gradient sweep: plugins have no masked views. */
 function useShimmer(active: boolean, duration: number): Shimmer {
   const opacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
@@ -147,9 +138,6 @@ function useShimmer(active: boolean, duration: number): Shimmer {
   return { textProps: {}, style: { opacity } as unknown as TextStyle };
 }
 
-// ---------------------------------------------------------------- buttons
-
-/** Paseo's TurnCopyButton: Copy 14 muted, foreground on hover, Check for 1.5s after copying. */
 export const CopyButton = memo(function CopyButton({
   colors,
   getContent,
@@ -192,7 +180,6 @@ export const CopyButton = memo(function CopyButton({
   );
 });
 
-/** Reads a turn aloud in the bot's voice, or stops the reading; styled like CopyButton. */
 export function SpeakButton({ colors, text, voice }: { colors: Colors; text: string; voice: string | null }) {
   const speaking = useSpeaking(text);
   const { hovered, hoverProps } = useHover();
@@ -214,7 +201,6 @@ export function SpeakButton({ colors, text, voice }: { colors: Colors; text: str
   );
 }
 
-/** Paseo's Button size="sm" variant="secondary": 32 high, radius 12, surface3. */
 export function SecondaryButton({
   colors,
   label,
@@ -250,7 +236,6 @@ export function SecondaryButton({
   );
 }
 
-/** The buttons under a permission or proposal card (agent-stream/view.tsx PermissionRequestCard). */
 export function CardButton({
   colors,
   label,
@@ -300,8 +285,6 @@ export function CardButton({
     </Pressable>
   );
 }
-
-// ---------------------------------------------------------------- expandable badge
 
 export interface ExpandableBadgeProps {
   colors: Colors;
@@ -427,7 +410,6 @@ function BadgeDetails({ colors, children }: { colors: Colors; children: ReactNod
   );
 }
 
-/** Paseo's ExpandableBadge (message.tsx): the tool call row and its attached detail panel. */
 export const ExpandableBadge = memo(function ExpandableBadge({
   colors,
   label,

@@ -8,16 +8,8 @@ import { type ContextUsage, formatSessionCost, formatTokenCount, meterTone, ring
 
 type Colors = PluginTheme["colors"];
 
-/** Paseo's palette amber-500, the meter's warning colour. */
 const AMBER_500 = "#f59e0b";
 
-/**
- * Paseo's context window meter (components/context-window-meter.tsx): a 28pt slot with a
- * ring glyph, surface3 track, muted progress that turns amber from 70% and destructive
- * above 90%. While a turn runs before any usage arrives it reserves the slot with the
- * track alone. Hovering shows Paseo's tooltip at once; where there are no tooltips (touch,
- * compact) pressing opens the same lines in a small anchored panel.
- */
 export function ContextMeter({
   colors,
   usage,
@@ -82,7 +74,6 @@ export function ContextMeter({
   );
 }
 
-/** A progress ring from plain Views: a track circle plus two clipped half-rings. */
 function Ring({
   size,
   stroke,

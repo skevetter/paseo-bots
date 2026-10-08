@@ -15,11 +15,7 @@ import { ActivityIndicator, type LayoutRectangle, Platform, Pressable, Text, Vie
 import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
 
-// Paseo's DropdownMenu (components/ui/menu): an anchored popover on desktop and a
-// bottom sheet on compact. Plugins get no menu component inside a surface, so this
-// reproduces its geometry: rows 28 high (40 on compact), inset 4 with 8 padding and
-// radius 6, a 16pt leading slot with a 14pt icon, 14pt labels on an 18 line, a
-// surface1 card with a borderAccent frame, radius 8 and shadow md.
+// Plugins get no menu component inside a surface, so this reproduces Paseo's DropdownMenu.
 
 type Colors = PluginTheme["colors"];
 
@@ -28,27 +24,24 @@ export type MenuEntry =
       kind?: "item";
       label: string;
       icon?: string;
-      /** Replaces the icon, e.g. a team's logo. */
+      /** Replaces the icon. */
       leading?: ReactNode;
-      /** The current choice in a switcher; gets Paseo's trailing check. */
       selected?: boolean;
       destructive?: boolean;
       disabled?: boolean;
-      /** Shown on the right, e.g. a shortcut or current value. */
       trailing?: string;
       onSelect(): void | Promise<void>;
-      /** Label while `onSelect` is running, e.g. "Archiving...". Keeps the menu open until it finishes. */
+      /** Shown while `onSelect` runs; keeps the menu open until it finishes. */
       pendingLabel?: string;
     }
   | { kind: "separator" };
 
 export interface MenuSpec {
-  /** Window coordinates of the trigger, or of the pointer for context menus. */
+  /** In window coordinates. */
   anchor: LayoutRectangle;
   align?: "start" | "end";
-  /** Native widths: 220 for project menus, 260 for workspace menus. */
   width?: number;
-  /** Sheet title on compact, e.g. "Bot actions". */
+  /** Only shown as the sheet title on compact. */
   title: string;
   entries: MenuEntry[];
 }
@@ -64,7 +57,6 @@ export function useMenu(): MenuApi {
   return useContext(MenuContext);
 }
 
-/** Window rectangle of a view, for anchoring a menu to it. */
 export function measureAnchor(ref: RefObject<View | null>): Promise<LayoutRectangle | null> {
   return new Promise((resolve) => {
     const node = ref.current;
@@ -73,7 +65,6 @@ export function measureAnchor(ref: RefObject<View | null>): Promise<LayoutRectan
   });
 }
 
-/** Props for a Pressable that opens a context menu on right-click (web and desktop only, like Paseo). */
 export function contextMenuProps(onOpen: (anchor: LayoutRectangle) => void): object {
   if (Platform.OS !== "web") return {};
   return {
@@ -89,7 +80,7 @@ export function contextMenuProps(onOpen: (anchor: LayoutRectangle) => void): obj
   };
 }
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 const dom = globalThis as unknown as {
   addEventListener?: (
     type: "keydown",

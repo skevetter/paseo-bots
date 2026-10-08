@@ -1,8 +1,3 @@
-// A bot's daily log and recent-work brief, after OpenMausBot's memory/log and
-// recent-work.ts. The app writes one line per finished turn to
-// memory/log/YYYY-MM-DD.md; the newest line from each chat of the last two days
-// goes into the next chat's prompt.
-
 import { toolCallName } from "./tool-name";
 
 const REPLY_MAX = 240;
@@ -13,13 +8,11 @@ const BRIEF_LINES = 10;
 const BRIEF_CHARS = 1_400;
 const BRIEF_QUOTE_MAX = 160;
 
-/** One line of whitespace-collapsed text, cut to `max` characters. */
 export function foldText(text: string, max: number): string {
   const line = text.replace(/\s+/g, " ").trim();
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
 
-/** Hides common credential formats before text is written to disk. */
 export function redactSecrets(text: string): string {
   return text
     .replace(/\b(sk|ak|pk|rk)[-_][A-Za-z0-9_-]{16,}/g, "[redacted]")
@@ -29,7 +22,6 @@ export function redactSecrets(text: string): string {
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{20,}/g, "$1 [redacted]");
 }
 
-/** "mcp__bots__ask_bot" and "bots.ask_bot" read as "bots/ask_bot"; built-in tools keep their names. */
 export function toolLabel(name: string): string {
   const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
   return mcp ? `${mcp[1]}/${mcp[2]}` : name;
@@ -42,7 +34,6 @@ interface TimelineItemLike {
   metadata?: unknown;
 }
 
-/** The latest turn in a chat's timeline: the bot's last reply and the tools it used. */
 export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; tools: string[] } {
   let start = items.length;
   while (start > 0 && items[start - 1]?.type !== "user_message") start--;
@@ -61,7 +52,6 @@ export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; t
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-/** YYYY-MM-DD in the host's time zone. */
 export function localDay(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
@@ -70,10 +60,6 @@ export function localTime(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/**
- * One daily-log line: "- 09:05 · from chat "Title" · reply [tools: a, b]".
- * Null for a turn that finished without saying anything.
- */
 export function logLine(input: {
   at: Date;
   chat: string;
@@ -90,7 +76,6 @@ export function logLine(input: {
 }
 
 export interface LogEntry {
-  /** Local date and time of the turn. */
   at: Date;
   chat: string;
   text: string;
@@ -98,7 +83,6 @@ export interface LogEntry {
 
 const LOG_LINE = /^- (\d{2}):(\d{2}) · from chat "([^"]*)" · (.*)$/;
 
-/** The lines of one day's log file (YYYY-MM-DD.md); lines the bot wrote in another shape are skipped. */
 export function parseLog(day: string, text: string): LogEntry[] {
   const [year, month, date] = day.split("-").map(Number);
   const entries: LogEntry[] = [];
@@ -132,10 +116,6 @@ function newestPerChat(entries: readonly LogEntry[], since: number): LogEntry[] 
   return [...newest.values()];
 }
 
-/**
- * OpenMausBot's recent-work brief: the newest thing the bot said in each chat
- * over the last two days, newest first, within 10 lines and 1,400 characters.
- */
 export function recentWork(entries: readonly LogEntry[], now: Date): string[] {
   const since = now.getTime() - BRIEF_HOURS * 3_600_000;
   const lines: string[] = [];
@@ -150,15 +130,12 @@ export function recentWork(entries: readonly LogEntry[], now: Date): string[] {
   return lines;
 }
 
-// ---------------------------------------------------------------- search
-
 const STOP_WORDS = new Set(
   "a an and are about as at be by did do does for from how i in is it me my of on or our that the this to was we were what when where which who why with you your".split(
     " ",
   ),
 );
 
-/** The content words of a search: lowercase, without filler words. Every one must match. */
 export function searchWords(query: string): string[] {
   const words = query.toLowerCase().match(/[\p{L}\p{N}][\p{L}\p{N}._@-]*/gu) ?? [];
   return [...new Set(words.filter((word) => !STOP_WORDS.has(word)))];
@@ -169,7 +146,6 @@ export function matchesAll(text: string, words: readonly string[]): boolean {
   return words.every((word) => lower.includes(word));
 }
 
-/** About `max` characters around the first match, with the matched words in [brackets]. */
 export function snippet(text: string, words: readonly string[], max = 240): string {
   const line = text.replace(/\s+/g, " ").trim();
   const lower = line.toLowerCase();
@@ -188,7 +164,6 @@ export function snippet(text: string, words: readonly string[], max = 240): stri
   return cut.replace(pattern, "[$1]");
 }
 
-/** "24h", "3d", "2w", "today", "yesterday" or a date (YYYY-MM-DD) as the moment it starts. */
 export function parseSince(text: string, now: Date): Date {
   const value = text.trim().toLowerCase();
   const midnight = (back: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - back);
@@ -207,12 +182,9 @@ export function parseSince(text: string, now: Date): Date {
   );
 }
 
-/** "today 09:05", "yesterday 17:40" or "2026-09-20 08:00". */
 export function whenLabel(at: Date, now: Date): string {
   return `${dayLabel(at, now)} ${localTime(at)}`;
 }
-
-// ---------------------------------------------------------------- journal wording
 
 interface JournalRowLike {
   file: string;
@@ -226,7 +198,6 @@ interface JournalRowLike {
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-/** "Scout added 2 lines to MEMORY.md", "You deleted the clients topic" (OpenMausBot's journalSummary). */
 export function journalSummary(row: JournalRowLike, botName: string): string {
   const who = row.actor === "bot" ? botName : "You";
   const target = row.file === "MEMORY.md" ? "MEMORY.md" : `the ${row.file.replace(/\.md$/, "")} topic`;
@@ -238,7 +209,6 @@ export function journalSummary(row: JournalRowLike, botName: string): string {
   return `${who} rewrote ${plural(Math.max(row.added, row.removed), "line")} in ${target}`;
 }
 
-/** Where a change came from. */
 export function journalSource(row: JournalRowLike): string {
   if (row.via === "undo") return "undo";
   if (row.via === "disk") return "changed outside the app";
@@ -246,7 +216,6 @@ export function journalSource(row: JournalRowLike): string {
   return "in the bot's settings";
 }
 
-/** "Today", "Yesterday" or "Sat, Sep 26" for a log day (YYYY-MM-DD). */
 export function dayName(day: string, now: Date): string {
   const [year = Number.NaN, month = Number.NaN, date = Number.NaN] = day.split("-").map(Number);
   const at = new Date(year, month - 1, date);

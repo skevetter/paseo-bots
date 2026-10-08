@@ -4,8 +4,6 @@ import { sanitizeSkillName, skillMarkdown } from "../../shared/skills";
 import { createProposal } from "../proposals";
 import { defineTool } from "./mcp";
 
-// /learn: the bot turns what it just did into a skill; the user saves it from a card.
-
 export const proposeSkill = defineTool({
   name: "propose_skill",
   description:

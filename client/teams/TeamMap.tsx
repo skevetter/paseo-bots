@@ -14,11 +14,6 @@ import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-/**
- * OpenMausBot's team map: a tile per team with its Chief of Staff, an arrow,
- * and the members, each card showing what the bot is doing. Bots without a
- * team come last. Pressing a card opens the bot.
- */
 export function TeamMap({
   colors,
   groups,
@@ -36,7 +31,6 @@ export function TeamMap({
   bots: readonly Bot[];
   localHost: LocalHost;
   compact: boolean;
-  /** The home indicator on phones. */
   bottomInset: number;
   onBack?: () => void;
   onNewTeam(): void;

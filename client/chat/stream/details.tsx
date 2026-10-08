@@ -16,8 +16,6 @@ import { isWeb, keysWithOccurrence } from "./ui";
 
 type Colors = PluginTheme["colors"];
 
-// Paseo's ToolCallDetailsContent (components/tool-call-details.tsx) and its
-// DiffViewer. Code insets: padding 12, extra right 16, extra bottom 12.
 const PAD = 12;
 const EXTRA_RIGHT = 16;
 const EXTRA_BOTTOM = 12;
@@ -29,7 +27,6 @@ interface Props {
   detail?: ToolCallDetail;
   errorText?: string;
   maxHeight?: number;
-  /** In the phone sheet: grow to the sheet's height instead of capping. */
   fillAvailableHeight?: boolean;
   showLoadingSkeleton?: boolean;
 }
@@ -111,7 +108,6 @@ function EmptyDetails({ colors, showLoadingSkeleton }: { colors: Colors; showLoa
   );
 }
 
-/** A full-bleed code surface (shell, edit, sub-agent): surface1, scrolls both ways. */
 function CodeSurface({ colors, styles, children }: { colors: Colors; styles: Styles; children: ReactNode }) {
   return (
     <View
@@ -146,7 +142,6 @@ function CodeSurface({ colors, styles, children }: { colors: Colors; styles: Sty
   );
 }
 
-/** A bordered surface2 box of monospace text (read, write, fetch, search output). */
 function ScrollableText({
   colors,
   text,

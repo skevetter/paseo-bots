@@ -27,8 +27,6 @@ const DAYS = 14;
 const journalKey = (botId: string) => ["paseo-bots", "memory-journal", botId];
 const logKey = (botId: string) => ["paseo-bots", "memory-log", botId];
 
-// OpenMausBot's memory "Changes" card and daily log, each browsed in a modal from the bot's Memory section.
-
 export function useMemoryJournal(botId: string) {
   const journal = useRpc(memoryJournalRpc);
   return useQuery({
@@ -43,7 +41,6 @@ export function useDailyLog(botId: string) {
   return useQuery({ queryKey: logKey(botId), queryFn: () => log({ botId }), refetchInterval: 30_000 });
 }
 
-/** Every change to the memory files, by the bot or by you; one opens with its diff and Undo. */
 export function ChangesSheet({
   colors,
   bot,
@@ -181,7 +178,6 @@ function ChangeDiff({ colors, row, file }: { colors: Colors; row: JournalRow; fi
   );
 }
 
-/** The bot's daily log, a day at a time; a day can be deleted. */
 export function LogSheet({ colors, bot, onClose }: { colors: Colors; bot: Bot; onClose(): void }) {
   const query = useDailyLog(bot.id);
   const [open, setOpen] = useState<string | null>(null);

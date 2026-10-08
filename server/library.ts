@@ -21,9 +21,8 @@ import {
 } from "../shared/skills";
 import { botDataPath, botsHomePath, pluginDataPath } from "./bot-home";
 
-// The shared skill library: one folder per skill under plugin-data/library/skills.
-// Bots that use the managed folder get a link to each of their skills in
-// <bot>/skills, so the agent reads them inside its own working folder.
+// Bots get a link to each of their skills in <bot>/skills, so the agent reads them inside its own
+// working folder.
 
 const MAX_SKILLS = 30;
 const MAX_FILES_PER_SKILL = 40;
@@ -84,7 +83,7 @@ interface RepoTree {
   skillDirs: string[];
 }
 
-/** Fetches skills from "owner/repo", "owner/repo/path", a GitHub URL or a SKILL.md link into the library. */
+/** `source`: "owner/repo", "owner/repo/path", a GitHub URL or a SKILL.md link. */
 export async function importSkills({
   source: input,
 }: {
@@ -174,7 +173,6 @@ export function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-/** SHA-256 of a library skill's SKILL.md, or null when it's missing. */
 export async function skillSha(id: string): Promise<string | null> {
   const text = await readFile(join(librarySkillPath(id), "SKILL.md"), "utf8").catch(() => null);
   return text === null ? null : sha256(text);
@@ -192,7 +190,6 @@ export async function readSkill({ id }: { id: string }) {
   };
 }
 
-/** Writes SKILL.md, creating the skill folder if needed. Returns its frontmatter description and hash. */
 export async function writeSkill({ id, text }: { id: string; text: string }) {
   const dir = librarySkillPath(id);
   await mkdir(dir, { recursive: true });
@@ -205,10 +202,7 @@ export async function deleteSkill({ id }: { id: string }) {
   return { ok: true };
 }
 
-/**
- * Before the library, skills lived in each bot's skills folder. Moves them into
- * the library (the first copy of a name wins; later ones stay where they are).
- */
+/** The first copy of a skill name wins; later ones stay in their bot's folder. */
 export async function migrateBotSkills(): Promise<void> {
   const bots = await readdir(botsHomePath(), { withFileTypes: true }).catch(() => []);
   for (const bot of bots) {
@@ -227,11 +221,7 @@ async function migrateSkillsFolder(skillsDir: string): Promise<void> {
   }
 }
 
-/**
- * Points <bot>/skills/<id> at each library skill the bot uses and removes links
- * to skills it no longer uses. Returns the SKILL.md path to give the agent for
- * each skill: the link, or the library copy when a link can't be made.
- */
+/** Returns each skill's SKILL.md path for the agent: the link, or the library copy when linking fails. */
 export async function linkBotSkills(botId: string, ids: readonly string[]): Promise<Map<string, string>> {
   const dir = join(botDataPath(botId), "skills");
   const paths = new Map<string, string>();

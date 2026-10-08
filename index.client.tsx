@@ -57,7 +57,6 @@ export default function contribute(client: PluginClientContext) {
       openScreen(newBotScreen());
     },
   });
-  // Bot chats opened in Paseo's own agent view get the same /learn and skill cards.
   client.addSlashCommand({
     ...LEARN_COMMAND,
     context: "agent",
@@ -84,7 +83,6 @@ export default function contribute(client: PluginClientContext) {
       <ProposalCard colors={theme.colors} compact={layout.compact} proposalId={item.data.proposalId} />
     ),
   });
-  // A bot's request to connect an app, in Paseo's view too.
   client.addTimelineTransformer({
     id: "app-sign-ins",
     query: { itemType: "tool_call" },
@@ -107,7 +105,6 @@ export default function contribute(client: PluginClientContext) {
       />
     ),
   });
-  // A routine's results chat opened in Paseo's view shows its run cards too (no navigation there).
   client.addTimelineRenderer({
     ...ROUTINE_RUN_CARD,
     schema: RoutineRunCardSchema,

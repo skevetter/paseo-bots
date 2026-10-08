@@ -19,23 +19,17 @@ import { code, ui } from "../typography";
 import { measureAnchor } from "../ui/Menu";
 import { tooltip } from "../ui/Tooltip";
 
-// Paseo primitives the plugin SDK doesn't hand out, rebuilt from their source:
-// Button (components/ui/button.tsx), FormTextInput (form-field.tsx), SettingsTextArea
-// (components/settings-textarea.tsx), SearchField, Alert, StatusBadge, Switch, and the
-// settings row geometry (styles/settings.ts). Spacing stays on Paseo's 4/8/12/16/24 scale
-// and text on the 12/14 UI tokens.
+// Paseo primitives the plugin SDK doesn't export, rebuilt to match their source.
 
 type Colors = PluginTheme["colors"];
 
 const isWeb = Platform.OS === "web";
 
-/** Paseo's compact form factor (unistyles xs/sm: under 720 wide) when the caller doesn't know. */
+/** Paseo's compact breakpoint (unistyles xs/sm). */
 export function useCompact(compact?: boolean): boolean {
   const { width } = useWindowDimensions();
   return compact ?? width < 720;
 }
-
-// ---------------------------------------------------------------- button
 
 type ButtonVariant = "default" | "secondary" | "outline" | "ghost";
 type ButtonSize = "xs" | "sm" | "md";
@@ -143,12 +137,10 @@ export function Button({
   );
 }
 
-/** A sheet footer: equal-width Cancel + primary, like Paseo's schedule form (gap 12). */
 export function SheetFooter({ children }: { children: ReactNode }) {
   return <View style={{ flexDirection: "row", gap: 12 }}>{children}</View>;
 }
 
-/** Trailing actions under a sheet's text area, like "Append system prompt" (end-aligned, gap 8). */
 export function SheetActions({ children, leading }: { children: ReactNode; leading?: ReactNode }) {
   return (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -158,15 +150,12 @@ export function SheetActions({ children, leading }: { children: ReactNode; leadi
   );
 }
 
-// ---------------------------------------------------------------- text areas
-
 type AreaProps = Omit<TextInputProps, "style" | "multiline"> & {
   colors: Colors;
   minHeight?: number;
   monospace?: boolean;
 };
 
-/** Paseo's FormTextInput, multi-line: surface2, borderAccent on hover, 2px accent focus ring. */
 export function FormTextArea({
   colors,
   minHeight = 96,
@@ -203,11 +192,7 @@ export function FormTextArea({
   );
 }
 
-/**
- * A multi-line input as a card row: optional label and hint, then a filled text
- * area across the row, matching `InputField` so single- and multi-line inputs
- * look the same. Render it inside a SettingsCard.
- */
+/** Render inside a SettingsCard. */
 export function TextAreaField({
   colors,
   label,
@@ -228,24 +213,20 @@ export function TextAreaField({
   );
 }
 
-// ---------------------------------------------------------------- fields
-
 interface InputFieldProps extends Omit<TextInputProps, "style" | "multiline" | "defaultValue" | "value"> {
   colors: Colors;
   label: string;
   hint?: string | null;
   error?: string | null;
-  /** Uncontrolled like Paseo's SettingsInput; remount with a `key` to reset it. */
+  /** Uncontrolled; remount with a `key` to reset it. */
   initialValue?: string;
   monospace?: boolean;
   disabled?: boolean;
 }
 
 /**
- * A settings card row whose input spans the row under its label. Paseo's
- * SettingsInput keeps the input beside the label and only wraps it at a fixed
- * width, which leaves it cramped in the 320-wide panel and short on phones.
- * The input is FormTextInput: 32 high with radius 6, or 44 and 8 on compact.
+ * Unlike Paseo's SettingsInput, the input spans the row under its label; beside
+ * it, the input is cramped in the 320-wide panel and short on phones.
  */
 export function InputField({
   colors,
@@ -309,9 +290,6 @@ export function InputField({
   );
 }
 
-// ---------------------------------------------------------------- search
-
-/** Paseo's SearchField: 6/12 padding, radius 6, focus lifts to surface2 + borderAccent, clear X. */
 export function SearchField({
   colors,
   value,
@@ -377,8 +355,6 @@ export function SearchField({
   );
 }
 
-// ---------------------------------------------------------------- alert, badge, switch
-
 const ALERT_ICONS = { default: null, warning: "AlertTriangle", error: "CircleX" } as const;
 
 type AlertVariant = keyof typeof ALERT_ICONS;
@@ -439,7 +415,6 @@ function AlertHeading({
   );
 }
 
-/** Paseo's Alert at size sm: 1px tinted border, transparent fill, 14pt icon, muted body. */
 export function Alert({
   colors,
   variant = "default",
@@ -490,7 +465,6 @@ function badgeStatus(colors: Colors, variant: BadgeVariant): string | null {
   return statuses[variant];
 }
 
-/** Paseo's StatusBadge: surface3 pill, or the status tint (12% light / 16% dark) with the status text. */
 export function StatusBadge({
   colors,
   label,
@@ -521,7 +495,6 @@ export function StatusBadge({
   );
 }
 
-/** Paseo's Switch: 34x20 track (surface3 / accent), 16pt thumb, in a 32-high control slot. */
 export function Switch({
   colors,
   value,
@@ -544,7 +517,7 @@ export function Switch({
       aria-checked={value}
       disabled={disabled}
       hitSlop={8}
-      // Inside a pressable row: keep the row's own press from firing (providers-section.tsx).
+      // Inside a pressable row: keep the row's own press from firing.
       onPressIn={(event) => event.stopPropagation()}
       onPress={() => onValueChange(!value)}
       style={{ minHeight: 32, justifyContent: "center", opacity: disabled ? 0.5 : 1 }}
@@ -578,9 +551,6 @@ export function Switch({
   );
 }
 
-// ---------------------------------------------------------------- rows
-
-/** Title + hint + optional error, with settingsStyles.rowTitle/rowHint/rowError. */
 export function RowText({
   colors,
   label,
@@ -619,11 +589,7 @@ export function RowText({
   );
 }
 
-/**
- * A whole-row Pressable inside a SettingsCard (16/16 padding), highlighted surface2 on hover
- * and surface3 while pressed, like Paseo's schedule rows. Render it as a direct card child
- * so the card draws the divider.
- */
+/** Render as a direct SettingsCard child so the card draws the divider. */
 export function PressableRow({
   colors,
   onPress,
@@ -657,7 +623,6 @@ export function PressableRow({
   );
 }
 
-/** A row that drills into a detail: whole row pressable, ChevronRight 14 in the trailing slot. */
 export function DrillRow({
   colors,
   label,
@@ -688,10 +653,6 @@ export function DrillRow({
   );
 }
 
-/**
- * Paseo's "Advanced" disclosure (add-host-modal.tsx advancedToggle): a chevron (right, down
- * when open) and the medium-weight label. Settings people rarely need wait behind it.
- */
 export function AdvancedToggle({
   colors,
   open,
@@ -722,7 +683,6 @@ export function AdvancedToggle({
   );
 }
 
-/** A card row whose control needs the full width under its label (e.g. colour swatches). */
 export function StackedRow({
   colors,
   label,
@@ -742,7 +702,6 @@ export function StackedRow({
   );
 }
 
-/** Empty or loading state inside a card: 16 padding, centered, muted 14. */
 export function CardNote({ colors, text, loading }: { colors: Colors; text: string; loading?: boolean }) {
   return (
     <View
@@ -754,9 +713,6 @@ export function CardNote({ colors, text, loading }: { colors: Colors; text: stri
   );
 }
 
-// ---------------------------------------------------------------- triggers
-
-/** Paseo's row kebab (MoreVertical 14, padding 4, radius 4, hover surface2, hitSlop 8). */
 export function KebabButton({
   colors,
   label,
@@ -785,7 +741,6 @@ export function KebabButton({
   );
 }
 
-/** A section header's trailing action (settingsStyles.sectionHeaderLink: muted 12, gap 4). */
 export function SectionLink({
   colors,
   label,
@@ -816,7 +771,6 @@ export function SectionLink({
   );
 }
 
-/** Muted 12pt text for a section header's trailing slot (counters, totals). */
 export function SectionMeta({
   colors,
   text,

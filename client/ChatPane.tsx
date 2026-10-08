@@ -30,12 +30,9 @@ export interface ChatPaneProps {
   /** Bumps when Paseo's font sizes change, so list rows re-render. */
   typeVersion: number;
   onBack?(): void;
-  /** Opens the bot menu anchored to the header's "···" button. */
   onBotMenu(anchor: LayoutRectangle | null): void;
   onTogglePanel(): void;
-  /** Creates the chat with its first message. */
   onStart(message: OutgoingMessage): Promise<void>;
-  /** Shows another chat of this bot (a routine run's own chat). */
   onOpenChat(chatId: string): void;
 }
 
@@ -72,7 +69,6 @@ export function ChatPane({
     setFindChatId(chatId);
     setFindOpen(false);
   }
-  // ⌘F / Ctrl+F finds in the open chat on the desktop.
   useEffect(() => (canFind ? listenForFind(() => setFindOpen(true)) : undefined), [canFind]);
 
   return (
@@ -146,27 +142,21 @@ function BotIntro({ colors, bot }: { colors: Colors; bot: Bot }) {
   );
 }
 
-// ---------------------------------------------------------------- header
-
 interface HeaderProps {
   colors: Colors;
   title: string;
   subtitle: string;
-  /** Host label when the bot runs on another host (Paseo shows it as a badge in the subtitle). */
+  /** Set when the bot runs on another host. */
   hostBadge: string | null;
   compact: boolean;
   panelOpen: boolean;
   onBack?(): void;
   onMenu(anchor: LayoutRectangle | null): void;
   onTogglePanel(): void;
-  /** Opens or closes find in chat; absent while there's nothing to find. */
+  /** Absent while there's nothing to find. */
   onFind?: () => void;
 }
 
-// Paseo's workspace header (components/headers/screen-header.tsx, workspace-screen.tsx):
-// 36 high on desktop with the title (weight 300) and project name inline; 56 on phones
-// with the title (weight 400) over a 12pt subtitle row. Icon buttons are 26 (desktop) or
-// 32 (phones) with 16pt glyphs; the back arrow is Paseo's BackHeader (ArrowLeft 20, 44pt box).
 function Header({
   colors,
   title,

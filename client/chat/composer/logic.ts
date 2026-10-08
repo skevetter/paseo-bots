@@ -1,14 +1,10 @@
-// Pure composer logic, mirroring Paseo's composer (packages/app/src/composer). No React
-// Native imports here so it can be unit tested.
+// No React Native imports here, so it can be unit tested.
 import type { ComposerAttachment } from "../../../shared/attachments";
 
-// ---------------------------------------------------------------- send behaviour
-
-/** Paseo's `sendBehavior` app setting (hooks/use-settings/storage.ts). Default "steer". */
+/** Paseo's `sendBehavior` app setting. */
 export type SendBehavior = "interrupt" | "steer" | "queue";
 export const DEFAULT_SEND_BEHAVIOR: SendBehavior = "steer";
 
-/** Reads `sendBehavior` out of the persisted `@paseo:app-settings` JSON, with Paseo's `.catch("steer")`. */
 export function parseSendBehavior(raw: string | null | undefined): SendBehavior {
   if (!raw) return DEFAULT_SEND_BEHAVIOR;
   try {
@@ -19,7 +15,7 @@ export function parseSendBehavior(raw: string | null | undefined): SendBehavior 
   }
 }
 
-/** Queueing behind a permission prompt would strand the message, so Paseo interrupts instead (input/state.ts). */
+/** Queueing behind a permission prompt would strand the message. */
 export function resolveActiveSendBehavior(
   behavior: SendBehavior,
   hasPendingPermission: boolean,
@@ -27,14 +23,12 @@ export function resolveActiveSendBehavior(
   return behavior === "queue" && hasPendingPermission ? "interrupt" : behavior;
 }
 
-/** What the daemon does with a message that arrives mid-turn (composer/index.tsx submitMessage). */
 export function activeTurnBehaviorFor(behavior: SendBehavior): "steer" | "interrupt" {
   return behavior === "steer" ? "steer" : "interrupt";
 }
 
 export type SendAction = "send" | "queue" | "none";
 
-/** Enter / the send button (input/state.ts runDefaultSendAction). */
 export function resolveDefaultAction(input: {
   behavior: SendBehavior;
   running: boolean;
@@ -43,7 +37,6 @@ export function resolveDefaultAction(input: {
   return input.behavior === "queue" && input.running && input.canQueue ? "queue" : "send";
 }
 
-/** Cmd/Ctrl+Enter (input/state.ts runAlternateSendAction). */
 export function resolveAlternateAction(input: {
   behavior: SendBehavior;
   running: boolean;
@@ -55,7 +48,6 @@ export function resolveAlternateAction(input: {
 
 export type PrimaryActionKind = "send" | "active" | "none";
 
-/** Which button sits at the right of the toolbar (input.tsx resolvePrimaryActionKind). */
 export function resolvePrimaryAction(input: {
   hasContent: boolean;
   running: boolean;
@@ -67,7 +59,6 @@ export function resolvePrimaryAction(input: {
   return "none";
 }
 
-/** input/labels.ts resolveSubmitAccessibilityLabel with Paseo's English strings. */
 export function submitAccessibilityLabel(input: {
   canPressLoading: boolean;
   behavior: SendBehavior;
@@ -79,8 +70,6 @@ export function submitAccessibilityLabel(input: {
   return "Send message";
 }
 
-// ---------------------------------------------------------------- keys
-
 export interface ComposerKeyEvent {
   key: string;
   shiftKey?: boolean;
@@ -90,15 +79,11 @@ export interface ComposerKeyEvent {
   keyCode?: number;
 }
 
-/** utils/keyboard-ime.ts: Enter while an IME is composing confirms the candidate, it doesn't send. */
+/** Enter while an IME is composing confirms the candidate, it doesn't send. */
 export function isImeComposing(event: { isComposing?: boolean; keyCode?: number }): boolean {
   return Boolean(event.isComposing) || event.keyCode === 229;
 }
 
-/**
- * input.tsx handleDesktopKeyPressImpl: Enter sends only on desktop web, Shift+Enter is a
- * newline, Cmd/Ctrl+Enter is the alternate action while the agent runs.
- */
 export function resolveEnterKey(
   event: ComposerKeyEvent,
   context: { submitOnEnter: boolean; running: boolean; canQueue: boolean },
@@ -109,13 +94,10 @@ export function resolveEnterKey(
   return "default";
 }
 
-// ---------------------------------------------------------------- input height
-
 export const MIN_INPUT_HEIGHT_WEB = 46;
 export const MIN_INPUT_HEIGHT_NATIVE = 30;
 const DEFAULT_MAX_INPUT_HEIGHT = 160;
 
-/** input.tsx resolveMaxInputHeight: at least 160, otherwise half the window. */
 export function resolveMaxInputHeight(windowHeight: number): number {
   if (!Number.isFinite(windowHeight) || windowHeight <= 0) return DEFAULT_MAX_INPUT_HEIGHT;
   return Math.max(DEFAULT_MAX_INPUT_HEIGHT, Math.floor(windowHeight * 0.5));
@@ -124,8 +106,6 @@ export function resolveMaxInputHeight(windowHeight: number): number {
 export function clampHeight(height: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, height));
 }
-
-// ---------------------------------------------------------------- queue
 
 export interface QueuedMessage {
   id: string;
@@ -138,7 +118,6 @@ export function enqueue(queue: readonly QueuedMessage[], message: QueuedMessage)
   return [...queue, message];
 }
 
-/** Takes one message out of the queue (edit, send now, drain). */
 export function takeQueued(
   queue: readonly QueuedMessage[],
   id: string,
@@ -147,7 +126,6 @@ export function takeQueued(
   return { item, rest: item ? queue.filter((entry) => entry.id !== id) : [...queue] };
 }
 
-/** Whether the next queued message should go out now: the agent is idle and nothing is in flight. */
 export function shouldDrainQueue(input: {
   running: boolean;
   queued: number;
@@ -157,15 +135,12 @@ export function shouldDrainQueue(input: {
   return input.hasAgent && !input.running && input.queued > 0 && !input.inFlight;
 }
 
-// ---------------------------------------------------------------- drafts
-
 export interface ComposerDraft {
   text: string;
   attachments: ComposerAttachment[];
   updatedAt: number;
 }
 
-/** One draft per chat, like Paseo's `agent:<serverId>:<agentId>` draft keys; new chats share a per-bot draft. */
 export function composerDraftKey(hostKey: string, botId: string, agentId: string | null): string {
   return agentId ? `agent:${hostKey}:${agentId}` : `new:${hostKey}:${botId}`;
 }
@@ -215,10 +190,7 @@ export function parseDrafts(raw: string | null | undefined): Record<string, Comp
   }
 }
 
-/**
- * Keeps the newest drafts and, when the store would outgrow storage quotas, drops image
- * data from the oldest drafts first (text and other attachments always survive).
- */
+/** Over the byte budget, image data goes first, from the oldest drafts. */
 export function serializeDrafts(
   drafts: Record<string, ComposerDraft>,
   limits: { maxDrafts?: number; maxBytes?: number } = {},
@@ -244,10 +216,7 @@ export function serializeDrafts(
   return json;
 }
 
-/**
- * A failed send puts its text and attachments back (composer/submit.ts). Anything typed
- * while it was in flight is kept after it instead of being overwritten.
- */
+/** Keeps anything typed while the failed send was in flight. */
 export function restoreFailedSend(
   failed: { text: string; attachments: ComposerAttachment[] },
   current: { text: string; attachments: ComposerAttachment[] },
@@ -264,8 +233,6 @@ export function restoreFailedSend(
   };
 }
 
-// ---------------------------------------------------------------- context window meter
-
 export interface ContextUsage {
   percent: number;
   used: number;
@@ -273,7 +240,6 @@ export interface ContextUsage {
   costUsd: number | null;
 }
 
-/** components/context-window-meter.tsx: only valid numbers produce a reading. */
 export function contextUsage(
   usage:
     | {
@@ -299,7 +265,6 @@ export function contextUsage(
   return { percent: (used / max) * 100, used, max, costUsd: typeof cost === "number" ? cost : null };
 }
 
-/** Paseo's meter colours: destructive above 90%, amber from 70%, muted otherwise. */
 export function meterTone(percent: number): "danger" | "warning" | "normal" {
   const clamped = Math.max(0, Math.min(100, percent));
   if (clamped > 90) return "danger";
@@ -307,7 +272,6 @@ export function meterTone(percent: number): "danger" | "warning" | "normal" {
   return "normal";
 }
 
-/** context-window-meter.utils.ts formatTokenCount. */
 export function formatTokenCount(value: number): string {
   if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}m`;
   if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
@@ -320,16 +284,13 @@ export function formatSessionCost(value: number): string | null {
 }
 
 /**
- * The ring is drawn from two half-rings clipped to the right and left halves (no SVG in
- * plugins). Each half-ring is a circle with its top and right borders coloured; these are
- * the rotations, in degrees, that sweep `percent` clockwise from 12 o'clock.
+ * Plugins have no SVG, so the ring is two clipped half-rings, each a circle with its top and
+ * right borders coloured. Returns their rotations in degrees, clockwise from 12 o'clock.
  */
 export function ringRotations(percent: number): { right: number; left: number | null } {
   const p = Math.max(0, Math.min(100, percent)) / 100;
   return { right: 225 + 360 * Math.min(p, 0.5), left: p > 0.5 ? 360 * p - 135 : null };
 }
-
-// ---------------------------------------------------------------- slash commands
 
 export interface SlashCommand {
   name: string;
@@ -338,13 +299,11 @@ export interface SlashCommand {
   kind?: "command" | "skill";
 }
 
-/** The partial command name while the draft is a lone `/word` being typed, else null. */
 export function commandQuery(text: string): string | null {
   const match = /^\/([^\s/]*)$/.exec(text);
   return match?.[1]?.toLowerCase() ?? null;
 }
 
-/** The plugin's own commands first; a provider command with the same name is hidden (Paseo's mergeSlashCommandSources). */
 export function withPluginCommands(
   plugin: readonly SlashCommand[],
   provider: readonly SlashCommand[],
@@ -353,7 +312,6 @@ export function withPluginCommands(
   return [...plugin, ...provider.filter((command) => !taken.has(command.name))];
 }
 
-/** Prefix matches first, then substring matches, each alphabetical. */
 export function filterCommands(commands: readonly SlashCommand[], query: string, limit = 50): SlashCommand[] {
   const q = query.toLowerCase();
   const prefix: SlashCommand[] = [];

@@ -5,18 +5,12 @@ import { PLUGIN_VERSION } from "../../shared/version";
 import type { BotsHost } from "../host";
 import type { Relay } from "../relay";
 
-// A minimal MCP server over streamable HTTP: stateless JSON-RPC with JSON
-// answers, enough for initialize, tools/list and tools/call. Each request
-// comes from one bot's chat, identified by the relay from its URL and token.
-
 const PROTOCOL_VERSION = "2025-06-18";
 
 export interface ToolCaller {
   bot: Bot;
-  /** The chat (agent) the call came from. */
   agentId: string;
   host: BotsHost;
-  /** Starts other bots' chats with their tools. */
   relay: Relay;
 }
 
@@ -24,7 +18,6 @@ export interface BotTool<Schema extends ZodType = ZodType> {
   name: BotToolName;
   description: string;
   input: Schema;
-  /** Whether this bot gets the tool at all (for example, only with other bots to ask). */
   available?(caller: ToolCaller): boolean | Promise<boolean>;
   run(args: z.output<Schema>, caller: ToolCaller): Promise<string>;
 }
@@ -129,14 +122,13 @@ async function answer(
   }
 }
 
-/** Answers one JSON-RPC message; null for notifications, which get no answer. */
+/** null for notifications, which get no answer. */
 export async function answerMcp(
   message: JsonRpcRequest,
   tools: readonly BotTool[],
   caller: ToolCaller,
 ): Promise<JsonRpcResponse | null> {
   if (message.id === undefined || message.id === null) {
-    // Notifications (notifications/initialized, cancellations) need no reply.
     if (message.method?.startsWith("notifications/")) return null;
   }
   return { jsonrpc: "2.0", id: message.id ?? null, ...(await answer(message, tools, caller)) };

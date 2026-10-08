@@ -23,11 +23,6 @@ const TRIGGER: Record<RunCard["trigger"], string> = {
   webhook: "from its webhook",
 };
 
-/**
- * A routine run's result in the chat the routine reports to (OpenMausBot's
- * RoutineRunCard): the scheduler posts it when the run starts and replaces it
- * when the run ends. `onOpenChat` is only there where the app can navigate.
- */
 export function RoutineRunCard({
   colors,
   card,

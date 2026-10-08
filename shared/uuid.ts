@@ -1,4 +1,4 @@
-/** An RFC 4122 v4 UUID, the format Paseo requires for agent ids a client picks itself. */
+/** Paseo requires RFC 4122 v4 UUIDs for agent ids a client picks itself. */
 export function newUuid(): string {
   const bytes = new Uint8Array(16);
   const crypto = (globalThis as { crypto?: { getRandomValues?: (array: Uint8Array) => Uint8Array } }).crypto;

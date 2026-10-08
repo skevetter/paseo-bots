@@ -35,7 +35,6 @@ interface AppsPageProps {
   onConnect(slug: string): void;
 }
 
-/** Composio setup, then the app catalog with a Connect button per app. */
 export function AppsPage({ colors, showTitle, pending, onConnect }: AppsPageProps) {
   const status = useAppsStatus();
   const configured = status.data?.configured ?? false;

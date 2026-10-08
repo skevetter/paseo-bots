@@ -10,10 +10,8 @@ import {
 import { ROUTINE_LABEL } from "../shared/chat";
 import type { PaseoApi } from "./paseo";
 
-// What every server feature needs: the saved settings (read-only on the
-// server), and the plugin's Paseo API. The SDK only hands the API out inside
-// RPC handlers and lifecycle hooks, so it's captured the first time one runs
-// (the app calls `bots.hello` on start) and features wait for it.
+// The SDK only hands out the Paseo API inside RPC handlers and lifecycle hooks, so it's captured
+// the first time one runs (the app calls `bots.hello` on start) and features wait for it.
 
 type Listener = (paseo: PaseoApi) => void;
 
@@ -38,7 +36,6 @@ export class BotsHost {
     return this.api;
   }
 
-  /** The Paseo API, or an error a tool can show the agent. */
   requirePaseo(): PaseoApi {
     if (!this.api)
       throw new Error("paseo-bots isn't connected to Paseo yet. Open the Bots screen once and try again.");
@@ -64,7 +61,6 @@ export class BotsHost {
 
   private readonly chatBots = new Map<string, string | null>();
 
-  /** A bot chat's bot, its current title (Paseo names chats after their first message), routine and labels; null for other agents. */
   async chatOf(agentId: string): Promise<{
     botId: string;
     title: string | null;
@@ -86,7 +82,6 @@ export class BotsHost {
       : null;
   }
 
-  /** The bot a chat belongs to, from the label it was created with; null for other agents. */
   async botIdOf(agentId: string): Promise<string | null> {
     const known = this.chatBots.get(agentId);
     return known !== undefined ? known : ((await this.chatOf(agentId))?.botId ?? null);

@@ -15,17 +15,14 @@ const BotId = z.string().regex(/^[a-z0-9-]+$/);
 const MemoryFileName = z.string().regex(/^[A-Za-z0-9 ._-]+\.md$/);
 const SkillName = z.string().regex(/^[A-Za-z0-9._-]+$/);
 
-/**
- * Creates (if needed) the Bots project folder and this bot's folder inside it.
- * `root` backs the Bots project, `path` the bot's workspace.
- */
+/** `root` backs the Bots project, `path` the bot's workspace. */
 export const ensureBotHomeRpc = defineRpc({
   name: "bots.ensure-home",
   input: z.object({ botId: BotId }),
   output: z.object({ root: z.string(), path: z.string() }),
 });
 
-/** Sent by the app on start so the daemon side can run routines. */
+/** Lets the daemon side start running routines. */
 export const helloRpc = defineRpc({
   name: "bots.hello",
   input: z.object({}),
@@ -34,7 +31,7 @@ export const helloRpc = defineRpc({
 
 const PromptSectionSchema = z.object({ title: z.string(), text: z.string() });
 
-/** The bot's system prompt as it would be sent now, with its memory and skills; `message` (a new chat's first) picks its playbooks. */
+/** `message`, a new chat's first, picks the playbooks. */
 export const systemPromptRpc = defineRpc({
   name: "bots.system-prompt",
   input: z.object({ bot: BotSchema, local: z.boolean(), message: z.string().max(100_000).optional() }),
@@ -79,7 +76,7 @@ export const memoryDeleteRpc = defineRpc({
 
 const LogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-/** The daily log: its days, and one day's text when `day` is given. */
+/** `text` is set when `day` is given. */
 export const memoryLogRpc = defineRpc({
   name: "bots.memory.log",
   input: z.object({ botId: BotId, day: LogDay.optional() }),
@@ -110,14 +107,13 @@ const JournalEntrySchema = z.object({
 });
 export type JournalRow = z.infer<typeof JournalEntrySchema>;
 
-/** Recent changes to a bot's memory files, newest first. */
+/** Newest first. */
 export const memoryJournalRpc = defineRpc({
   name: "bots.memory.journal",
   input: z.object({ botId: BotId }),
   output: z.object({ entries: z.array(JournalEntrySchema) }),
 });
 
-/** Puts a memory file back the way it was before a change. */
 export const memoryUndoRpc = defineRpc({
   name: "bots.memory.undo",
   input: z.object({ botId: BotId, id: z.string().regex(/^j-[a-z0-9]+$/) }),
@@ -126,7 +122,7 @@ export const memoryUndoRpc = defineRpc({
 
 const ImportedSkillSchema = z.object({ id: SkillName, description: z.string(), source: z.string() });
 
-/** Imports skills into the library from "owner/repo", "owner/repo/path", a GitHub URL or a raw SKILL.md URL. */
+/** `source`: "owner/repo", "owner/repo/path", a GitHub URL or a raw SKILL.md URL. */
 export const skillImportRpc = defineRpc({
   name: "bots.library.import-skills",
   input: z.object({ source: z.string().min(1).max(500) }),
@@ -145,7 +141,6 @@ export const skillReadRpc = defineRpc({
   }),
 });
 
-/** Creates or replaces a library skill's SKILL.md; returns its frontmatter description and hash. */
 export const skillWriteRpc = defineRpc({
   name: "bots.library.write-skill",
   input: z.object({ id: SkillName, text: z.string().max(256_000) }),
@@ -158,7 +153,6 @@ export const skillDeleteRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-/** Starts or connects to an MCP server, lists its tools and disconnects. */
 export const mcpProbeRpc = defineRpc({
   name: "bots.library.test-mcp",
   input: z.object({ config: McpServerConfigSchema }),
@@ -168,7 +162,6 @@ export const mcpProbeRpc = defineRpc({
   ]),
 });
 
-/** MCP servers other apps on this computer have (Claude Code, Claude Desktop, Cursor), to import. */
 export const mcpSourcesRpc = defineRpc({
   name: "bots.library.mcp-sources",
   input: z.object({}),
@@ -177,9 +170,7 @@ export const mcpSourcesRpc = defineRpc({
   }),
 });
 
-// ---------------------------------------------------------------- avatar pictures
-
-/** Whether an OpenAI key for drawing avatars is saved on this host; only its last characters are shown. */
+/** `keyHint`: only the key's last characters. */
 export const avatarKeyStatusRpc = defineRpc({
   name: "bots.avatar.status",
   input: z.object({}),
@@ -198,7 +189,7 @@ export const avatarRemoveKeyRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-/** Draws an avatar from a bot's name, role and an optional direction; returns a WebP data URL. */
+/** Returns a WebP data URL. */
 export const avatarGenerateRpc = defineRpc({
   name: "bots.avatar.generate",
   input: z.object({
@@ -210,7 +201,6 @@ export const avatarGenerateRpc = defineRpc({
   output: z.object({ image: z.string() }),
 });
 
-/** One run of a routine, like Paseo's ScheduleRun. */
 const RoutineRunSchema = z.object({
   id: z.string(),
   trigger: z.enum(["schedule", "manual", "webhook"]),
@@ -226,7 +216,7 @@ const RoutineRunSchema = z.object({
 });
 export type RoutineRun = z.infer<typeof RoutineRunSchema>;
 
-/** A run's card in the routine's results chat: a plugin timeline item that's replaced (same id) when the run finishes. */
+/** A plugin timeline item, replaced (same id) when the run finishes. */
 export const RoutineRunCardSchema = RoutineRunSchema.pick({
   trigger: true,
   scheduledFor: true,
@@ -258,21 +248,21 @@ export const routineRunNowRpc = defineRpc({
   output: z.object({ run: RoutineRunSchema }),
 });
 
-/** The routine's webhook URL on this host; `rotate` replaces its secret so the old URL stops working. */
+/** `rotate` replaces the secret so the old URL stops working. */
 export const routineWebhookRpc = defineRpc({
   name: "bots.routines.webhook",
   input: z.object({ routineId: z.string().regex(/^[a-z0-9-]+$/), rotate: z.boolean().optional() }),
   output: z.object({ url: z.string() }),
 });
 
-/** A shareable bot file: identity, soul, its skills and MCP servers, routines (paused) and optionally memory. Secrets are redacted. */
+/** Routines are exported paused, and secrets are redacted. */
 export const exportBotRpc = defineRpc({
   name: "bots.export",
   input: z.object({ bot: BotSchema, includeMemory: z.boolean() }),
   output: z.object({ json: z.string() }),
 });
 
-/** Writes an exported bot's files for `botId`; returns the bot fields to save and what to add to the library. */
+/** Writes the bot's files for `botId`; the caller saves the returned bot and library additions. */
 export const importBotRpc = defineRpc({
   name: "bots.import",
   input: z.object({ botId: BotId, json: z.string().max(5_000_000) }),
@@ -289,7 +279,7 @@ const ImportedBotSchema = z.object({
   mcpServers: z.array(BotMcpServerSchema),
 });
 
-/** Several bots in one team file, with the teams they're on; secrets are redacted as in single exports. */
+/** Secrets are redacted as in single exports. */
 export const exportTeamRpc = defineRpc({
   name: "bots.export-team",
   input: z.object({
@@ -300,14 +290,14 @@ export const exportTeamRpc = defineRpc({
   output: z.object({ json: z.string() }),
 });
 
-/** Imports a team file, or a single bot file, as new bots and teams. */
+/** Also accepts a single bot file. */
 export const importTeamRpc = defineRpc({
   name: "bots.import-team",
   input: z.object({ json: z.string().max(20_000_000) }),
   output: z.object({ bots: z.array(ImportedBotSchema), teams: z.array(TeamFileTeamSchema) }),
 });
 
-/** Stores a picked file on this host so it can be sent as an `uploaded_file` attachment. */
+/** Stored on this host so it can be sent as an `uploaded_file` attachment. */
 export const uploadRpc = defineRpc({
   name: "bots.upload",
   input: z.object({
@@ -317,8 +307,6 @@ export const uploadRpc = defineRpc({
   }),
   output: z.object({ path: z.string(), size: z.number() }),
 });
-
-// ---------------------------------------------------------------- connected apps
 
 const AppCardSchema = z.object({
   slug: z.string(),
@@ -337,7 +325,6 @@ const AppAccountSchema = z.object({
   wordId: z.string().nullable(),
 });
 
-/** A sign-in a bot started, as its chat shows it. */
 export const APP_SIGN_IN_CARD = { kind: "app-sign-in", version: 1 } as const;
 export const AppSignInSchema = z.object({
   slug: z.string(),
@@ -351,14 +338,14 @@ const Alias = z
   .regex(/^[\w .@+-]*$/, "Use letters, numbers, spaces, dots and dashes");
 const AppSlug = z.string().regex(/^[a-z0-9_-]+$/);
 
-/** Whether a Composio project key is saved on this host; only its last characters are shown. */
+/** `keyHint`: only the key's last characters. */
 export const appsStatusRpc = defineRpc({
   name: "bots.apps.status",
   input: z.object({}),
   output: z.object({ configured: z.boolean(), keyHint: z.string().nullable() }),
 });
 
-/** Saves a Composio project key after opening a session with it. */
+/** Saved only after a session opens with it. */
 export const appsSetKeyRpc = defineRpc({
   name: "bots.apps.set-key",
   input: z.object({ key: z.string().min(1).max(200) }),
@@ -383,21 +370,19 @@ export const appsAccountsRpc = defineRpc({
   output: z.object({ accounts: z.array(AppAccountSchema) }),
 });
 
-/** A Composio-hosted sign-in link for an app; `alias` names the new account. */
 export const appsConnectRpc = defineRpc({
   name: "bots.apps.connect",
   input: z.object({ slug: AppSlug, alias: Alias.optional() }),
   output: z.object({ url: z.string() }),
 });
 
-/** Names an account (unique per app); "" clears the name. */
+/** Unique per app; "" clears the name. */
 export const appsRenameRpc = defineRpc({
   name: "bots.apps.rename",
   input: z.object({ accountId: z.string().min(1).max(200), alias: Alias }),
   output: z.object({ ok: z.boolean() }),
 });
 
-/** An app's tools, and which ones Composio marks read-only, for choosing what a bot may run. */
 export const appsToolsRpc = defineRpc({
   name: "bots.apps.tools",
   input: z.object({ slug: AppSlug }),
@@ -412,29 +397,23 @@ export const appsDisconnectRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-/**
- * The plugin's MCP servers for a new chat of a local bot: its tools, and
- * connected apps when the bot uses them. `agentId` is the chat's id, picked
- * before the chat is created.
- */
+/** `agentId` is the chat's id, picked before the chat is created. */
 export const mountRpc = defineRpc({
   name: "bots.mount",
   input: z.object({ botId: BotId, agentId: z.uuid() }),
   output: z.object({ tools: McpServerConfigSchema, apps: McpServerConfigSchema.nullable() }),
 });
 
-// ---------------------------------------------------------------- proposals
-
 const ProposalId = z.string().regex(/^p-[a-z0-9]+$/);
 
-/** A proposal a bot made in a chat; null once it's gone. */
+/** Null once it's gone. */
 export const proposalGetRpc = defineRpc({
   name: "bots.proposals.get",
   input: z.object({ id: ProposalId }),
   output: z.object({ proposal: ProposalSchema.nullable() }),
 });
 
-/** Accepts a proposal. A skill is written to the library here; the app then records it (and routines) in the bots' settings. */
+/** A skill is written to the library here; the app then records it (and routines) in the bots' settings. */
 export const proposalAcceptRpc = defineRpc({
   name: "bots.proposals.accept",
   input: z.object({ id: ProposalId }),
@@ -450,11 +429,9 @@ export const proposalDismissRpc = defineRpc({
   output: z.object({ proposal: ProposalSchema }),
 });
 
-// ---------------------------------------------------------------- allowed commands
-
 const CommandRuleSchema = z.object({ id: z.string(), command: z.string(), cwd: z.string() });
 
-/** Commands a bot runs without asking: exact command, exact folder. */
+/** Matched exactly: command and folder. */
 export const commandListRpc = defineRpc({
   name: "bots.commands.list",
   input: z.object({ botId: BotId }),

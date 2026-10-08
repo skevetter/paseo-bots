@@ -1,11 +1,4 @@
-// Deterministic pixel-art avatars. The seed is the only thing stored on a bot;
-// the creature, colours, face and accessory are derived from it here so every
-// client draws the same bot.
-//
-// Each creature is a hand-drawn silhouette on a 24×24 grid (left half, mirrored).
-// The generator then does what a pixel artist would: a coloured outline, light
-// from the top-left (rim light, specular highlight, two shadow tones), a belly or
-// muzzle patch, and a face and optional accessory layered on top.
+// Only the seed is stored on a bot; output must stay deterministic so every client draws the same bot.
 
 import {
   darkBackground,
@@ -23,8 +16,6 @@ import {
 
 export const SPRITE_SIZE = 24;
 const CENTER = SPRITE_SIZE / 2;
-
-// ------------------------------------------------------------------ silhouettes
 
 /** Mask legend: "." empty, "#" body, "a" accent (inner ears, feet, antenna). */
 interface BodyDef {
@@ -301,8 +292,6 @@ const BODIES = {
 export type SpriteName = keyof typeof BODIES;
 export const SPRITE_NAMES = Object.keys(BODIES) as SpriteName[];
 
-// ------------------------------------------------------------------ faces
-
 /** Legend: e eye, w shine, W soft glint. Both eyes use the same drawing so the shine sits top-left on each. */
 const EYES = {
   round: ["we", "ee", "ee"],
@@ -328,8 +317,6 @@ const MOUTHS = {
 type MouthName = keyof typeof MOUTHS;
 const DEFAULT_MOUTHS: MouthName[] = ["smile", "smile", "cat", "open", "tiny", "ooh"];
 
-// ------------------------------------------------------------------ accessories
-
 /** Legend: G leaf, g leaf shade, r ribbon, R ribbon shade, p petal, y gold, Y gold shade. */
 const ACCESSORIES = {
   sprout: { art: ["GG.GG", ".GgG.", "..g.."], place: "top" },
@@ -338,8 +325,6 @@ const ACCESSORIES = {
   crown: { art: ["y.y.y", "yyyyy", "YYYYY"], place: "top" },
 } as const;
 type AccessoryName = keyof typeof ACCESSORIES;
-
-// ------------------------------------------------------------------ colour
 
 const ACCENT_HUES = [345, 20, 48, 140, 190, 230, 285];
 const FIXED = {
@@ -362,14 +347,10 @@ const FIXED = {
   goldShade: "#E0A82E",
 };
 
-// ------------------------------------------------------------------ output
-
-/** A horizontal run of same-coloured pixels; null colour is transparent. */
 export interface PixelAvatar {
   sprite: SpriteName;
   background: string;
   body: string;
-  /** Runs per row, top to bottom. */
   rows: PixelRun[][];
 }
 
@@ -567,28 +548,23 @@ function draw(traits: Traits): PixelAvatar {
     Array.from({ length: SPRITE_SIZE }, (): Cell => ({ kind: "empty" })),
   );
 
-  // Silhouette, mirrored.
   drawSilhouette(grid, body);
 
-  // Accessory, placed before outlining so it gets an outline too.
+  // Before outlining so the accessory gets an outline too.
   if (traits.accessory) drawAccessory(grid, body, traits.accessory);
 
   const { minY, maxY } = bodyRowRange(grid);
   const midY = (minY + maxY) / 2;
 
-  // Shading, lit from the top-left.
   const { palette } = traits;
   const shade: ShadeContext = { grid, traits, body, midY };
   const colors = grid.map((line, y) => line.map((cell, x) => cellColor(shade, cell, x, y)));
   const canvas: Canvas = { grid, colors };
 
-  // Specular highlight: a small cluster near the top-left of the head.
   addHighlight(canvas, palette.highlight, minY, maxY);
 
-  // Face, painted only onto the body.
   paintFaceFeatures(canvas, traits, body);
 
-  // Outline: every empty pixel touching the shape.
   addOutline(canvas, palette.outline);
 
   return { sprite: traits.sprite, background: palette.background, body: palette.body, rows: toRuns(colors) };
@@ -612,10 +588,8 @@ function traitsFor(sprite: SpriteName, palette: Palette, accentHue: number, next
   return { sprite, palette, ...accent, eyes, mouth, blush, accessory };
 }
 
-// ------------------------------------------------------------------ public API
-
 export interface AvatarOptions {
-  /** Drawn on a dark theme: pastel backgrounds become a deep tint of the body colour so they don't glare. */
+  /** Pastel backgrounds become a deep tint of the body colour so they don't glare. */
   dark?: boolean;
 }
 
@@ -636,7 +610,6 @@ export function pixelAvatar(
   return withTheme(draw(traitsFor(sprite, colors, accentHue, next)), colors, options);
 }
 
-/** A specific creature and palette, e.g. the splash lineup. The face follows from the arguments. */
 export function spriteAvatar(
   sprite: SpriteName,
   palette: number,
@@ -652,7 +625,6 @@ export function spriteAvatar(
   );
 }
 
-/** The same avatar in grays: each colour becomes its luminance. */
 export function grayscaleAvatar(avatar: PixelAvatar): PixelAvatar {
   const gray = (hex: string) => {
     const level = Math.round(luminance(hex) * 255)
@@ -670,7 +642,6 @@ export function grayscaleAvatar(avatar: PixelAvatar): PixelAvatar {
   };
 }
 
-/** Six different creatures for the Bots splash screen. */
 export const SPLASH_LINEUP: readonly { sprite: SpriteName; palette: number; accent: number }[] = [
   { sprite: "cat", palette: 5, accent: 0 },
   { sprite: "robot", palette: 3, accent: 5 },

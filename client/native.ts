@@ -1,35 +1,25 @@
-// Values mirror Paseo's own app styles (packages/app/src/styles/theme.ts and the
-// sidebar, agent-stream and composer components) so the Bots surface reads as native.
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useState } from "react";
 import { Alert, Platform } from "react-native";
 
 type Colors = PluginTheme["colors"];
 
-/** Paseo's code font stacks (styles/theme.ts DEFAULT_MONO_FONT_STACK and native defaults). */
 export const MONO_FONT = Platform.select({
   web: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   ios: "ui-monospace",
   default: "monospace",
 });
 
-/**
- * Spread onto monospace <Text>. On web Paseo forces its UI font onto every
- * element except those marked `data-pmono` (appearance/apply-root-font.web.ts),
- * so code text must carry the marker to keep its monospace font.
- */
+/** On web Paseo forces its UI font onto every element not marked `data-pmono`. */
 export const MONO_PROPS = (Platform.OS === "web" ? { dataSet: { pmono: "" } } : {}) as object;
 
 /** Paseo's stream and composer column width. */
 export const CONTENT_MAX_WIDTH = 820;
 
-/** Pressable hover tracking (web/desktop); stays false on touch devices. */
 export function useHover() {
   const [hovered, setHovered] = useState(false);
   return { hovered, hoverProps: { onHoverIn: () => setHovered(true), onHoverOut: () => setHovered(false) } };
 }
-
-// ---------------------------------------------------------------- colours
 
 type Rgba = [number, number, number, number];
 
@@ -60,7 +50,7 @@ function parseColor(color: string): Rgba | null {
   return parseHexColor(value) ?? parseRgbColor(value);
 }
 
-/** A thrown error as one readable line: without Paseo's RPC wrapper ("Request failed: … requestType=… code=…") or a trailing period. */
+/** Strips Paseo's RPC wrapper ("Request failed: … requestType=… code=…") and a trailing period. */
 export function errorText(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
   return raw
@@ -70,7 +60,7 @@ export function errorText(error: unknown): string {
     .replace(/\.$/, "");
 }
 
-/** Blend two colours (`weight` of `a`); returns `a` when either can't be parsed. */
+/** `weight` is the share of `a`; returns `a` when either can't be parsed. */
 function mix(a: string, b: string, weight: number): string {
   const x = parseColor(a);
   const y = parseColor(b);
@@ -93,15 +83,10 @@ function isDark(colors: Colors): boolean {
   return (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) / 255 < 0.5;
 }
 
-/**
- * Paseo theme tokens the plugin theme doesn't carry, derived from the ones it
- * does. Weights are calibrated so the default Paseo dark and light themes
- * reproduce the real values (styles/theme.ts paseoDarkColors / light tint).
- */
+/** Weights reproduce Paseo's default dark and light theme values. */
 export interface NativeTokens {
   dark: boolean;
   surfaceSidebar: string;
-  /** Selected sidebar row: surface2 in dark themes, surface3 in light. */
   surfaceSidebarSelected: string;
   surface3: string;
   surface4: string;
@@ -154,12 +139,9 @@ export function nativeTokens(colors: Colors): NativeTokens {
   return tokens;
 }
 
-/** Paseo's composer placeholder colour (surface4). */
 export function placeholderColor(colors: Colors): string {
   return nativeTokens(colors).surface4;
 }
-
-// ---------------------------------------------------------------- confirm
 
 export interface ConfirmInput {
   title: string;
@@ -169,7 +151,7 @@ export interface ConfirmInput {
   destructive?: boolean;
 }
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 const host = globalThis as unknown as {
   paseoDesktop?: {
     dialog?: {
@@ -183,7 +165,6 @@ const host = globalThis as unknown as {
   document?: { activeElement?: { blur?: () => void } | null };
 };
 
-/** Paseo's confirmDialog (utils/confirm-dialog.ts): Alert on phones, the Electron dialog on desktop, confirm() on web. */
 export async function confirmDialog(input: ConfirmInput): Promise<boolean> {
   const confirmLabel = input.confirmLabel ?? "Confirm";
   const cancelLabel = input.cancelLabel ?? "Cancel";

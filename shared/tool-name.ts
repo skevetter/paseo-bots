@@ -15,7 +15,6 @@ function titleToolName(title: string): string | null {
   return /^[\w.-]+$/.test(trimmed) ? trimmed : null;
 }
 
-/** The tool a timeline tool call ran: its name, or for ACP providers the tool its title starts with. */
 export function toolCallName(call: { name: string; metadata?: unknown }): string {
   const metadata = AcpToolMetadata.safeParse(call.metadata);
   if (!metadata.success || (call.name !== metadata.data.kind && call.name !== metadata.data.title))
@@ -23,13 +22,12 @@ export function toolCallName(call: { name: string; metadata?: unknown }): string
   return titleToolName(metadata.data.title) ?? call.name;
 }
 
-/** The tool a permission request is for: its name, or for ACP providers the tool its title starts with. */
 export function permissionToolName(request: { name: string; title?: string; metadata?: unknown }): string {
   if (!request.title || !AcpPermissionMetadata.safeParse(request.metadata).success) return request.name;
   return titleToolName(request.title) ?? request.name;
 }
 
-/** A permission request's tool arguments; ACP providers only keep them in the raw request. */
+/** ACP providers keep the arguments only in the raw request. */
 export function permissionInput(request: {
   input?: Record<string, unknown>;
   metadata?: unknown;
@@ -40,9 +38,8 @@ export function permissionInput(request: {
 }
 
 /**
- * The tool of one MCP server a resolved tool name is, whatever the provider
- * calls it: Claude and Hermes `mcp__bots__ask_bot`, Codex `bots.ask_bot`,
- * omp `bots / ask_bot`, others `bots_ask_bot`.
+ * Provider spellings: Claude and Hermes `mcp__bots__ask_bot`, Codex
+ * `bots.ask_bot`, omp `bots / ask_bot`, others `bots_ask_bot`.
  */
 export function serverToolName(name: string, server: string): string | null {
   const match = /^(?:mcp__)?([A-Za-z0-9-]+?)(?:__|\.|_| \/ )(\w+)$/.exec(name.trim());

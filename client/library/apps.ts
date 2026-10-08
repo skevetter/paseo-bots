@@ -3,8 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AppAccount, AppCard } from "../../shared/apps";
 import { appsAccountsRpc, appsCatalogRpc, appsStatusRpc } from "../../shared/rpc";
 
-// Connected-apps state lives with Composio on this host, not in the bots
-// settings, so the client reads it through the plugin's server.
+// Apps state lives with Composio on this host, not in the bots settings, so it's read through the server.
 
 export const APPS_KEY = ["paseo-bots", "apps"] as const;
 
@@ -23,7 +22,6 @@ export function useAppsCatalog(enabled: boolean) {
   });
 }
 
-/** Accounts on this host; polls every 4 s while a sign-in is pending, like OpenMausBot's connect cards. */
 export function useAppsAccounts(enabled: boolean, polling = false) {
   const accounts = useRpc(appsAccountsRpc);
   return useQuery({
@@ -40,7 +38,7 @@ export function useAppsInvalidate() {
   return () => queryClient.invalidateQueries({ queryKey: APPS_KEY });
 }
 
-/** One entry per app with an account, the best status first (connected, then pending). */
+/** Each app's status is the best of its accounts'. */
 export function connectedApps(
   accounts: readonly AppAccount[],
   catalog: readonly AppCard[],
@@ -67,7 +65,6 @@ export function connectedApps(
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** "google_calendar" as "Google Calendar", until the catalog has the app's own name. */
 function slugName(slug: string): string {
   return slug
     .split(/[_-]+/)

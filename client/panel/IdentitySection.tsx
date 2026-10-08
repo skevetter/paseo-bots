@@ -104,7 +104,6 @@ function pictureHint(bot: Bot): string {
   return bot.avatar.imageUrl ? "The image from its URL" : "A pixel-art face drawn for this bot";
 }
 
-/** Everything about the picture: the face, its colour and shape, or a picture of your own. */
 function AvatarEditor({
   colors,
   bot,
@@ -183,7 +182,6 @@ function AvatarEditor({
   );
 }
 
-/** The device voice a bot's replies are read in, and whether finished replies are read out. */
 function VoiceSection({ bot, onPatch }: Pick<PanelProps, "bot" | "onPatch">) {
   const voices = useVoices();
   const setVoice = (patch: Partial<BotVoice>) => onPatch({ voice: { ...bot.voice, ...patch } });

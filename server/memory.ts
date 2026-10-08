@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { type LogEntry, localDay, parseLog } from "../shared/activity";
 import { botDataPath } from "./bot-home";
 
-/** OpenMausBot's budget: the first 200 lines or 24 KB of MEMORY.md go into every chat. */
 const MEMORY_MAX_LINES = 200;
 const MEMORY_MAX_BYTES = 24_000;
 export const MAIN_MEMORY = "MEMORY.md";
@@ -79,8 +78,6 @@ export async function readMemory(botId: string, name: string) {
   return { text: await readText(memoryFilePath(botId, name)) };
 }
 
-// ---------------------------------------------------------------- daily log
-
 const LOG_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function logFolder(botId: string): string {
@@ -92,13 +89,11 @@ function logPath(botId: string, day: string): string {
   return join(logFolder(botId), `${day}.md`);
 }
 
-/** Adds a line to today's log, memory/log/YYYY-MM-DD.md. */
 export async function appendDailyLog(botId: string, line: string, at = new Date()): Promise<void> {
   await mkdir(logFolder(botId), { recursive: true });
   await appendFile(logPath(botId, localDay(at)), `${line}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
-/** The log's days, newest first, with how many lines each has. */
 export async function listLogDays(botId: string) {
   const names = await readdir(logFolder(botId)).catch(() => [] as string[]);
   const days = names
@@ -121,7 +116,7 @@ export async function deleteLogDay(botId: string, day: string) {
   return { ok: true };
 }
 
-/** Log entries from the last `days` days (today included), oldest first. */
+/** Today included, oldest first. */
 export async function recentLogEntries(botId: string, days: number, now = new Date()): Promise<LogEntry[]> {
   const entries: LogEntry[] = [];
   for (let back = days - 1; back >= 0; back--) {
@@ -131,7 +126,7 @@ export async function recentLogEntries(botId: string, days: number, now = new Da
   return entries;
 }
 
-/** Every memory file with its text, as the bot sees the paths: MEMORY.md, memory/<topic>.md and memory/log/<day>.md. */
+/** Paths as the bot sees them: MEMORY.md, memory/<topic>.md and memory/log/<day>.md. */
 export async function memoryTexts(botId: string): Promise<{ path: string; text: string }[]> {
   const files = [{ path: MAIN_MEMORY, text: await readText(memoryFilePath(botId, MAIN_MEMORY)) }];
   const topics = await readdir(join(botDataPath(botId), "memory")).catch(() => [] as string[]);

@@ -3,8 +3,7 @@ import { lstat, mkdir, readdir, rename, rm, symlink, writeFile } from "node:fs/p
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-// The plugin SDK has no data-directory API; other plugins use
-// `$PASEO_HOME/plugin-data/<plugin-id>`, so this follows that convention.
+// The SDK has no data-directory API; other plugins use `$PASEO_HOME/plugin-data/<plugin-id>`.
 function pluginDataRoot(): string {
   return join(process.env.PASEO_HOME || join(homedir(), ".paseo"), "plugin-data");
 }
@@ -13,12 +12,7 @@ export function pluginDataPath(): string {
   return join(pluginDataRoot(), "paseo-bots");
 }
 
-/**
- * The plugin was called paseo-bot before. Move its data (bots' folders, the
- * skill library, the Composio key) to the new name and leave a link behind,
- * so chats started in the old folders keep their working directory. Runs
- * once, synchronously, before anything reads the data folder.
- */
+/** Leaves a link behind so chats started in the old folders keep their working directory. Must run before anything reads the data folder. */
 export function migrateRenamedPluginData(): void {
   const legacy = join(pluginDataRoot(), "paseo-bot");
   const target = pluginDataPath();
@@ -37,13 +31,9 @@ export function migrateRenamedPluginData(): void {
   symlinkSync(target, legacy, "junction");
 }
 
-/**
- * One folder for every bot that uses the managed folder. Paseo files each agent
- * under the workspace of its folder, so sharing it keeps all bot chats in a
- * single workspace; Paseo names the project after the folder, hence "Bots".
- */
+/** Paseo groups agents by folder and names the project after it, so all bots share one "Bots" folder. */
 export function botsHomePath(): string {
-  // Nested because macOS folders are case-insensitive and "bots" held per-bot folders in v0.1.
+  // Nested: macOS paths are case-insensitive and "bots" holds the legacy per-bot folders.
   return join(pluginDataPath(), "shared", "Bots");
 }
 
@@ -58,11 +48,7 @@ async function exists(path: string): Promise<boolean> {
 
 let migration: Promise<void> | null = null;
 
-/**
- * Earlier versions used a folder called "home", which Paseo showed as a "home"
- * project. Move it to "Bots" and leave a link behind so existing chats keep
- * their working folder.
- */
+/** Leaves a link behind so existing chats keep their working folder. */
 function migrateLegacyHome(): Promise<void> {
   migration ??= (async () => {
     const legacy = join(pluginDataPath(), "home");
@@ -76,19 +62,13 @@ function migrateLegacyHome(): Promise<void> {
   return migration;
 }
 
-/**
- * Each bot's own folder: the working folder of its workspace, and where its
- * memory, skills and uploads live so its chats can read and update them.
- */
 export function botDataPath(botId: string): string {
   return join(botsHomePath(), botId);
 }
 
 /**
- * Paseo shows an icon.svg in a project's folder as the project icon. The Bots project gets
- * the plugin's sidebar glyph (Lucide's Bot) in white on a tile shaped and coloured like the
- * project icons Paseo draws itself (project-icon-view.tsx: 25% corners, the muted identity
- * blue), so it reads on light and dark themes alike.
+ * Paseo shows a project folder's icon.svg as its icon. The tile mirrors Paseo's own project icons
+ * (project-icon-view.tsx: 25% corners, muted identity blue) so it reads on light and dark themes.
  */
 const PROJECT_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#5179b0"/><g transform="translate(12.8 12.8) scale(1.6)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></g></svg>`;
 
@@ -105,7 +85,6 @@ export async function ensureBotsHome() {
   return { path };
 }
 
-/** Moves data kept under `.bots/<id>` by the previous version into the bot's own folder. */
 async function adoptLegacyData(botId: string, target: string): Promise<void> {
   const legacy = join(botsHomePath(), ".bots", botId);
   const names = await readdir(legacy).catch(() => null);

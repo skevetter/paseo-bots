@@ -1,10 +1,6 @@
 import { lcsAlign } from "./tools";
 
-// A small line diff for the memory change journal: unified hunks with two
-// lines of context, like `diff -U2`, plus the added and removed line counts.
-
 const CONTEXT = 2;
-/** Beyond this many differing lines on each side the hunks are skipped and only counts are kept. */
 const MAX_MIDDLE = 1_000;
 
 type Op = { kind: " " | "-" | "+"; line: string };
@@ -90,7 +86,6 @@ export function lineDiff(
   }
   const ops: Op[] = [
     ...a.slice(0, prefix).map((line) => ({ kind: " " as const, line })),
-    // The edit script for the lines between the shared prefix and suffix.
     ...lcsAlign(middleA, middleB).map(({ kind, value }) => ({ kind, line: value })),
     ...a.slice(a.length - suffix).map((line) => ({ kind: " " as const, line })),
   ];

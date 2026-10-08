@@ -5,12 +5,6 @@ import { code, ui } from "./typography";
 
 type Colors = PluginTheme["colors"];
 
-/**
- * A multi-line field at rest, shaped like Paseo's FormTextInput (components/ui/form-field.tsx,
- * control-geometry.ts): surface2 fill, transparent 1px border, radius 6, 12/6 padding, 14pt text.
- * Hover and focus need state; `FormTextArea` in panel/controls.tsx adds the borderAccent hover
- * and the 2px accent focus ring on top of this.
- */
 export function multilineStyle(colors: Colors, minHeight: number, monospace = false): TextStyle {
   return {
     width: "100%",
@@ -31,7 +25,6 @@ export function multilineStyle(colors: Colors, minHeight: number, monospace = fa
   };
 }
 
-/** FormTextInput's interaction layers (control-geometry.ts controlHover / controlActive). */
 export function fieldStateStyle(
   colors: Colors,
   state: { hovered: boolean; focused: boolean; disabled?: boolean },

@@ -404,7 +404,6 @@ function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
     libraryScreen: renderLibrary(ctx),
   };
 
-  // On desktop Skills & Tools takes over the screen, like Paseo's settings.
   if (parts.libraryScreen && !layout.compact) {
     return (
       <View style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}>
@@ -493,7 +492,6 @@ function useStartChat({ bot, library, host, onStarted }: StartChatOptions): Star
   };
 }
 
-// Keep the bot's workspace named after the bot.
 function useWorkspaceTitle(bot: Bot, host: BotHost) {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const latest = useRef({ bot, ensureHome });
@@ -513,7 +511,6 @@ function useWorkspaceTitle(bot: Bot, host: BotHost) {
   }, [name, hostApi]);
 }
 
-// "Set up with the bot" opens a new chat that sends its first message straight away.
 function useAutoStart(selection: Selection, host: BotHost, start: StartChat) {
   const toast = useToast();
   const autoStarted = useRef(false);

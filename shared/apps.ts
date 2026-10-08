@@ -1,31 +1,26 @@
-// Connected apps through Composio: the catalog, connections and the rules the
-// relay applies to each tool call. Composio's Tool Router gives agents a few
-// meta-tools (search, schemas, execute, manage connections) over one MCP
-// server instead of every app's tools, so the tool list stays small.
+// Composio's Tool Router exposes a few meta-tools over one MCP server instead of every app's tools.
 
 import type { AppRule } from "./bot";
 import { serverToolName, toolCallName } from "./tool-name";
 
-/** The MCP server name bots see for connected apps; a library server with this name would shadow it. */
+/** A library MCP server with this name would shadow it. */
 export const APPS_MCP_NAME = "composio";
 
 export interface AppCard {
   slug: string;
   name: string;
   description: string;
-  /** Composio's logo, always an SVG. */
+  /** Always an SVG. */
   logo: string | null;
-  /** The app's website host, for a PNG favicon where SVGs can't be drawn. */
+  /** For a PNG favicon where SVGs can't be drawn. */
   domain: string | null;
   noAuth: boolean;
 }
 
-/** A 64 px PNG favicon for a site (the fallback OpenMausBot uses too). */
 export function faviconUrl(domain: string): string {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`;
 }
 
-/** The host of an app's website, or null. */
 export function appDomain(url: string | null | undefined): string | null {
   if (!url) return null;
   try {
@@ -39,22 +34,19 @@ export interface AppAccount {
   id: string;
   slug: string;
   status: AppStatus;
-  /** The name the user gave it ("work"); bots pick an account by it. */
   alias: string | null;
-  /** The provider's name for the sign-in, usually an email address. */
+  /** The provider's sign-in name, usually an email address. */
   name: string | null;
   /** Composio's readable id ("gmail_brave-owl"), which its tool router reports for a new sign-in. */
   wordId: string | null;
 }
 
-/** How an account reads in lists: its alias, its sign-in name, or the app's name. */
 export function accountLabel(account: Pick<AppAccount, "alias" | "name">, appName: string): string {
   return account.alias ?? account.name ?? appName;
 }
 
 export type AppStatus = "connected" | "pending" | "failed";
 
-/** Composio's account statuses, folded the way OpenMausBot reads them. */
 export function appStatus(status: string | null | undefined, noAuth = false): AppStatus {
   if (noAuth || /^active$/i.test(status ?? "")) return "connected";
   if (/^(initiated|initializing|pending)$/i.test(status ?? "")) return "pending";
@@ -67,7 +59,6 @@ export function canonicalSlug(slug: string): string {
   return lower === "x" ? "twitter" : lower;
 }
 
-/** Sign-in links and MCP endpoints must be https on composio.dev. */
 export function isComposioUrl(value: string): boolean {
   try {
     const url = new URL(value);
@@ -79,7 +70,7 @@ export function isComposioUrl(value: string): boolean {
   }
 }
 
-/** The app a tool belongs to: its slug is the tool name's prefix, and the longest known slug wins (BLAND_AI_* is bland_ai, not bland). */
+/** The longest known slug prefix wins: BLAND_AI_* is bland_ai, not bland. */
 export function appForTool(toolSlug: string, knownSlugs: readonly string[]): string | null {
   const name = toolSlug.trim().toUpperCase();
   let best: string | null = null;
@@ -90,21 +81,17 @@ export function appForTool(toolSlug: string, knownSlugs: readonly string[]): str
   return best;
 }
 
-/** A bot's limits on one app, as the relay checks a call against them. */
 export interface AppLimit {
-  /** Tools the bot may run, upper-case; null allows every tool. */
+  /** Upper-case; null allows every tool. */
   tools: ReadonlySet<string> | null;
-  /** The account every call must use, and its alias; null lets the bot pick. */
+  /** Null lets the bot pick. */
   account: { id: string; alias: string | null } | null;
 }
 
-/** What the relay checks a bot's app calls against. */
 export interface AppAccess {
-  /** Apps the bot may use. */
   allowed: readonly string[];
-  /** Apps signed in on this host, to tell which app a tool belongs to. */
+  /** Signed in on this host; used to tell which app a tool belongs to. */
   connected: readonly string[];
-  /** Limits of the allowed apps that have them. */
   limits: ReadonlyMap<string, AppLimit>;
 }
 
@@ -161,13 +148,7 @@ function reviewRefusal(review: CallReview): string | null {
   return null;
 }
 
-/**
- * Checks a JSON-RPC message from a bot against its app access: why it's
- * refused, or the message to forward with pinned accounts filled in. Only
- * running tools is checked; searching, reading schemas and connecting apps
- * always pass. Composio's remote workbench can run any app's tools, so bots
- * with any limit can't use it.
- */
+/** Only tool runs are checked; searching, reading schemas and connecting apps always pass. */
 export function checkAppCall(
   message: unknown,
   access: AppAccess,
@@ -195,15 +176,12 @@ export function checkAppCall(
   };
 }
 
-/** One of an app's tools, for choosing which a bot may run. */
 export interface AppTool {
   slug: string;
   name: string;
-  /** Composio marks it read-only. */
   readOnly: boolean;
 }
 
-/** A bot's rules with one app's rule set; a rule allowing everything is dropped. */
 export function withAppRule(
   rules: Readonly<Record<string, AppRule>>,
   slug: string,
@@ -215,12 +193,11 @@ export function withAppRule(
   return next;
 }
 
-/** A sign-in a bot started with COMPOSIO_MANAGE_CONNECTIONS, shown as a card in its chat (a type, so it's timeline JSON). */
+/** A type, not an interface, so it's assignable to timeline JSON. */
 export type AppSignIn = {
   slug: string;
-  /** Composio's sign-in page; it expires ten minutes after the call. */
+  /** Expires ten minutes after the call. */
   url: string;
-  /** The readable id of the account being signed in, to tell when it's done. */
   wordId: string | null;
   alias: string | null;
 };
@@ -247,7 +224,7 @@ function recordResults(
   );
 }
 
-/** Composio's `data.results` in a tool output, however the provider wrapped it: JSON text, content blocks or `{output}`. */
+/** Providers wrap Composio's `data.results` as JSON text, content blocks or `{output}`. */
 function composioResults(value: unknown, depth = 0): Record<string, unknown> | null {
   if (depth > 4) return null;
   if (typeof value === "string") return parsedResults(value, depth);
@@ -276,10 +253,7 @@ function signInOf(slug: string, value: unknown): AppSignIn | null {
   };
 }
 
-/**
- * The sign-ins a finished COMPOSIO_MANAGE_CONNECTIONS call started, from its
- * output: `{data: {results: {notion: {redirect_url, accounts: [{id, alias}]}}}}`.
- */
+/** Output: `{data: {results: {notion: {redirect_url, accounts: [{id, alias}]}}}}`. */
 export function appSignIns(call: {
   name: string;
   status: string;
@@ -300,16 +274,13 @@ export function appSignIns(call: {
   return signIns;
 }
 
-/** A connected app as a bot's prompt lists it. */
 export interface PromptApp {
   name: string;
-  /** Its accounts when the bot picks one of several: what Composio takes as "account" (the alias, or the id of an unnamed one) and the sign-in name. */
+  /** `account` is what Composio takes: the alias, or an unnamed account's id. */
   accounts: { account: string; name: string | null }[];
-  /** The tools the bot may run, as in its rule for the app. */
   tools: AppRule["tools"];
 }
 
-/** `Gmail`, or with its accounts and limits: `Gmail (accounts: "work" = me@work.com, "personal"; read-only tools)`. */
 function promptAppName(app: PromptApp): string {
   const notes = [
     app.accounts.length > 1
@@ -324,7 +295,6 @@ function promptAppName(app: PromptApp): string {
   return notes.length ? `${app.name} (${notes.join("; ")})` : app.name;
 }
 
-/** The prompt section for a bot with connected apps. */
 export function appsPrompt(apps: readonly PromptApp[]): string {
   return [
     `Connected apps are available through the MCP server "${APPS_MCP_NAME}". You may use: ${apps.map(promptAppName).join(", ")}.`,

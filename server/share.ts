@@ -44,7 +44,6 @@ const SharedSkillSchema = z.object({
   source: z.string().default(""),
 });
 
-/** v2: skills and MCP servers travel next to the bot and join the importer's library. */
 const ExportV2Schema = z.object({
   format: FORMATS,
   version: z.literal(2),
@@ -54,7 +53,6 @@ const ExportV2Schema = z.object({
   files: z.record(z.string(), z.string()),
 });
 
-/** v1 kept MCP servers and skills on the bot. */
 const ExportV1Schema = z.object({
   format: FORMATS,
   version: z.literal(1),
@@ -74,7 +72,7 @@ const ExportV1Schema = z.object({
   files: z.record(z.string(), z.string()),
 });
 
-/** Env values and headers can hold keys; exports keep the names and drop the values. */
+/** Env values and headers can hold keys, so exports keep the names and drop the values. */
 function redact(servers: BotMcpServer[]): BotMcpServer[] {
   const blank = (record: Record<string, string>) =>
     Object.fromEntries(Object.keys(record).map((key) => [key, "<redacted>"]));
@@ -134,7 +132,6 @@ export async function exportBot(
       model: bot.model,
       modeId: bot.modeId,
       thinkingOptionId: bot.thinkingOptionId,
-      // Routines arrive paused, as in OpenMausBot's team files.
       // Results chats only exist on this host.
       routines: bot.routines.map((routine) => ({ ...routine, enabled: false, resultsChatId: null })),
       playbooks: bot.playbooks,
@@ -189,11 +186,7 @@ function importTarget(path: string, root: string, fresh: Set<string>): string | 
   return fresh.has(clean) && rest.length > 0 ? join(librarySkillPath(clean), ...rest) : null;
 }
 
-/**
- * Writes an exported bot's memory for `botId` and its skills into the library
- * (a skill already in the library is kept as is). Returns the bot fields to
- * save and the skills and MCP servers to add to the library.
- */
+/** A skill already in the library is kept as is. */
 export async function importBot({
   botId,
   json,
@@ -242,8 +235,6 @@ export async function importBot({
   return { bot, skills, mcpServers: parsed.mcpServers };
 }
 
-// ---------------------------------------------------------------- team files
-
 const TEAM_FORMAT = "paseo-bots-team";
 const MAX_TEAM = 50;
 
@@ -262,7 +253,7 @@ export function isTeamFile(json: string): boolean {
   }
 }
 
-/** The teams among the exported bots, pointing at them by their place in the file. */
+/** Teams point at bots by their index in the file. */
 function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFileTeam[] {
   const index = new Map(bots.map((bot, position) => [bot.id, position]));
   return groups.flatMap((group) => {
@@ -275,7 +266,6 @@ function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFil
   });
 }
 
-/** Several bots in one file, each as its own bot export, and the teams they're on. */
 export async function exportTeam(
   { bots, groups, includeMemory }: { bots: Bot[]; groups: BotGroup[]; includeMemory: boolean },
   library: Library,
@@ -292,7 +282,6 @@ export async function exportTeam(
   };
 }
 
-/** Imports every bot of a team file (or a single bot file) as new bots, with its teams. */
 export async function importTeam({ json }: { json: string }) {
   if (!isTeamFile(json)) return { bots: [await importBot({ botId: newBotId(), json })], teams: [] };
   const parsed = TeamSchema.safeParse(JSON.parse(json));

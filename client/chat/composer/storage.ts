@@ -2,14 +2,10 @@ import { useEffect, useState } from "react";
 import { AppState, NativeModules, Platform, TurboModuleRegistry } from "react-native";
 import { DEFAULT_SEND_BEHAVIOR, parseSendBehavior, type SendBehavior } from "./logic";
 
-// Persistence for the composer, the same way typography.ts reads Paseo's settings:
-// localStorage on web and desktop, the app's AsyncStorage TurboModule on phones.
-// Everything is best effort; a missing module or a full quota just means no persistence.
-
 const APP_SETTINGS_KEY = "@paseo:app-settings";
 const native = Platform.OS !== "web";
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 declare const localStorage:
   | { getItem(key: string): string | null; setItem(key: string, value: string): void }
   | undefined;
@@ -77,19 +73,15 @@ export function writeItem(key: string, value: string): Promise<void> {
   });
 }
 
-// ---------------------------------------------------------------- send behaviour
-
 let sendBehavior: SendBehavior = native
   ? DEFAULT_SEND_BEHAVIOR
   : parseSendBehavior(readItemSync(APP_SETTINGS_KEY));
 
-/** Re-reads Paseo's `sendBehavior` setting. */
 async function readSendBehavior(): Promise<SendBehavior> {
   sendBehavior = parseSendBehavior(await readItem(APP_SETTINGS_KEY));
   return sendBehavior;
 }
 
-/** The user's "When the agent is working" setting (steer, interrupt or queue), kept fresh like the type scale. */
 export function useSendBehavior(): SendBehavior {
   const [value, setValue] = useState(sendBehavior);
   useEffect(() => {

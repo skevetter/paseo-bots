@@ -29,11 +29,9 @@ interface AppPageProps {
   showTitle: boolean;
   onToggleBot(bot: Bot, on: boolean): void;
   onDisconnected(): void;
-  /** Opens a sign-in for another account of the app, named `alias`. */
   onConnect(alias: string): Promise<void>;
 }
 
-/** One connected app: its accounts (named to tell them apart) and which bots may use it. */
 export function AppPage({
   colors,
   app,

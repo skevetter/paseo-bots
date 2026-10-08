@@ -33,10 +33,7 @@ function filterTools(list: readonly AppTool[], needle: string): readonly AppTool
   );
 }
 
-/**
- * How one bot may use one connected app: the account it's kept to, and all of
- * the app's tools, the read-only ones or chosen ones. The relay enforces both.
- */
+/** The relay enforces the account and tool limits chosen here. */
 export function AppAccessSheet({
   colors,
   app,
@@ -47,7 +44,6 @@ export function AppAccessSheet({
 }: {
   colors: Colors;
   app: { slug: string; name: string };
-  /** The app's connected accounts. */
   accounts: readonly AppAccount[];
   rule: AppRule | undefined;
   onClose(): void;
@@ -68,7 +64,6 @@ export function AppAccessSheet({
   const readOnly = list.filter((tool) => tool.readOnly);
 
   const pick = (next: Mode) => {
-    // Choosing tools starts from the read-only ones.
     if (next === "chosen" && chosen.length === 0) setChosen(readOnly.map((tool) => tool.slug));
     setMode(next);
   };

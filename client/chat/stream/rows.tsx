@@ -35,34 +35,29 @@ import { CopyButton, ExpandableBadge, isWeb, SpeakButton, Spinner } from "./ui";
 type Colors = PluginTheme["colors"];
 type ImageAttachment = Extract<ComposerAttachment, { kind: "image" }>;
 
-/** Paseo's STREAM_METADATA_FONT_SIZE: timestamps, durations and the live timer are a fixed 13. */
 const METADATA_SIZE = 13;
 const TIMESTAMP_REVEAL_MS = 3000;
 
 export interface RowContext {
   colors: Colors;
-  /** Phone-sized layout: details open in a sheet, controls stay visible. */
   compact: boolean;
   cwd?: string;
   attachmentsFor(row: Extract<StreamRow, { kind: "user" }>): ComposerAttachment[];
-  /** Opens another chat of the same bot (a routine run's own chat). */
   openChat?(agentId: string): void;
   agentId: string | null;
   /** Set for bots on this host. */
   botId: string | null;
-  /** The bot's device voice for reading turns aloud; undefined hides the button. */
+  /** Device voice for reading turns aloud; undefined hides the button. */
   voice?: string | null;
-  /** The row of the current find match. */
   highlightKey?: string | null;
 }
 
-/** One stream item, laid out like Paseo's StreamItemWrapper (820 wide, 8 inset). */
 export function RowFrame({
   gapBelow,
   highlight,
   children,
 }: {
-  gapBelow: number /** Background of the current find match, which scrolls into view. */;
+  gapBelow: number;
   highlight?: string;
   children: ReactNode;
 }) {
@@ -166,8 +161,6 @@ export function RowContent({
       return <RoutineRunCard colors={colors} card={row.card} onOpenChat={context.openChat} />;
   }
 }
-
-// ---------------------------------------------------------------- user
 
 function UserAttachments({
   colors,
@@ -340,7 +333,6 @@ function HoverArea({
   );
 }
 
-/** Paseo's AttachmentLightbox, as the SDK's sheet: the image at its own aspect ratio. */
 function Lightbox({ colors, image, onClose }: { colors: Colors; image: ImageAttachment; onClose(): void }) {
   const uri = `data:${image.mimeType};base64,${image.data}`;
   const [ratio, setRatio] = useState<number | null>(null);
@@ -368,8 +360,6 @@ function Lightbox({ colors, image, onClose }: { colors: Colors; image: ImageAtta
     </Modal>
   );
 }
-
-// ---------------------------------------------------------------- assistant
 
 const AssistantMessage = memo(function AssistantMessage({
   colors,
@@ -423,8 +413,6 @@ const SpeakMessage = memo(function SpeakMessage({ colors, text }: { colors: Colo
   );
 });
 
-// ---------------------------------------------------------------- tool calls
-
 interface ToolCallRowProps {
   colors: Colors;
   compact: boolean;
@@ -437,7 +425,6 @@ interface ToolCallRowProps {
   maxDetailHeight?: number;
 }
 
-/** Paseo's ToolCall: an expandable badge inline on desktop, a sheet on phones, a plan card for plans. */
 const ToolCallRow = memo(function ToolCallRow({
   colors,
   compact,
@@ -512,7 +499,6 @@ const ToolCallRow = memo(function ToolCallRow({
   );
 });
 
-/** Reasoning renders as Paseo's "Thinking" tool call, paced like assistant text. */
 const ThoughtRow = memo(function ThoughtRow({
   colors,
   compact,
@@ -541,8 +527,6 @@ const ThoughtRow = memo(function ThoughtRow({
   );
 });
 
-// ---------------------------------------------------------------- tasks
-
 const ACTIVITY_ICONS: Record<TaskActivity["type"], string> = {
   created: "SquareCheck",
   added: "Plus",
@@ -555,7 +539,6 @@ const ACTIVITY_LABELS: Record<Exclude<TaskActivity["type"], "created">, string> 
   completed: "Completed",
 };
 
-/** Paseo's TodoListCard: one badge per change to the task list, expanding to the list. */
 const TodoListCard = memo(function TodoListCard({
   colors,
   items,
@@ -605,7 +588,6 @@ function taskState(task: TaskEntry): keyof typeof TASK_ICONS {
   return task.status === "in_progress" ? "running" : "pending";
 }
 
-/** Paseo's TaskListRow: Circle / CircleDot / CircleCheck 16, finished tasks struck through. */
 function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
   const tokens = nativeTokens(colors);
   const state = taskState(task);
@@ -640,8 +622,6 @@ function TaskListRow({ colors, task }: { colors: Colors; task: TaskEntry }) {
     </View>
   );
 }
-
-// ---------------------------------------------------------------- notices
 
 const NOTIFICATION_STYLES = {
   info: { background: "rgba(147, 197, 253, 0.1)", icon: "Info", tint: "#93c5fd" },
@@ -726,9 +706,6 @@ const CompactionMarker = memo(function CompactionMarker({
   );
 });
 
-// ---------------------------------------------------------------- turn footer
-
-/** agent-stream/turn-footer.tsx TurnFooterRow + slot: 13 below the turn, 24 high, 32 below. */
 function TurnFooterRow({ children }: { children: ReactNode }) {
   return (
     <View
@@ -808,7 +785,6 @@ function TurnTimeLabel({ colors, footer }: { colors: Colors; footer: TurnFooterI
   );
 }
 
-/** Paseo's AssistantTurnFooter: copy, then "Worked for 2m 12s", swapping to the end time on hover or tap. */
 export const CompletedTurnFooter = memo(function CompletedTurnFooter({
   colors,
   footer,
@@ -832,7 +808,6 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({
   );
 });
 
-/** turn-footer.tsx WorkingIndicator: a 14pt loader and the live elapsed time of the running turn. */
 export function WorkingIndicator({
   colors,
   startedAt,

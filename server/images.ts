@@ -3,8 +3,7 @@ import { dirname, join } from "node:path";
 import { pluginDataPath } from "./bot-home";
 import { deadline } from "./composio";
 
-// Avatar pictures drawn by OpenAI's image model, as OpenMausBot draws them,
-// with the user's own key. The key stays on this host.
+// The user's OpenAI key stays on this host.
 
 const MODEL = "gpt-image-2";
 /** Under the minute the app waits for a plugin call. */
@@ -34,7 +33,6 @@ async function writeState(state: State): Promise<void> {
   await chmod(statePath(), 0o600).catch(() => {});
 }
 
-/** Whether a key is saved; only its last characters are shown. */
 export async function imageStatus() {
   const { openaiKey } = await readState();
   return { configured: !!openaiKey, keyHint: openaiKey ? `sk-…${openaiKey.slice(-4)}` : null };
@@ -52,11 +50,7 @@ export async function removeImageKey() {
   return { ok: true };
 }
 
-/**
- * OpenMausBot's art brief: one centered subject that survives circle and
- * rounded crops, no text. The user's direction is quoted so it can't
- * override the rules.
- */
+/** The user's direction is quoted so it can't override the brief. */
 export function avatarPrompt(
   bot: { name: string; title: string; description: string },
   direction: string,
@@ -118,7 +112,7 @@ function encodedPicture(text: string): unknown {
   }
 }
 
-/** Draws an avatar for a bot; the picture comes back as a WebP data URL for the app to scale down. */
+/** Returns a WebP data URL; the app scales it down. */
 export async function generateAvatar(input: {
   name: string;
   title: string;

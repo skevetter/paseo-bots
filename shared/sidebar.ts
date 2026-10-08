@@ -1,8 +1,6 @@
-// Pure sidebar logic, ported from Paseo so the bot list reads its chats the same
-// way Paseo's sidebar reads workspaces (protocol/agent-state-bucket.ts,
-// utils/sidebar-agent-state.ts, hooks/sidebar-workspaces-view-model.ts).
+// Mirrors Paseo's sidebar (protocol/agent-state-bucket.ts, utils/sidebar-agent-state.ts,
+// hooks/sidebar-workspaces-view-model.ts) so chats read the same as its workspaces.
 
-/** Paseo's sidebar status buckets, most urgent first. */
 export type ChatBucket = "needs_input" | "failed" | "running" | "attention" | "done";
 
 export interface ChatBucketInput {
@@ -12,7 +10,6 @@ export interface ChatBucketInput {
   attentionReason?: string | null;
 }
 
-/** deriveAgentStateBucket: permission beats error beats running; initializing is not running. */
 export function chatBucket(agent: ChatBucketInput): ChatBucket {
   if ((agent.pendingPermissions?.length ?? 0) > 0 || agent.attentionReason === "permission")
     return "needs_input";
@@ -22,10 +19,7 @@ export function chatBucket(agent: ChatBucketInput): ChatBucket {
   return "done";
 }
 
-/**
- * Collapsed-group priority (STATUS_BUCKET_PRIORITY): unlike the listing order,
- * running outranks attention so a working bot keeps its ring.
- */
+/** Unlike Paseo's listing order, running outranks attention so a working bot keeps its ring. */
 const AGGREGATE_PRIORITY: readonly ChatBucket[] = ["needs_input", "failed", "running", "attention", "done"];
 
 export function aggregateBuckets(buckets: Iterable<ChatBucket>): ChatBucket {
@@ -45,7 +39,7 @@ export const BUCKET_LABELS: Record<ChatBucket, string> = {
   done: "Done",
 };
 
-/** Paseo's useLimitedSidebarGroup: groups longer than this get "Show more". */
+/** Groups longer than this get "Show more". */
 export const SIDEBAR_GROUP_LIMIT = 20;
 
 function storedKeysPresent<T>(byKey: ReadonlyMap<string, T>, storedOrder: readonly string[]): string[] {
@@ -59,12 +53,7 @@ function storedKeysPresent<T>(byKey: ReadonlyMap<string, T>, storedOrder: readon
   return pruned;
 }
 
-/**
- * Paseo's applyStoredOrdering: items keep their base order, except that the
- * items named in `storedOrder` fill their own slots in the stored order. New
- * items therefore appear where the base order puts them and never reshuffle
- * the ones the user arranged.
- */
+/** Stored keys fill their own slots, so new items never reshuffle the ones the user arranged. */
 export function applyStoredOrdering<T>(
   items: readonly T[],
   storedOrder: readonly string[],
@@ -99,11 +88,7 @@ export interface OrderableChat {
   updatedAt: string;
 }
 
-/**
- * Chat order within a bot. "manual" starts from newest-created first and
- * applies the stored order, so rows don't jump when a chat gets a reply;
- * "activity" is most recently updated first.
- */
+/** "manual" starts from creation order, so rows don't jump when a chat gets a reply. */
 export function orderChats<T extends OrderableChat>(
   chats: readonly T[],
   sort: ChatSort,
@@ -115,7 +100,7 @@ export function orderChats<T extends OrderableChat>(
   return applyStoredOrdering(base, storedOrder, (chat) => chat.id);
 }
 
-/** Moves `key` one step within `keys` (the full visible order). Returns null at an edge or when missing. */
+/** `keys` is the full visible order. */
 export function moveKey(keys: readonly string[], key: string, delta: -1 | 1): string[] | null {
   const index = keys.indexOf(key);
   const target = index + delta;

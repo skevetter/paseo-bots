@@ -6,11 +6,8 @@ import { lineDiff } from "../shared/diff";
 import { pluginDataPath } from "./bot-home";
 import { MAIN_MEMORY, memoryFilePath, memoryFolder } from "./memory";
 
-// OpenMausBot's memory journal: every change to a bot's MEMORY.md and topic
-// files, with the earlier text so it can be undone. Bots edit their memory with
-// their own file tools, so their changes are found by comparing the files when
-// a turn starts and ends. The journal lives outside the bots' folders so a bot
-// can't rewrite its own history. The daily log is the app's own and isn't journaled.
+// Bots edit their memory with their own file tools, so changes are found by comparing the files when
+// a turn starts and ends. The journal lives outside the bots' folders so a bot can't rewrite its own history.
 
 const KEEP = 200;
 const MAX_BEFORE_BYTES = 512 * 1024;
@@ -37,7 +34,6 @@ function journalPath(botId: string): string {
   return join(pluginDataPath(), "journal", `${botId}.ndjson`);
 }
 
-/** MEMORY.md (when it exists) and every topic file, by name. */
 async function snapshot(botId: string): Promise<Snapshot> {
   const files: Snapshot = new Map();
   const main = await readFile(memoryFilePath(botId, MAIN_MEMORY), "utf8").catch(() => null);
@@ -51,11 +47,9 @@ async function snapshot(botId: string): Promise<Snapshot> {
 }
 
 export class MemoryJournal {
-  /** What each bot's memory looked like when the journal last checked. */
   private readonly seen = new Map<string, Snapshot>();
   private readonly queues = new Map<string, Promise<unknown>>();
 
-  /** Runs one change per bot at a time. */
   private serial<T>(botId: string, work: () => Promise<T>): Promise<T> {
     const next = (this.queues.get(botId) ?? Promise.resolve()).then(work);
     this.queues.set(
@@ -65,7 +59,7 @@ export class MemoryJournal {
     return next;
   }
 
-  /** A turn is starting: anything that changed since the last look was done outside the app. */
+  /** Changes since the last look were made outside the app. */
   begin(botId: string): Promise<void> {
     return this.serial(botId, async () => {
       const current = await snapshot(botId);
@@ -75,7 +69,7 @@ export class MemoryJournal {
     });
   }
 
-  /** A turn ended: what changed during it was the bot's doing in that chat. */
+  /** Changes during the turn were the bot's doing in that chat. */
   end(botId: string, chat: { id: string; title: string }): Promise<void> {
     return this.serial(botId, async () => {
       const current = await snapshot(botId);
@@ -86,7 +80,7 @@ export class MemoryJournal {
     });
   }
 
-  /** The app is about to write or delete a memory file (null) for the person. */
+  /** `text` null deletes the file. */
   write(botId: string, file: string, text: string | null, via: "app" | "undo" = "app"): Promise<void> {
     return this.serial(botId, () => this.apply(botId, file, text, via));
   }
@@ -111,7 +105,6 @@ export class MemoryJournal {
     return (await this.load(botId)).reverse().slice(0, limit);
   }
 
-  /** Puts a file back the way it was before an entry; the undo is journaled too. */
   undo(botId: string, id: string): Promise<void> {
     return this.serial(botId, async () => {
       const entry = (await this.load(botId)).find((candidate) => candidate.id === id);

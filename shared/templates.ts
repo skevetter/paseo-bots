@@ -1,17 +1,12 @@
 import { randomSeed } from "./avatar";
 import { type Bot, newBotId, type Preset } from "./bot";
 
-// Starting points for a new bot, from OpenMausBot's New bot roles
-// (src/lib/bot-roles.ts): a name, a job and standing instructions.
-
 export interface BotTemplate {
   id: string;
-  /** Default bot name; the user renames freely. */
   name: string;
   title: string;
   description: string;
   avatarSeed: string;
-  /** Standing instructions. */
   soul: string;
 }
 
@@ -58,7 +53,6 @@ export const BOT_TEMPLATES: readonly BotTemplate[] = [
   },
 ];
 
-/** A new bot on `provider`: blank, or from a template (a role). */
 export function newBot(provider: string, template?: BotTemplate): Bot {
   const now = new Date().toISOString();
   return {
@@ -90,7 +84,6 @@ export function newBot(provider: string, template?: BotTemplate): Bot {
   };
 }
 
-/** A new bot from a preset: its identity, instructions, playbooks and skills. */
 export function botFromPreset(provider: string, preset: Preset): Bot {
   const { id: _id, createdAt: _createdAt, ...fields } = preset;
   return { ...newBot(provider), ...fields };

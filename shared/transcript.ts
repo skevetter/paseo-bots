@@ -1,15 +1,11 @@
 import { localTime, toolLabel } from "./activity";
 import { toolCallName } from "./tool-name";
 
-// A chat as Markdown, like OpenMausBot's transcript export: who said what,
-// when, and the tools the bot used in between.
-
 interface TranscriptEntry {
   item: { type: string; text?: unknown; name?: unknown; status?: unknown; metadata?: unknown };
   timestamp: string;
 }
 
-/** Titles and names are plain text in the Markdown. */
 function plain(text: string): string {
   return text.replace(/[\r\n]+/g, " ").replace(/[\\`*_[\]<>#]/g, "\\$&");
 }

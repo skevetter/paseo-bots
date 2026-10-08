@@ -1,8 +1,6 @@
 import { Platform } from "react-native";
 
-// Web-only DOM helpers for the composer and avatars: file picking, clipboard images, drag and
-// drop, picture scaling, textarea measuring and focus. Pickers are no-ops off the web.
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 
 interface DomFile {
   name: string;
@@ -50,7 +48,6 @@ interface DomEvent {
   clipboardData?: DataTransferLike | null;
   dataTransfer?: DataTransferLike | null;
 }
-/** A DOM element as far as this module is concerned. */
 export interface DomElement {
   clientWidth: number;
   parentElement?: DomElement | null;
@@ -111,7 +108,7 @@ export interface PickedFile {
   base64: string;
 }
 
-/** A picked, pasted or dropped file whose size is known before its bytes are read. */
+/** Its size is known before its bytes are read. */
 export interface FileHandle {
   name: string;
   mimeType: string;
@@ -119,7 +116,7 @@ export interface FileHandle {
   readBase64(): Promise<string>;
 }
 
-/** Native has no file picker available to plugins; web uses a hidden file input like Paseo's own composer. */
+/** Native has no file picker available to plugins. */
 export const canPickFiles = web;
 
 function readBase64(file: DomFile): Promise<string> {
@@ -140,7 +137,6 @@ function toHandle(file: DomFile): FileHandle {
   };
 }
 
-/** Opens the browser's file picker. Resolves with lazy handles so sizes can be checked before reading. */
 export function pickFileHandles(
   options: { accept?: string; multiple?: boolean } = {},
 ): Promise<FileHandle[]> {
@@ -165,7 +161,7 @@ export function pickFileHandles(
   });
 }
 
-/** A picture as a small square WebP data URL: its centre, scaled down to `size` pixels (avatars). */
+/** A centre-cropped square WebP data URL, `size` pixels wide. */
 export async function squareImage(source: string, size: number): Promise<string> {
   const image = document.createElement("img");
   image.src = source;
@@ -198,7 +194,7 @@ export function decodeUtf8(base64: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-/** The DOM node behind a React Native ref on web (react-native-web refs are the host elements). */
+/** react-native-web refs are the host elements. */
 export function domNode(ref: unknown): DomElement | null {
   if (!web || !ref || typeof ref !== "object") return null;
   const candidate = ref as Partial<DomElement> & { getNativeRef?: () => unknown };
@@ -207,7 +203,7 @@ export function domNode(ref: unknown): DomElement | null {
   return inner && typeof (inner as DomElement).addEventListener === "function" ? (inner as DomElement) : null;
 }
 
-/** Scrolls a React Native view's element to the middle of its scroller (web; list estimates can be off for tall rows). */
+/** Web only; list scroll estimates can be off for tall rows. */
 export function scrollIntoView(ref: unknown): void {
   const node = domNode(ref) as
     | (DomElement & { scrollIntoView?(options: { block: string; behavior: string }): void })
@@ -215,7 +211,6 @@ export function scrollIntoView(ref: unknown): void {
   node?.scrollIntoView?.({ block: "center", behavior: "smooth" });
 }
 
-/** Calls `onFind` for ⌘F / Ctrl+F instead of the browser's own find. */
 export function listenForFind(onFind: () => void): () => void {
   const target = globalThis as {
     addEventListener?(type: "keydown", listener: (event: KeyEventLike) => void, capture: boolean): void;
@@ -247,8 +242,6 @@ interface KeyEventLike {
   stopPropagation(): void;
 }
 
-// ---------------------------------------------------------------- clipboard images
-
 function clipboardFiles(data: DataTransferLike | null | undefined): DomFile[] {
   if (!data) return [];
   const files: DomFile[] = [];
@@ -261,10 +254,6 @@ function clipboardFiles(data: DataTransferLike | null | undefined): DomFile[] {
   return files;
 }
 
-/**
- * Paseo's usePasteImagesEffect: pasting images into the textarea attaches them instead of
- * inserting anything. Text pastes are left alone.
- */
 export function listenForImagePaste(
   element: DomElement | null,
   onImages: (files: FileHandle[]) => void,
@@ -289,9 +278,7 @@ export function listenForImagePaste(
   return () => element.removeEventListener("paste", handler);
 }
 
-// ---------------------------------------------------------------- drag and drop
-
-// Lucide "upload" (Paseo's drop backdrop icon), inlined because this overlay is plain DOM.
+// Lucide "upload", inlined because this overlay is plain DOM.
 const UPLOAD_SVG =
   '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></svg>';
 
@@ -299,10 +286,6 @@ function hasFiles(data: DataTransferLike | null | undefined): boolean {
   return Array.from(data?.types ?? []).includes("Files");
 }
 
-/**
- * Paseo's FileDropZone for the chat pane: dragging files over `zone` dims it with the
- * "Drop files here" backdrop, and dropping hands the files over.
- */
 export function listenForFileDrop(
   zone: DomElement | null,
   options: {
@@ -381,8 +364,6 @@ export function listenForFileDrop(
   };
 }
 
-// ---------------------------------------------------------------- textarea height
-
 const COPIED_STYLES = [
   "fontFamily",
   "fontSize",
@@ -406,12 +387,11 @@ const COPIED_STYLES = [
 ] as const;
 
 export interface TextMeasurer {
-  /** Content height of `text` laid out like `source`, or null when it can't be measured yet. */
+  /** Null when it can't be measured yet. */
   measure(source: DomElement | null, text: string): number | null;
   dispose(): void;
 }
 
-/** Paseo's composer/input/height.web.ts: a hidden mirror textarea measures the draft's scrollHeight. */
 export function createTextMeasurer(): TextMeasurer | null {
   if (!web || typeof document === "undefined") return null;
   const mirror = document.createElement("textarea");
@@ -452,7 +432,6 @@ const ResizeObserverCtor = (
   globalThis as { ResizeObserver?: new (callback: () => void) => ResizeObserverLike }
 ).ResizeObserver;
 
-/** Calls back when the element's width changes (the draft re-wraps). */
 export function observeWidth(element: DomElement | null, onChange: () => void): () => void {
   if (!web || !element || !ResizeObserverCtor) return () => {};
   let width = element.clientWidth;
@@ -465,9 +444,7 @@ export function observeWidth(element: DomElement | null, onChange: () => void): 
   return () => observer.disconnect();
 }
 
-// ---------------------------------------------------------------- focus
-
-/** utils/web-focus.ts focusWithRetries: keeps trying for a moment while the surface mounts. */
+/** Keeps trying for a moment while the surface mounts. */
 export function focusWithRetries(element: () => DomElement | null, timeoutMs = 1500): () => void {
   if (!web) return () => {};
   let cancelled = false;
@@ -477,9 +454,7 @@ export function focusWithRetries(element: () => DomElement | null, timeoutMs = 1
     const node = element();
     try {
       node?.focus?.();
-    } catch {
-      // ignore
-    }
+    } catch {}
     if ((node && document.activeElement === node) || Date.now() >= deadline) return;
     requestAnimationFrame(() => requestAnimationFrame(tick));
   };

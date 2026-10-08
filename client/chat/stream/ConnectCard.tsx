@@ -159,12 +159,6 @@ function ConnectHeader({
   );
 }
 
-/**
- * A sign-in a bot started with COMPOSIO_MANAGE_CONNECTIONS, as OpenMausBot's
- * connect card: the user opens Composio's page from here, the card waits for
- * the account to turn active, and Continue tells the bot. Connecting also
- * lets the bot use the app.
- */
 export function ConnectCard({
   colors,
   signIn,

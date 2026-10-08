@@ -40,7 +40,7 @@ import { BackBar, PAGE_STYLE } from "./parts";
 import { SkillPage, skillQueryKey } from "./SkillPage";
 import { ImportSkillsSheet, NewSkillSheet, type SavedSkill } from "./SkillSheets";
 
-/** Settings sidebar width (constants/layout.ts SETTINGS_DESKTOP_SIDEBAR_WIDTH). */
+/** Paseo's SETTINGS_DESKTOP_SIDEBAR_WIDTH. */
 const LIST_WIDTH = 320;
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
@@ -59,9 +59,7 @@ interface LibraryViewProps {
   /** Page shown; null is the list screen on compact. */
   target: LibraryTarget | null;
   onTarget(target: LibraryTarget | null): void;
-  /** Back to the bot list. */
   onBack(): void;
-  /** The home indicator on phones, kept clear below lists and pages. */
   bottomInset: number;
 }
 
@@ -104,13 +102,6 @@ type Selection =
   | { kind: "app"; app: AppCard; accounts: AppAccount[] }
   | { kind: "apps" };
 
-/**
- * Skills & Tools inside the Bots screen: the shared library of skills and MCP
- * servers that bots switch on in their own settings. Laid out like Paseo's
- * settings screen, which also takes over the sidebar: a list column headed by a
- * back row and a 720-wide page on desktop; on compact the list is a screen
- * that pushes the page.
- */
 export function LibraryView({
   colors,
   layout,
@@ -129,7 +120,6 @@ export function LibraryView({
   const menus = useAddMenus(setSheet);
   const library = values.library ?? EMPTY_LIBRARY;
 
-  // Desktop always shows a page, like Paseo's settings: the first item until one is picked.
   const shown = target ?? (compact ? null : firstTarget(library));
   const selection = resolveSelection({ library, shown, accounts: apps.accounts, catalog: apps.catalog });
 
@@ -194,14 +184,10 @@ export function LibraryView({
   );
 }
 
-// ------------------------------------------------------------ actions
-
-/** Composio sign-ins started from the library, and the apps and accounts they lead to. */
 function useAppConnections(setTarget: SetTarget): AppConnections {
   const toast = useToast();
   const connectApp = useRpc(appsConnectRpc);
   const invalidateApps = useAppsInvalidate();
-  /** The app whose sign-in is open in the browser, since when, and the accounts it had before. */
   const [pending, setPending] = useState<PendingSignIn | null>(null);
   const appsStatus = useAppsStatus();
   const appsConfigured = appsStatus.data?.configured ?? false;
@@ -211,7 +197,6 @@ function useAppConnections(setTarget: SetTarget): AppConnections {
   const latestRef = useRef({ catalog: appCatalog.data?.apps, toast, setTarget, invalidateApps });
   latestRef.current = { catalog: appCatalog.data?.apps, toast, setTarget, invalidateApps };
 
-  // Finish a pending sign-in when Composio reports the account, or give up after five minutes.
   useEffect(() => {
     if (!pending) return;
     if (hasNewAccount(accountsData?.accounts ?? [], pending)) {
@@ -226,7 +211,7 @@ function useAppConnections(setTarget: SetTarget): AppConnections {
     }
   }, [accountsData, pending]);
 
-  /** Opens Composio's sign-in page in the browser; the accounts query polls until it's done. */
+  /** The accounts query polls until the sign-in finishes. */
   const startConnect = async (slug: string, alias?: string) => {
     try {
       const { url } = await connectApp({ slug, ...(alias?.trim() ? { alias: alias.trim() } : {}) });
@@ -252,7 +237,7 @@ function useAppConnections(setTarget: SetTarget): AppConnections {
   };
 }
 
-/** A new account: signing in to another account of a connected app mustn't finish at once. */
+/** The app may already have accounts; only a new one finishes the sign-in. */
 function hasNewAccount(accounts: readonly AppAccount[], pending: PendingSignIn): boolean {
   return accounts.some(
     (entry) =>
@@ -444,8 +429,6 @@ function useAddMenus(setSheet: (sheet: Sheet) => void) {
 
   return { openSkillMenu, openServerMenu };
 }
-
-// ------------------------------------------------------------ layout
 
 function firstTarget(library: Library): LibraryTarget {
   const firstSkill = library.skills.map((entry) => entry.id).sort((a, b) => a.localeCompare(b))[0];

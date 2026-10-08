@@ -25,9 +25,8 @@ interface PermissionCardProps {
   permission: Permission;
   api: PaseoApi | null;
   agentId: string | null;
-  /** Phones stack the buttons. */
   compact?: boolean;
-  /** The bot and folder of the chat, when it can save commands to run without asking (bots on this host). */
+  /** Set for bots on this host, which can save commands to run without asking. */
   botId?: string;
   cwd?: string | null;
 }
@@ -78,7 +77,7 @@ function usePermissionResponse({
     }
   };
 
-  // OpenMausBot's "Always allow": this exact command in this folder won't ask again for this bot.
+  // This exact command in this folder won't ask again for this bot.
   const always = async () => {
     if (!shell || !botId) return;
     setRespondingId("always");
@@ -171,7 +170,6 @@ function PermissionFooter({
   );
 }
 
-/** Paseo's PermissionRequestCard (agent-stream/view.tsx): plan, question and tool requests. */
 export function PermissionCard({
   colors,
   permission,
@@ -278,7 +276,7 @@ export function PermissionCard({
   );
 }
 
-/** The provider's title, unless it only names a tool with a plainer name: "Ask Helper" for a request to another bot, "Propose changes"… */
+/** The provider's title, unless it only names a tool that has a plainer name. */
 function permissionTitle(permission: Permission): string | null {
   if (!permission.name) return permission.title ?? null;
   const name = permissionToolName(permission);

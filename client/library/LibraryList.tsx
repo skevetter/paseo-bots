@@ -26,18 +26,11 @@ interface LibraryListProps {
   onSelect(target: LibraryTarget): void;
   onAddSkill(anchor: LayoutRectangle): void;
   onAddServer(anchor: LayoutRectangle): void;
-  /** Taller rows for touch. */
   touch: boolean;
-  /** Desktop: a "Back to bots" row heads the column, like settings' "Back to workspace". */
   onBack?(): void;
-  /** The home indicator on phones. */
   bottomInset: number;
 }
 
-/**
- * The page's list column, in the settings sidebar's geometry (settings-screen.tsx):
- * a group per kind with its items and an add button.
- */
 export function LibraryList({
   colors,
   library,
@@ -97,7 +90,6 @@ function ListHeader({
   onBack?(): void;
 }) {
   return (
-    // Paseo's sidebar header group: its rows over a full-width divider (left-sidebar.tsx sidebarHeaderGroup).
     <View
       style={{
         paddingHorizontal: 8,
@@ -245,7 +237,6 @@ function AppsGroup({ colors, query, searching, touch, selected, onSelect }: Grou
   );
 }
 
-/** A nav group: extra-muted 14pt label (8/4 padding) with its count and a trailing add button. */
 function Group({
   colors,
   label,
@@ -273,7 +264,6 @@ function Group({
   );
 }
 
-/** The full-width line Paseo's sidebar draws between its sections. */
 function Divider({ colors }: { colors: Colors }) {
   return <View style={{ height: 1, backgroundColor: colors.border }} />;
 }
@@ -288,7 +278,6 @@ function GroupNote({ colors, text }: { colors: Colors; text: string }) {
   );
 }
 
-/** Ghost icon button like the sidebar's section actions: 24 box, radius 6, Plus 14. */
 function AddButton({
   colors,
   label,
@@ -327,16 +316,15 @@ interface NavRowProps {
   colors: Colors;
   icon: string;
   label: string;
-  /** Replaces the icon, e.g. an app's logo. */
+  /** Replaces the icon. */
   leading?: ReactNode;
-  /** A short muted note on the right ("Off", "Pending"); the label is muted too. */
+  /** Also mutes the label. */
   note?: string;
   selected: boolean;
   touch: boolean;
   onPress(): void;
 }
 
-/** Settings nav item: 28 min height (36 for touch), 4/8 padding, radius 8, 16pt icon, surfaceSidebarHover when hovered or selected. */
 function NavRow({ colors, icon, leading, label, note, selected, touch, onPress }: NavRowProps) {
   const { hovered, hoverProps } = useHover();
   const strong = selected || hovered;

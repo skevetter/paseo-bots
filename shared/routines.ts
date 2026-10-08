@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Routine, RoutineSchedule } from "./bot";
 
-/** A run missed by more than this is skipped instead of caught up (OpenMausBot uses 12 hours). */
+/** A run missed by more than this is skipped instead of caught up. */
 const CATCH_UP_MS = 12 * 60 * 60 * 1000;
 
 function atLocalTime(day: Date, time: string): Date {
@@ -44,10 +44,7 @@ function nextDailyRun(schedule: DailySchedule, now: Date): Date | null {
   return null;
 }
 
-/**
- * The most recent scheduled time at or before `now` that hasn't run yet, or
- * null. `since` is the last run (or the routine's creation when it never ran).
- */
+/** `since` is the last run, or the routine's creation when it never ran. */
 export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
   switch (schedule.kind) {
     case "webhook":
@@ -67,7 +64,6 @@ export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Da
   }
 }
 
-/** The next time the routine will fire after `now`, for display. */
 export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
   switch (schedule.kind) {
     case "webhook":
@@ -89,7 +85,7 @@ export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date
   }
 }
 
-/** The next `count` times the schedule fires after `now` (an interval that's already due starts with `now`). */
+/** An interval that's already due starts with `now`. */
 export function upcomingRuns(schedule: RoutineSchedule, since: Date, now: Date, count: number): Date[] {
   const runs: Date[] = [];
   let from = since;
@@ -105,13 +101,13 @@ export function upcomingRuns(schedule: RoutineSchedule, since: Date, now: Date, 
   return runs;
 }
 
-/** "2026-09-27 09:00" in local time, the format the "At" field edits. */
+/** The format the "At" field edits. */
 export function formatLocalDateTime(date: Date): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** Reads "YYYY-MM-DD HH:MM" (or with a T) as local time; null when it isn't a real date. */
+/** Null when it isn't a real date. */
 export function parseLocalDateTime(text: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})$/.exec(text.trim());
   if (!match) return null;
@@ -174,13 +170,10 @@ export function describeSchedule(schedule: RoutineSchedule): string {
   }
 }
 
-// ---------------------------------------------------------------- cron
+// Paseo's cron grammar (protocol/schedule/cron-expression.ts): every field must match (no
+// day-of-month/day-of-week OR rule). Routines read it in the host's local time.
 
-// Five-field cron with Paseo's grammar (protocol/schedule/cron-expression.ts):
-// numbers, "*", ranges "a-b", steps "/n" and comma lists; every field must match
-// (no day-of-month/day-of-week OR rule). Routines read it in the host's local time.
-
-/** Paseo's schedule cadence presets (schedules/schedule-cadence-options.ts). */
+/** Mirrors Paseo's cadence presets (schedules/schedule-cadence-options.ts). */
 export const CRON_PRESETS: readonly { id: string; label: string; expression: string }[] = [
   { id: "every-minute", label: "Every minute", expression: "* * * * *" },
   { id: "every-hour", label: "Every hour", expression: "0 * * * *" },
@@ -247,7 +240,7 @@ function parseCronField(source: string, bounds: CronBounds): Set<number> {
   return allowed;
 }
 
-/** Throws with Paseo's messages ("Cron expressions must have 5 fields", "Invalid cron hour value", ...). */
+/** Throws Paseo's error messages, which validateCron shows. */
 function parseCron(expression: string): ParsedCron {
   const parts = expression.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error("Cron expressions must have 5 fields");
@@ -270,7 +263,7 @@ function tryParseCron(expression: string): ParsedCron | null {
   }
 }
 
-/** Paseo's form validation copy (utils/schedule-format.ts validateCron); null when valid. */
+/** Mirrors Paseo's validateCron copy (utils/schedule-format.ts). */
 export function validateCron(expression: string): string | null {
   const trimmed = expression.trim();
   if (!trimmed) return "Enter a cron expression";
@@ -314,7 +307,7 @@ function firstMatchOnDay(
   return null;
 }
 
-/** The first matching minute strictly after `after`, or null within four years. */
+/** Strictly after `after`; null if nothing matches within four years. */
 function nextCronTime(cron: ParsedCron, after: Date): Date | null {
   const times = { hours: sorted(cron.hour, false), minutes: sorted(cron.minute, false) };
   for (let offset = 0; offset <= CRON_SEARCH_DAYS; offset++) {
@@ -326,7 +319,7 @@ function nextCronTime(cron: ParsedCron, after: Date): Date | null {
   return null;
 }
 
-/** The latest matching minute at or before `atOrBefore`, searching back no further than `notBefore`'s day. */
+/** Searches back no further than `notBefore`'s day. */
 function previousCronTime(cron: ParsedCron, atOrBefore: Date, notBefore: Date): Date | null {
   const times = { hours: sorted(cron.hour, true), minutes: sorted(cron.minute, true) };
   const span = Math.min(
@@ -371,9 +364,8 @@ function cronDays(dayOfWeek: string): string | null {
 }
 
 /**
- * Humanizes the common shapes like Paseo's describeCron (utils/schedule-format.ts),
- * minus the time zone: routines always run in the host's local time. Null for
- * valid expressions it can't phrase (callers show the expression).
+ * Like Paseo's describeCron (utils/schedule-format.ts) without a time zone: routines run in the
+ * host's local time. Null for valid expressions it can't phrase.
  */
 export function describeCron(expression: string): string | null {
   const trimmed = expression.trim();
@@ -405,10 +397,7 @@ function intervalToCron(minutes: number): string {
   return hours === 1 ? "0 * * * *" : `0 */${hours} * * *`;
 }
 
-/**
- * The cron a routine's schedule reads as in the editor, like Paseo turning a
- * legacy interval into cron (normalizeScheduleFormCadence). Null for "once".
- */
+/** Intervals convert like Paseo's normalizeScheduleFormCadence. */
 export function scheduleToCron(schedule: RoutineSchedule): string | null {
   switch (schedule.kind) {
     case "cron":
@@ -423,9 +412,6 @@ export function scheduleToCron(schedule: RoutineSchedule): string | null {
   }
 }
 
-// ---------------------------------------------------------------- tool input
-
-/** A routine schedule as bots give it in tool calls. */
 export const ScheduleInput = z.object({
   type: z.enum(["once", "daily", "cron", "interval", "webhook"]),
   at: z.string().max(40).optional().describe('For "once": local date and time, "YYYY-MM-DD HH:MM".'),
@@ -474,7 +460,7 @@ function cronFrom(input: ScheduleArgs): RoutineSchedule {
   return { kind: "cron", expression: expression.trim() };
 }
 
-/** The routine schedule a tool call describes; throws a message the bot can act on. */
+/** Throws messages the bot can act on. */
 export function scheduleFrom(input: ScheduleArgs, now: Date): RoutineSchedule {
   switch (input.type) {
     case "once":

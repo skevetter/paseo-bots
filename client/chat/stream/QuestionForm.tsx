@@ -142,7 +142,6 @@ function createQuestionFormActions(context: QuestionFormActionsContext) {
   return { toggle, setOther, dismiss, primary };
 }
 
-/** Paseo's QuestionFormCard (components/question-form-card.tsx). */
 export function QuestionFormCard({ colors, input, compact, isResponding, onRespond }: QuestionFormCardProps) {
   const questions = useMemo(() => parseQuestionFormQuestions(input), [input]);
   const state = useQuestionFormState();

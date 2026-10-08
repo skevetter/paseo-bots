@@ -10,10 +10,6 @@ import { ui } from "../typography";
 import { contextMenuProps, measureAnchor, useMenu } from "../ui/Menu";
 import { tooltip } from "../ui/Tooltip";
 
-// Team tabs as Paseo's workspace tabs: a row of tab chips over the screen on desktop
-// (workspace-desktop-tabs-row.tsx), and on phones a switcher row that opens the list
-// of tabs as a sheet (workspace-screen.tsx MobileWorkspaceTabSwitcher).
-
 type Colors = PluginTheme["colors"];
 
 interface TeamTabsProps {
@@ -29,7 +25,6 @@ function tabLabel(tab: TeamTab): string {
   return tab.group ? tab.group.name || "Untitled team" : "Other bots";
 }
 
-/** The tab's icon: the team's logo, or a bot for the bots without a team. */
 function TabIcon({ colors, tab, highlighted }: { colors: Colors; tab: TeamTab; highlighted: boolean }) {
   return tab.group ? (
     <TeamLogo group={tab.group} size={16} dark={nativeTokens(colors).dark} />
@@ -38,7 +33,6 @@ function TabIcon({ colors, tab, highlighted }: { colors: Colors; tab: TeamTab; h
   );
 }
 
-/** The desktop row: 36 high over a divider, 28pt chips 96 to 160 wide, then an inline + for a new team. */
 export function TeamTabsRow({ colors, tabs, openTab, onTab, onTeamMenu, onNewTeam }: TeamTabsProps) {
   const add = useHover();
   return (
@@ -97,7 +91,6 @@ export function TeamTabsRow({ colors, tabs, openTab, onTab, onTeamMenu, onNewTea
   );
 }
 
-/** A tab chip: muted until hovered (surface1) or open (surface2), with the team's menu on right-click. */
 function TabChip({
   colors,
   tab,
@@ -157,7 +150,6 @@ function TabChip({
   );
 }
 
-/** The phone switcher: the open tab across the top with a chevron; the tabs open as a sheet. */
 export function TeamTabSwitcher({ colors, tabs, openTab, onTab, onNewTeam }: TeamTabsProps) {
   const menu = useMenu();
   const ref = useRef<View>(null);

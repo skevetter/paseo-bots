@@ -12,9 +12,6 @@ import {
 } from "./logic";
 import { readItem, readItemSync, writeItem } from "./storage";
 
-// ---------------------------------------------------------------- drafts
-
-// Paseo keeps one draft per chat (stores/draft-store) and persists it every 200ms.
 const DRAFTS_KEY = "@paseo-bots:composer-drafts";
 const PERSIST_INTERVAL_MS = 200;
 
@@ -24,7 +21,6 @@ let loaded = Platform.OS === "web";
 let loading: Promise<void> | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 
-/** Loads persisted drafts once (phones read AsyncStorage asynchronously; web is already loaded). */
 export function loadDrafts(): Promise<void> {
   if (loaded) return Promise.resolve();
   loading ??= readItem(DRAFTS_KEY).then((raw) => {
@@ -68,9 +64,6 @@ function schedulePersist(): void {
   }, PERSIST_INTERVAL_MS);
 }
 
-// ---------------------------------------------------------------- queue
-
-// Queued messages live for the session, per chat, like Paseo's session-store queue.
 const queues = new Map<string, QueuedMessage[]>();
 const listeners = new Set<() => void>();
 const EMPTY: QueuedMessage[] = [];
@@ -104,7 +97,6 @@ export function takeQueuedMessage(key: string, id: string): QueuedMessage | null
   return item;
 }
 
-/** Puts a message back at the front after a failed send. */
 export function requeueFront(key: string, message: QueuedMessage): void {
   writeQueue(key, [message, ...readQueue(key).filter((entry) => entry.id !== message.id)]);
 }

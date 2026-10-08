@@ -1,7 +1,6 @@
 import type { ComposerAttachment } from "../shared/attachments";
 
-// Paseo's timeline keeps only the text of user messages, so attachments sent
-// from this app are remembered for the session, like Paseo's own composer does.
+// Paseo's timeline keeps only the text of user messages, so attachments sent from here are remembered for the session.
 interface Sent {
   messageId: string;
   text: string;

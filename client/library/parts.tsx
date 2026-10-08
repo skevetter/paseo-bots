@@ -13,7 +13,6 @@ import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-/** Settings content column: 16 padding, 24 on top, at most 720 wide (settings-screen.tsx). */
 export const PAGE_STYLE = {
   padding: 16,
   paddingTop: 24,
@@ -23,7 +22,6 @@ export const PAGE_STYLE = {
   alignSelf: "center",
 } as const;
 
-/** The settings page title: 26pt medium, 4 in from the cards, 24 above the first section. Desktop only, like Paseo. */
 export function PageTitle({ colors, title }: { colors: Colors; title: string }) {
   return (
     <Text
@@ -42,7 +40,6 @@ export function PageTitle({ colors, title }: { colors: Colors; title: string }) 
   );
 }
 
-/** Paseo's BackHeader on compact: 56 high, ArrowLeft 20 in a 12-padded target, the title in ScreenTitle style. */
 export function BackBar({
   colors,
   title,
@@ -90,7 +87,6 @@ export function BackBar({
   );
 }
 
-/** Every bot with a switch for this library item. */
 export function BotsCard({
   colors,
   bots,
@@ -139,7 +135,6 @@ export function BotsCard({
   );
 }
 
-/** A "Danger zone" section with one confirmed destructive action (host-page.tsx). */
 export function DangerZone({
   label,
   hint,
@@ -177,9 +172,8 @@ export function DangerZone({
 }
 
 /**
- * An app's logo on a small light tile, so dark marks (GitHub, Notion) read on
- * dark themes. Composio's logos are SVGs, which React Native only draws on the
- * web, so phones use the site's PNG favicon; the initial is the last resort.
+ * The light tile keeps dark marks readable on dark themes. Composio's logos are
+ * SVGs, which React Native only draws on the web, so phones use the PNG favicon.
  */
 export function AppLogo({
   colors,

@@ -1,11 +1,7 @@
 import { botToolName } from "./bot-tools";
 import { toolCallName } from "./tool-name";
 
-// Tool call presentation, ported from Paseo: labels and summaries from
-// protocol/src/tool-call-display.ts (buildToolCallDisplayModel), icons from
-// app/src/utils/tool-call-icon-name.ts, detail state from
-// app/src/utils/tool-call-detail-state.ts, task lists and diffs from
-// app/src/utils/tool-call-parsers.ts.
+// Mirrors Paseo's tool call display (protocol/src/tool-call-display.ts, app/src/utils/tool-call-*.ts).
 
 export type ToolCallDetail =
   | { type: "shell"; command: string; cwd?: string; output?: string; exitCode?: number | null }
@@ -78,7 +74,6 @@ function paseoLeafName(name: string): string | null {
   return normalized.split(".").slice(1).join(".");
 }
 
-/** A tool's name as people read it: Paseo's and this plugin's tools get plain names, others stay as they are. */
 export function humanizeToolName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return name;
@@ -164,7 +159,6 @@ function unknownDetailOverride(input: ToolCallDisplayInput): { displayName?: str
   return {};
 }
 
-/** Paseo's buildToolCallDisplayModel: "Shell" + command, "Read" + path, "Search" + query… */
 export function buildToolCallDisplayModel(input: ToolCallDisplayInput): ToolCallDisplayModel {
   const canonical = canonicalDisplay(input);
   const override = unknownDetailOverride(input);
@@ -173,8 +167,6 @@ export function buildToolCallDisplayModel(input: ToolCallDisplayInput): ToolCall
   const errorText = input.status === "failed" ? formatErrorText(input.error) : undefined;
   return { displayName, ...(summary ? { summary } : {}), ...(errorText ? { errorText } : {}) };
 }
-
-// ---------------------------------------------------------------- icons
 
 const DETAIL_ICONS: Record<ToolCallDetail["type"], string> = {
   shell: "SquareTerminal",
@@ -198,7 +190,7 @@ function lucideName(id: string): string {
     .join("");
 }
 
-/** Lucide icon for a tool call (Paseo's own tools get its logo; plugins can't draw it, so they get the wrench). */
+/** Paseo's own tools get the wrench: plugins can't draw Paseo's logo. */
 export function toolIcon(name: string, detail?: { type: string; icon?: string }): string {
   const lower = name.trim().toLowerCase();
   if (detail?.type === "plain_text" && detail.icon) return lucideName(detail.icon);
@@ -209,12 +201,9 @@ export function toolIcon(name: string, detail?: { type: string; icon?: string })
   return (detail && DETAIL_ICONS[detail.type as ToolCallDetail["type"]]) || "Wrench";
 }
 
-/** Tool label as Paseo's timeline shows it when there's no detail to go on. */
 export function toolLabel(name: string): string {
   return humanizeToolName(name);
 }
-
-// ---------------------------------------------------------------- detail state
 
 function hasMeaningfulValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
@@ -276,7 +265,6 @@ function planOutcomeFor(input: ToolCallDisplayInput, running: boolean): PlanOutc
   return running ? "pending" : undefined;
 }
 
-/** Paseo's buildToolCallPresentation (tool-calls/presentation.ts). */
 export function buildToolCallPresentation(input: ToolCallDisplayInput): ToolCallPresentation {
   const model = buildToolCallDisplayModel(input);
   const running = input.status === "running";
@@ -293,12 +281,10 @@ export function buildToolCallPresentation(input: ToolCallDisplayInput): ToolCall
   };
 }
 
-/** Approval UI owns pending plans; Paseo hides these tools from the stream (tool-calls/detail-level/projection.ts). */
+/** The approval UI owns pending plans, so these stay out of the stream. */
 export function isHiddenToolCall(name: string, status: string): boolean {
   return name === "ExitPlanMode" || (name === "plan_approval" && status === "running");
 }
-
-// ---------------------------------------------------------------- task lists
 
 export interface TaskEntry {
   text: string;
@@ -354,7 +340,7 @@ function updatePlanEntries(input: unknown): TaskEntry[] | null {
   return tasks;
 }
 
-/** Claude's TodoWrite and Codex's update_plan render as task lists (tool-call-parsers.ts). */
+/** Claude's TodoWrite and Codex's update_plan render as task lists. */
 export function extractTaskEntriesFromToolCall(name: string, input: unknown): TaskEntry[] | null {
   const normalized = normalizeTaskToolName(name);
   if (normalized === "todowrite" || normalized === "todo_write") return todoWriteEntries(input);
@@ -362,7 +348,7 @@ export function extractTaskEntriesFromToolCall(name: string, input: unknown): Ta
   return null;
 }
 
-/** Claude's TaskCreate/TaskUpdate/TaskList calls are hidden; the track shows them (types/stream.ts). */
+/** Claude's TaskCreate/TaskUpdate/TaskList show in the task track instead of the stream. */
 export function isHiddenTaskTool(name: string, provider: string): boolean {
   if (provider !== "claude") return false;
   const normalized = normalizeTaskToolName(name);
@@ -378,7 +364,6 @@ export function taskStatus(task: TaskEntry): "pending" | "in_progress" | "comple
   return task.status === "in_progress" ? "in_progress" : "pending";
 }
 
-/** What changed between two task list snapshots (types/stream.ts deriveTaskActivities). */
 export function deriveTaskActivities(
   previous: readonly TaskEntry[],
   current: readonly TaskEntry[],
@@ -402,8 +387,6 @@ export function deriveTaskActivities(
   return activities;
 }
 
-// ---------------------------------------------------------------- diffs
-
 export interface DiffSegment {
   text: string;
   changed: boolean;
@@ -423,7 +406,7 @@ function splitWords(text: string): string[] {
   return text.match(/\w+|[^\w]+/g) ?? [];
 }
 
-/** Longest-common-subsequence lengths: table[i][j] covers a[i..] and b[j..]. */
+/** table[i][j] is the LCS length of a[i..] and b[j..]. */
 function lcsTable<T>(a: readonly T[], b: readonly T[]): number[][] {
   const table: number[][] = Array.from({ length: a.length + 1 }, () => Array<number>(b.length + 1).fill(0));
   for (let i = a.length - 1; i >= 0; i--) {
@@ -439,7 +422,6 @@ export interface LcsStep<T> {
   value: T;
 }
 
-/** The edit script turning a into b: kept (" "), removed ("-") and added ("+") items in order. */
 export function lcsAlign<T>(a: readonly T[], b: readonly T[]): LcsStep<T>[] {
   const table = lcsTable(a, b);
   const steps: LcsStep<T>[] = [];
@@ -492,7 +474,6 @@ function attachWordSegments(diff: readonly DiffLine[]): void {
   }
 }
 
-/** Line diff of an edit's old and new strings, with word-level segments on replaced lines. */
 export function buildLineDiff(original: string, updated: string): DiffLine[] {
   const a = splitLines(original);
   const b = splitLines(updated);

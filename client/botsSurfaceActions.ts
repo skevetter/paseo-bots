@@ -80,7 +80,6 @@ export function surfaceContext(model: BotsSurfaceModel, values: BotSettingsValue
   };
 }
 
-/** Opens a chat, showing its bot in the list: expanded, and its team's tab open. */
 export function select(ctx: SurfaceContext, next: Selection) {
   ctx.setSelection(next);
   ctx.setTeamMap(false);
@@ -100,7 +99,6 @@ function openPanel(ctx: SurfaceContext, bot: Bot, section: SectionId | null) {
   ctx.setPanel({ open: true, section });
 }
 
-/** Saves a new bot and opens it with its settings. */
 async function addBot(ctx: SurfaceContext, bot: Bot, section: SectionId = "identity") {
   const saved = await ctx.commit((values) => ({ ...values, bots: [...values.bots, bot] }));
   if (saved) {
@@ -172,11 +170,6 @@ function moveInTeam(ctx: SurfaceContext, group: BotGroup, botId: string, neighbo
     }));
 }
 
-/**
- * Swaps a bot with its neighbour as the list shows it: on a team's tab within the team,
- * whose Chief of Staff stays first; otherwise among the listed bots, where pinned and
- * unpinned bots keep their own runs.
- */
 function moveBot(ctx: SurfaceContext, bot: Bot, delta: -1 | 1): (() => void) | undefined {
   const shown = ctx.openTab?.bots ?? ctx.listed;
   const index = shown.findIndex((entry) => entry.id === bot.id);
@@ -431,7 +424,6 @@ export function saveTeamDraft(ctx: SurfaceContext, editing: BotGroup | "new", dr
   const id = editing === "new" ? null : editing.id;
   const teamId = id ?? newGroupId();
   ctx.setEditingTeam(null);
-  // A new team opens in its tab.
   void ctx
     .commit((values) => ({
       ...values,

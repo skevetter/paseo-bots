@@ -4,11 +4,8 @@ import { Platform } from "react-native";
 import { nativeTokens } from "../native";
 import { ui } from "../typography";
 
-// Paseo's Tooltip (components/ui/tooltip.tsx) for the plugin's icon buttons. Plugins
-// can't reach react-dom's portal, so one DOM bubble, shared by every button, follows
-// the pointer: a button tagged with `tooltip("Label")` shows it after Paseo's 300ms,
-// above it (below when there's no room), with Paseo's popover look. Like Paseo it's a
-// desktop affordance: touch and the compact layout get none.
+// Plugins can't reach react-dom's portal, so one DOM bubble, shared by every tagged button,
+// follows the pointer.
 
 type Colors = PluginTheme["colors"];
 type Side = "top" | "bottom";
@@ -57,21 +54,20 @@ const SELECTOR = "[data-pb-tip]";
 const DELAY_MS = 300;
 const OFFSET = 8;
 const EDGE = 8;
-/** Paseo's compact breakpoint (styles/unistyles.ts: md starts at 720). */
+/** Paseo's compact breakpoint. */
 const COMPACT_WIDTH = 720;
 const UI_FONT =
   "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
 
 interface TooltipExtras {
-  /** Lines under the label in the same type, like Paseo's context meter "42% used". */
+  /** Under the label, in the same type. */
   lines?: string[];
   /** Muted 12pt lines at the end. */
   details?: string[];
-  /** Milliseconds before it opens: Paseo's icon buttons wait 300, its tabs 400, its context meter 0. */
+  /** Milliseconds before it opens. */
   delay?: number;
 }
 
-/** Props that give an icon button Paseo's tooltip. Spread them on the Pressable next to its accessibilityLabel. */
 export function tooltip(label: string, side: Side = "top", extras: TooltipExtras = {}): object {
   if (!web) return {};
   const dataSet: Record<string, string> = { pbTip: label, pbTipSide: side };
@@ -81,14 +77,13 @@ export function tooltip(label: string, side: Side = "top", extras: TooltipExtras
   return { dataSet };
 }
 
-/** Whether hovering shows tooltips here: Paseo's are a desktop affordance. */
 export function tooltipsShown(): boolean {
   return web && typeof window !== "undefined" && window.innerWidth >= COMPACT_WIDTH;
 }
 
 let colors: Colors | null = null;
 
-/** Keeps the bubble in the current theme; call it where plugin UI renders. */
+/** Call it where plugin UI renders. */
 export function useTooltipTheme(theme: Colors): void {
   useEffect(() => {
     colors = theme;
@@ -127,7 +122,6 @@ function fillBubble(bubble: Bubble, target: El, label: string, theme: Colors | n
   const details = target.getAttribute("data-pb-tip-details")?.split("\n") ?? [];
   bubble.style.minWidth = details.length ? "200px" : "0";
   bubble.textContent = "";
-  // Paseo's context meter tooltip: foreground 14pt lines, then muted 12pt details, 6 apart.
   [label, ...lines, ...details].forEach((text, index) => {
     const line = document.createElement("div");
     line.textContent = text;
@@ -154,7 +148,6 @@ function placeBubble(bubble: Bubble, target: El): void {
   const wanted = (target.getAttribute("data-pb-tip-side") as Side | null) ?? "top";
   const above = rect.top - height - OFFSET;
   const below = rect.top + rect.height + OFFSET;
-  // Paseo flips to the other side when the preferred one hasn't the room.
   const side = fittingSide(wanted, above, below, height);
   const left = Math.max(
     EDGE,
@@ -165,7 +158,6 @@ function placeBubble(bubble: Bubble, target: El): void {
   bubble.style.opacity = "1";
 }
 
-/** Starts the shared tooltip on web; returns its cleanup. */
 export function installTooltips(): () => void {
   if (!web || typeof document === "undefined") return () => {};
   let anchor: El | null = null;

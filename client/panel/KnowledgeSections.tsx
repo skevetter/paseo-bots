@@ -40,9 +40,6 @@ function LocalOnly({ colors, what }: { colors: Colors; what: string }) {
   );
 }
 
-// ---------------------------------------------------------------- soul
-
-/** Paseo's "Append system prompt": a row with Edit that opens a sheet with the text, Reset and Save. */
 export function SoulSection({ colors, bot, onPatch }: PanelProps) {
   const [editing, setEditing] = useState(false);
   const bytes = utf8Bytes(bot.soul);
@@ -135,8 +132,6 @@ function SoulSheet({
   );
 }
 
-// ---------------------------------------------------------------- skills
-
 export function SkillsSection(props: PanelProps) {
   const host = useBotHost(props.bot.hostId, props.localHost);
   return (
@@ -151,8 +146,6 @@ export function SkillsSection(props: PanelProps) {
     </>
   );
 }
-
-// ---------------------------------------------------------------- memory
 
 const TOPIC_NAME = /^[A-Za-z0-9 ._-]+$/;
 const MEMORY_LINES = 200;
@@ -322,7 +315,6 @@ function DailyLogRow({ colors, botId, onPress }: { colors: Colors; botId: string
   );
 }
 
-/** A new topic file: its name, then it opens to write in. */
 function TopicSheet({
   colors,
   botId,
@@ -372,7 +364,6 @@ function TopicSheet({
   );
 }
 
-/** One memory file in a sheet. Closing with unsaved edits asks before discarding them. */
 function MemorySheet({
   colors,
   botId,
@@ -538,9 +529,7 @@ function useMemoryText(botId: string, name: string) {
   return { text, setText, saved, setSaved };
 }
 
-// ---------------------------------------------------------------- playbooks
-
-/** OpenMausBot's playbooks: step-by-step guidance a chat gets when its first message mentions a trigger. */
+/** A playbook reaches a chat whose first message mentions one of its triggers. */
 export function PlaybooksSection({ colors, bot, onPatch }: PanelProps) {
   const [editing, setEditing] = useState<Playbook | "new" | null>(null);
   const save = (playbook: Playbook) => {

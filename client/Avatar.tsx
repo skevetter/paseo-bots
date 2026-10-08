@@ -9,13 +9,12 @@ import { LOGO_SIZE, teamLogo } from "../shared/team-logo";
 interface AvatarProps {
   avatar: Pick<BotAvatar, "seed"> & Partial<BotAvatar>;
   size: number;
-  /** Overrides the surrounding AvatarTheme; sheets need it, as Paseo draws them outside the plugin's tree on phones. */
+  /** Overrides AvatarTheme: Paseo draws sheets outside the plugin's tree on phones. */
   dark?: boolean;
 }
 
 const AvatarThemeContext = createContext(false);
 
-/** Tells every Avatar below it whether the theme is dark, so pastel backgrounds are toned down. */
 export function AvatarTheme({ dark, children }: { dark: boolean; children: ReactNode }) {
   return <AvatarThemeContext.Provider value={dark}>{children}</AvatarThemeContext.Provider>;
 }
@@ -42,7 +41,6 @@ export function Avatar({ avatar, size, dark: darkProp }: AvatarProps) {
   return <PixelSprite sprite={sprite} size={size} radius={radius} />;
 }
 
-/** A team's logo: its picture, or the generated pixel-art motif on a rounded tile. */
 export function TeamLogo({
   group,
   size,
@@ -70,10 +68,6 @@ export function TeamLogo({
   return <PixelSprite sprite={image} size={size} radius={radius} grid={LOGO_SIZE} inset={false} />;
 }
 
-/**
- * Draws a generated sprite: one View per same-coloured run on a rounded background. Avatars
- * sit inset in their frame except when small; `inset` false fills it (team logos).
- */
 export function PixelSprite({
   sprite,
   size,

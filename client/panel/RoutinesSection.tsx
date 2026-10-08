@@ -54,11 +54,7 @@ import {
 
 type Colors = PanelProps["colors"];
 
-// Routines follow Paseo's Schedules (components/schedules/*): a card of rows with a status
-// badge and a kebab (Edit, Pause/Resume, Run now, Delete), and a sheet form with a cadence
-// preset + cron field. Runs happen on the host that stores the bot (server/scheduler.ts).
-
-/** Paseo's formatNextRun (utils/schedule-format.ts): "soon", "in 12m", "in 3h", "in 2d". */
+/** Matches Paseo's formatNextRun (utils/schedule-format.ts). */
 function formatNextRun(next: Date, now: number = Date.now()): string {
   const diff = next.getTime() - now;
   if (diff < 60_000) return "soon";
@@ -74,7 +70,7 @@ function routineState(routine: Routine, next: Date | null): { label: string; var
   return { label: "Active", variant: "success" };
 }
 
-/** Cadence → history → future, like Paseo's schedule rows; status stays on the badge. */
+/** Status is left to the badge. */
 function routineMeta(routine: Routine, run: RoutineRun | undefined, next: Date | null): string {
   const parts = [describeSchedule(routine.schedule)];
   const when = relativeTime(run?.startedAt);
@@ -104,7 +100,6 @@ const TRIGGER_LABELS: Record<RoutineRun["trigger"], string> = {
   webhook: "from its webhook",
 };
 
-/** "Today 09:00", "Tomorrow 09:00" or "Mon, Sep 28 09:00". */
 function runTime(at: Date, now: Date): string {
   const time = at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   const day = new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
@@ -503,8 +498,6 @@ export function RoutinesSection({ colors, bot, localHost, onPatch, flush, onOpen
   );
 }
 
-// ---------------------------------------------------------------- form
-
 const CUSTOM_CRON = "Custom cron";
 const ONCE = "once";
 const WEBHOOK = "webhook";
@@ -563,7 +556,7 @@ function useCadence(original: RoutineSchedule): Cadence {
   const [onceText, setOnceText] = useState(() =>
     formatLocalDateTime(original.kind === "once" ? new Date(original.at) : inAnHour()),
   );
-  // Presets rewrite the cron field; remounting it is how Paseo's CadenceEditor resets it too.
+  // Presets rewrite the cron field; remounting resets it.
   const [cronKey, setCronKey] = useState(0);
 
   const once = schedule.kind === "once";
@@ -795,7 +788,6 @@ function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: Routine
   );
 }
 
-/** The routine's webhook URL with Copy, and New URL to stop the old one working. */
 function WebhookRows({ routineId }: { routineId: string }) {
   const webhook = useRpc(routineWebhookRpc);
   const toast = useToast();

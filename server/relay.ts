@@ -6,13 +6,8 @@ import { accounts, appTools, connectedSlugs, deadline, readState, session, write
 import type { BotsHost } from "./host";
 import { answerMcp, type BotTool } from "./tools/mcp";
 
-// Bots reach the plugin through this loopback relay, the way Paseo gives agents
-// its own tools: http MCP servers on 127.0.0.1 with a bearer token each chat
-// gets in its config. Tokens are signed with a secret only this process knows.
-//
-//   /mcp/<botId>              connected apps: forwards to Composio with the key
-//                             added, after checking the bot may use the app
-//   /bots/<botId>/<agentId>   the plugin's own tools for one chat
+// Loopback MCP servers on 127.0.0.1; each chat gets a bearer token in its config, signed with a secret
+// only this process knows.
 
 const MAX_BODY = 5 * 1024 * 1024;
 const MAX_RESPONSE = 20 * 1024 * 1024;
@@ -22,7 +17,7 @@ function sign(secret: string, subject: string): string {
   return createHmac("sha256", secret).update(subject).digest("hex");
 }
 
-/** Connected-apps token; unchanged from the first release so running chats keep working. */
+/** Must stay stable so running chats' tokens keep working. */
 function botToken(secret: string, botId: string): string {
   return sign(secret, botId);
 }
@@ -58,14 +53,13 @@ function json(response: ServerResponse, status: number, body: unknown) {
   response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
 }
 
-/** Extra routes other features add (webhooks). Return true when handled. */
+/** Returns true when it handled the request. */
 export type RelayRoute = (
   request: IncomingMessage,
   response: ServerResponse,
   path: string,
 ) => Promise<boolean>;
 
-/** A bot's limits on its apps, with the read-only tools and the pinned accounts' aliases looked up. */
 async function appLimits(bot: Bot): Promise<Map<string, AppLimit>> {
   const limits = new Map<string, AppLimit>();
   for (const slug of bot.apps) {
@@ -106,7 +100,7 @@ export class Relay {
     this.routes.push(route);
   }
 
-  /** Starts listening, on the previous port when it's free so running chats keep their URLs. */
+  /** Reuses the previous port when it's free so running chats keep their URLs. */
   start(): Promise<number> {
     this.listening ??= (async () => {
       const state = await readState();
@@ -138,7 +132,6 @@ export class Relay {
     this.listening = null;
   }
 
-  /** The connected-apps server for a bot's chats, or null when connected apps aren't set up. */
   async mountApps(botId: string): Promise<McpServerConfig | null> {
     const state = await readState();
     if (!state.apiKey) return null;
@@ -150,7 +143,6 @@ export class Relay {
     };
   }
 
-  /** The plugin's tools for one chat. */
   async mountTools(botId: string, agentId: string): Promise<McpServerConfig> {
     const state = await readState();
     const port = await this.start();

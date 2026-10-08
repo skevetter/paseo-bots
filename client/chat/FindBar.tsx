@@ -17,10 +17,6 @@ import { tooltip } from "../ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-/**
- * Find in chat, over the stream like a browser's find bar. It starts at the
- * newest match: Enter and ↑ go to older ones, Shift+Enter and ↓ to newer.
- */
 export function FindBar({
   colors,
   query,
@@ -37,7 +33,6 @@ export function FindBar({
   /** 1-based, counted from the oldest match. */
   position: number;
   total: number;
-  /** Earlier messages are loading to search them. */
   busy: boolean;
   onQuery(text: string): void;
   onOlder(): void;

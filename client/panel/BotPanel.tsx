@@ -34,15 +34,12 @@ interface SectionEntry {
   id: SectionId;
   label: string;
   icon: string;
-  /** Setting names inside the section; search matches and lists them. */
+  /** Setting names in the section, matched and listed by search. */
   rows: string[];
   keywords: string;
-  /** Browsing rather than settings: opens as a modal instead of a page. */
   modal?: boolean;
 }
 
-// OpenMausBot's order (bot-settings/sections.ts), minus sections Paseo has no equivalent for,
-// grouped like Paseo's settings sidebar.
 const GROUPS: { label: string; sections: SectionEntry[] }[] = [
   {
     label: "Bot",
@@ -174,33 +171,26 @@ export interface PanelProps {
   bot: Bot;
   localHost: LocalHost;
   history: HistoryEntry[];
-  /** The shared skills and MCP servers the bot picks from. */
   library: Library;
   groups: readonly BotGroup[];
   onPatch(patch: Partial<Bot>): void;
-  /** Saves pending edits now (routines run from the saved bot). */
+  /** Saves pending edits now; routines run from the saved bot. */
   flush(): Promise<void>;
   onRestore(snapshot: Bot): void;
   onSetup(): void;
-  /** Shows one of the bot's chats (a routine run). */
   onOpenChat(chatId: string): void;
 }
 
 interface BotPanelProps extends PanelProps {
-  /** Open section (detail view), or null for the section list. */
+  /** null shows the section list. */
   section: SectionId | null;
   onSection(section: SectionId | null): void;
   onClose(): void;
-  /** The surface's compact layout; falls back to the window width. */
+  /** Falls back to the window width when unset. */
   compact?: boolean;
-  /** The home indicator on phones. */
   bottomInset: number;
 }
 
-/**
- * Bot settings as Paseo's list+detail (docs/design.md §9) in its compact form: a
- * section list, and a pushed detail page whose header carries a back arrow.
- */
 export function BotPanel(props: BotPanelProps) {
   const { colors, bot, localHost, section, onSection, onClose, bottomInset } = props;
   const compact = useCompact(props.compact);
@@ -342,11 +332,6 @@ function renderSection(id: SectionId, props: PanelProps): ReactNode {
   }
 }
 
-/**
- * Paseo's settings sidebar item (settings-screen.tsx sidebarStyles.item: 28 min height, 4/8
- * padding, radius 8, 16pt icon, muted 14pt label, surfaceSidebarHover on hover) with a
- * drill-in chevron when the detail replaces the list. Touch-sized (36) on compact.
- */
 function SectionRow({
   colors,
   compact,
@@ -397,11 +382,6 @@ function SectionRow({
   );
 }
 
-/**
- * One header row: the bot name on the list, a back arrow and the section title on a
- * detail page (BackHeader), and the close button. 36 high on desktop, 48 on compact;
- * the title is ScreenTitle (14pt, weight 300 desktop / 400 compact).
- */
 function PanelHeader({
   colors,
   compact,
@@ -463,7 +443,6 @@ function PanelHeader({
   );
 }
 
-/** Header control: 34 box on desktop, 32 on compact; interactionHighlight on hover and press. */
 function HeaderButton({
   colors,
   compact,

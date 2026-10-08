@@ -1,8 +1,6 @@
 import type { Playbook } from "./bot";
 
-// OpenMausBot's playbooks: process guidance with trigger words. A chat gets a
-// playbook only when one of its triggers appears in the job (the chat's first
-// message), so unrelated guidance stays out of the prompt.
+// Only the chat's first message is matched, so unrelated guidance stays out of the prompt.
 
 const MAX_SELECTED = 3;
 const MAX_CHARS = 24_000;
@@ -13,7 +11,6 @@ const normalize = (value: string) =>
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 
-/** The playbooks whose trigger words or phrases appear in `text`, at most three. */
 export function selectPlaybooks(text: string, playbooks: readonly Playbook[]): Playbook[] {
   const job = ` ${normalize(text)} `;
   return playbooks
@@ -25,7 +22,6 @@ export function selectPlaybooks(text: string, playbooks: readonly Playbook[]): P
     .slice(0, MAX_SELECTED);
 }
 
-/** The prompt text for the chosen playbooks, within 24,000 characters. */
 export function renderPlaybooks(playbooks: readonly Playbook[]): string {
   let remaining = MAX_CHARS;
   const parts: string[] = [];
@@ -41,7 +37,6 @@ export function renderPlaybooks(playbooks: readonly Playbook[]): string {
   ].join("\n");
 }
 
-/** "invoice, receipt, expense report" as trigger phrases. */
 export function parseTriggers(text: string): string[] {
   return [
     ...new Set(

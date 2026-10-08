@@ -49,11 +49,6 @@ import { SecondaryButton } from "./stream/ui";
 
 type Colors = PluginTheme["colors"];
 
-// Paseo's agent stream (agent-stream/view.tsx with strategy-web.tsx and
-// strategy-native.tsx): a forward list on web that follows new output only while
-// you're within 64px of the bottom, an inverted list on phones (32px), older
-// history paged in 40 at a time within 96px of the top, and a round
-// "scroll to bottom" button when you've scrolled away.
 const WEB_NEAR_BOTTOM = 64;
 const NATIVE_NEAR_BOTTOM = 32;
 const HISTORY_START_THRESHOLD = 96;
@@ -69,16 +64,13 @@ export interface ChatStreamProps {
   /** Bumps when Paseo's font sizes change, so rows re-render. */
   typeVersion: number;
   onOpenChat?(chatId: string): void;
-  /** Set for bots on this host, whose approval cards can save commands. */
+  /** Set for bots on this host. */
   botId?: string;
-  /** How the bot's turns are read aloud. */
   voice?: BotVoice;
-  /** Whether the find bar is open. */
   findOpen?: boolean;
   onCloseFind?(): void;
 }
 
-/** Whether a turn is running, as the stream shows it. */
 function isTurnRunning(chat: ChatState): boolean {
   return chat.agent?.status === "running" || chat.agent?.status === "initializing";
 }
@@ -104,7 +96,6 @@ interface StreamScrollOptions {
   items: readonly StreamLayoutItem[];
 }
 
-// Sending a message jumps back to the bottom, like Paseo's bottom anchor on submit.
 function useJumpToBottomOnSend(
   items: readonly StreamLayoutItem[],
   scrollToBottom: (animated: boolean) => void,
@@ -223,7 +214,6 @@ interface StreamFindOptions {
 
 function useStreamFind({ list, items, inverted, findOpen, chat }: StreamFindOptions) {
   const [query, setQuery] = useState("");
-  /** The current match's row key. */
   const [found, setFound] = useState<string | null>(null);
   /** Pages loaded so far looking for an older match; 0 when not looking. */
   const [olderPages, setOlderPages] = useState(0);
@@ -246,7 +236,6 @@ function useStreamFind({ list, items, inverted, findOpen, chat }: StreamFindOpti
     [items, inverted, list],
   );
 
-  // A new search starts at the newest match.
   const searchedNeedle = useRef<string | null>(null);
   useEffect(() => {
     if (searchedNeedle.current === needle) return;
@@ -290,7 +279,6 @@ function useStreamFind({ list, items, inverted, findOpen, chat }: StreamFindOpti
   const latestOlderSearch = useRef(continueOlderSearch);
   latestOlderSearch.current = continueOlderSearch;
 
-  // Once an older page arrives, go to the closest older match, or look one page further (ten at most).
   useEffect(() => {
     if (!olderPages || chat.loadingOlder) return;
     latestOlderSearch.current(items);
@@ -299,7 +287,6 @@ function useStreamFind({ list, items, inverted, findOpen, chat }: StreamFindOpti
   return { query, setQuery, found, olderPages, position, total: matches.length, findOlder, findNewer };
 }
 
-// A bot that reads its replies aloud reads each one as it finishes, while its chat is open.
 function useReadRepliesAloud(running: boolean, voice: BotVoice | undefined, latestCopy: string) {
   const wasRunning = useRef(running);
   useEffect(() => {
@@ -566,7 +553,6 @@ export function ChatStream({
   );
 }
 
-/** A row renders again only when its layout item (or the type scale) changes. */
 const StreamItem = memo(function StreamItem({
   item,
   context,
@@ -615,7 +601,6 @@ function useFadeIn(visible: boolean) {
   return { opacity, mounted };
 }
 
-/** view.tsx scroll-to-bottom: 48 round surface2 button with ChevronDown 24, fading in and out. */
 function ScrollToBottomButton({
   colors,
   visible,
@@ -660,7 +645,6 @@ function ScrollToBottomButton({
   );
 }
 
-/** agent-panel.tsx TimelineSyncErrorCallout. */
 function SyncErrorCallout({
   colors,
   retrying,
@@ -702,10 +686,7 @@ function SyncErrorCallout({
   );
 }
 
-/**
- * archived-agent-callout.tsx. Paseo pairs it with an Unarchive button; the
- * plugin API can't unarchive an agent, so the callout only says so.
- */
+/** The plugin API can't unarchive an agent, so unlike Paseo there's no Unarchive button. */
 function ArchivedCallout({ colors, compact }: { colors: Colors; compact: boolean }) {
   return (
     <View style={{ width: "100%", alignItems: "center", paddingHorizontal: 16, paddingTop: 16 }}>

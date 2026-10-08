@@ -19,7 +19,6 @@ import { useBotSettings } from "../useBotSettings";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 
-/** Settings → Plugins → paseo-bots: what new bots start with, saved presets, and team files. */
 export function BotsSettings({ theme, host }: PluginSurfaceProps) {
   const colors = theme.colors;
   const { settings, commit } = useBotSettings();
@@ -170,7 +169,6 @@ function importedMessage(imported: { bots: readonly unknown[]; teams: readonly u
   return `Added ${counted(imported.bots.length, "bot", "bots")}${teams}. Routines arrive paused and skills need a review.`;
 }
 
-/** A team file: every bot that isn't archived and the teams they're on, in one file; and adding those of one. */
 function TeamSection({
   colors,
   bots,

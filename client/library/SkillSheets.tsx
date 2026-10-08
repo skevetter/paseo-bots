@@ -57,7 +57,6 @@ function ErrorLine({
   ) : null;
 }
 
-/** Fetches one skill, or every skill in a repository or folder, into the library. */
 export function ImportSkillsSheet({
   colors,
   onClose,
@@ -134,7 +133,6 @@ export function ImportSkillsSheet({
   );
 }
 
-/** Writes a new skill here: a name, when to use it, and its instructions. */
 export function NewSkillSheet({
   colors,
   taken,
@@ -230,7 +228,7 @@ export function NewSkillSheet({
   );
 }
 
-/** Edits SKILL.md as text; the description is read back from its frontmatter. */
+/** The description is read back from the SKILL.md frontmatter. */
 export function EditSkillSheet({
   colors,
   id,
@@ -308,11 +306,7 @@ export function EditSkillSheet({
   );
 }
 
-/**
- * OpenMausBot's "Review before enabling": the whole SKILL.md, anything that
- * looks risky, and the files that come with it. Turning the skill on records
- * the hash of exactly this text.
- */
+/** Approving records the hash of exactly this text. */
 export function ReviewSkillSheet({
   colors,
   id,

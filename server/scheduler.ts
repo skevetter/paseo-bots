@@ -20,7 +20,6 @@ const KEEP_RUNS = 30;
 const STALE_RUN_MS = 12 * 3_600_000;
 const WEBHOOK_BODY_MAX = 256 * 1024;
 const WEBHOOK_TEXT_MAX = 48_000;
-/** OpenMausBot's webhook limits: 10 calls a minute, and at most 3 runs still working. */
 const WEBHOOK_CALLS_PER_MINUTE = 10;
 const WEBHOOK_UNFINISHED = 3;
 
@@ -38,7 +37,7 @@ interface LegacyState {
 const recordsPath = () => join(pluginDataPath(), "routines.json");
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
-/** routines.json kept only the last run before run history; those become a one-run history. */
+/** Older routines.json entries kept only the last run. */
 function upgrade(entry: RoutineRecord | LegacyState): RoutineRecord {
   if ("runs" in entry && Array.isArray(entry.runs)) return entry;
   const legacy = entry as LegacyState;
@@ -82,7 +81,7 @@ export interface WebhookEvent {
   receivedAt: string;
 }
 
-/** The prompt a run sends; a webhook's event follows the instructions as marked, untrusted data (OpenMausBot's eventPrompt). */
+/** A webhook's event follows the instructions as marked, untrusted data. */
 export function runPrompt(routine: Routine, event?: WebhookEvent): string {
   if (!event) return routine.prompt;
   const body =
@@ -127,13 +126,7 @@ function webhookStatus(status: RoutineRun["status"]): number {
   return 500;
 }
 
-/**
- * Runs bot routines on this host: on their schedule, from Run now and from
- * their webhook. Every run is recorded, and finishes when its chat's turn ends.
- * The plugin SDK only hands out the Paseo API inside RPC handlers and
- * lifecycle hooks, so the scheduler idles until one of those has run (the app
- * calls `bots.hello` when it starts).
- */
+/** Idles until the Paseo API is captured from an RPC handler or hook (the app calls `bots.hello` on start). */
 export class RoutineScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
@@ -203,7 +196,6 @@ export class RoutineScheduler {
     return { run: await this.run({ bot, routine, trigger: "manual", due: new Date() }) };
   }
 
-  /** The routine's webhook URL, making (or replacing) its secret. */
   async webhookUrl(routineId: string, rotate = false): Promise<{ url: string }> {
     const hooks = await readJson<Record<string, string>>(hooksPath(), {});
     if (!hooks[routineId] || rotate) {
@@ -214,7 +206,6 @@ export class RoutineScheduler {
     return { url: `http://127.0.0.1:${port}/hooks/${routineId}/${hooks[routineId]}` };
   }
 
-  /** A routine chat's turn ended: record how its run went and update the run's card. */
   async finished(
     routineId: string,
     agentId: string,
@@ -269,7 +260,7 @@ export class RoutineScheduler {
     });
   }
 
-  /** Starts a run in a new chat, or records why it didn't; the results chat gets a card either way. */
+  /** The results chat gets a card even when the run doesn't start. */
   private async run(request: RunRequest): Promise<RoutineRun> {
     const { routine, trigger, due } = request;
     const run = await this.update(async (records) => {
@@ -301,7 +292,7 @@ export class RoutineScheduler {
     try {
       if (bot.hostId)
         throw new Error("Routines run on the host that stores the bot; this bot runs on another host.");
-      // OpenMausBot's overlap rule: skip while the previous run is still working (webhooks allow a few at once).
+      // Skip while the previous run is still working (webhooks allow a few at once).
       const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
       if ((await this.busyRuns(record, limit)) >= limit)
         Object.assign(run, { status: "skipped-busy", endedAt: run.startedAt });
@@ -322,7 +313,6 @@ export class RoutineScheduler {
     return busy;
   }
 
-  /** Puts (or updates) the run's card in the routine's results chat. */
   private async postCard(routine: Routine, run: RoutineRun): Promise<void> {
     if (!routine.resultsChatId || !this.paseo || run.status === "skipped-busy") return;
     const data: RoutineRunCard = {
@@ -395,7 +385,6 @@ export class RoutineScheduler {
     });
   }
 
-  /** POST /hooks/<routineId>/<secret> on the loopback relay starts a run with the request body. */
   private async webhook(request: IncomingMessage, response: ServerResponse, path: string): Promise<boolean> {
     const match = /^\/hooks\/([a-z0-9-]+)\/([a-f0-9]{48})$/.exec(path);
     if (!match) return false;

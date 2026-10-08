@@ -19,7 +19,6 @@ const STATUS_HINT = {
 
 type ConnectedApp = AppCard & { status: AppAccount["status"] };
 
-/** A bot's limits on an app in a few words: "Read-only · work". */
 function ruleHint(
   rule: AppRule | undefined,
   accounts: readonly AppAccount[],
@@ -36,11 +35,6 @@ function ruleHint(
   return [tools, account ? accountLabel(account, appName) : null].filter(Boolean).join(" · ") || null;
 }
 
-/**
- * The apps connected on this host, with a switch each for this bot, like the
- * skill and MCP server pickers. Apps are connected in Skills & Tools; a row
- * opens the bot's limits on the app.
- */
 export function AppsPicker({
   colors,
   bot,

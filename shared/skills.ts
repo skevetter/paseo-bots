@@ -22,7 +22,6 @@ function parseSkillUrl(source: string): SkillSource {
   throw new Error("Use a GitHub repository, a GitHub folder, or a link to a SKILL.md file.");
 }
 
-/** Accepts "owner/repo", "owner/repo/path", github.com URLs (repo, tree, blob) and raw SKILL.md URLs. */
 export function parseSkillSource(input: string): SkillSource {
   const source = input.trim();
   if (/^https?:\/\//i.test(source)) return parseSkillUrl(source);
@@ -40,7 +39,6 @@ export function parseSkillSource(input: string): SkillSource {
   };
 }
 
-/** Reads `name` and `description` from SKILL.md frontmatter. */
 export function parseSkillFrontmatter(text: string): { name: string | null; description: string | null } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
   const read = (key: string) => {
@@ -64,18 +62,16 @@ export function sanitizeSkillName(name: string): string {
   return clean || "skill";
 }
 
-/** SKILL.md with the frontmatter agents read: a name that matches the folder and a one-line description. */
+/** Agents expect the frontmatter name to match the folder. */
 export function skillMarkdown(id: string, description: string, body: string): string {
   const line = description.replace(/\s+/g, " ").trim();
   return `---\nname: ${id}\ndescription: ${line}\n---\n\n${body.trim()}\n`;
 }
 
-/** SKILL.md without its frontmatter. */
 export function skillBody(text: string): string {
   return text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "").trim();
 }
 
-/** /learn: the bot drafts a skill from the chat and proposes it with propose_skill. */
 export const LEARN_COMMAND = {
   name: "learn",
   description: "Save what the bot just did as a skill",
@@ -88,16 +84,12 @@ export function learnPrompt(focus = ""): string {
   return `Turn what you just did into a reusable skill: the steps that worked, what to check, and what a good result looks like.${about} Then propose it with the propose_skill tool so I can review it. Don't write the skill file yourself.`;
 }
 
-/** The message /learn sends, or null when the text isn't /learn. */
 export function expandLearn(text: string): string | null {
   const match = /^\/learn(?:\s+([\s\S]*))?$/.exec(text.trim());
   return match ? learnPrompt(match[1] ?? "") : null;
 }
 
-/**
- * Things worth a second look before a skill reaches a bot, as OpenMausBot's
- * scanSkillText flags them. They warn; the user decides.
- */
+/** Warnings only; the user decides. */
 export function scanSkillText(text: string): string[] {
   const warnings: string[] = [];
   if (/[A-Za-z0-9+/]{400,}={0,2}/.test(text))

@@ -16,7 +16,6 @@ type Colors = PluginTheme["colors"];
 
 const KEY_QUERY = ["paseo-bots", "avatar-key"];
 
-/** Draws an avatar with OpenAI from the bot's name, title and blurb, plus an optional direction. */
 export function AvatarSheet({
   colors,
   bot,

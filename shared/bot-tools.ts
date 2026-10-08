@@ -1,9 +1,5 @@
 import { serverToolName } from "./tool-name";
 
-// The plugin's own tools, served to every local bot chat as the MCP server
-// "bots": other bots, past chats, the setup, and proposals (skills, routines,
-// setup changes, app connections) the user confirms in the chat.
-
 export const TOOLS_MCP_NAME = "bots";
 
 const BOT_TOOL_NAMES = [
@@ -20,9 +16,8 @@ const BOT_TOOL_NAMES = [
 export type BotToolName = (typeof BOT_TOOL_NAMES)[number];
 
 /**
- * Tools that only read or only propose something the user confirms, so they
- * run without a permission prompt. Asking another bot is left to the bot's
- * "Contact other bots" setting.
+ * Read-only or propose-and-confirm tools, so they run without a permission
+ * prompt. ask_bot is governed by the bot's "Contact other bots" setting.
  */
 export const QUIET_TOOLS: readonly BotToolName[] = [
   "list_bots",
@@ -35,18 +30,16 @@ export const QUIET_TOOLS: readonly BotToolName[] = [
   "connect_app",
 ];
 
-/** The bot tool a resolved tool name (shared/tool-name.ts) is, if it's one. */
 export function botToolName(name: string): BotToolName | null {
   const tool = serverToolName(name, TOOLS_MCP_NAME);
   return tool && (BOT_TOOL_NAMES as readonly string[]).includes(tool) ? (tool as BotToolName) : null;
 }
 
-/** Providers that accept exact MCP tool grants (Paseo refuses the chat for others). */
+/** Paseo refuses the chat when other providers get exact MCP tool grants. */
 export function supportsToolGrants(provider: string): boolean {
   return /^(claude|codex|opencode)(\b|$)/.test(provider);
 }
 
-/** The prompt section for the plugin's own tools, given to chats that get them (bots on the plugin's host). */
 export function botToolsPrompt(canAsk: boolean): string {
   const others = canAsk
     ? "list_bots to see the other bots and ask_bot to ask one for help (check_chat follows up)"

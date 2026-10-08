@@ -19,10 +19,6 @@ import { librarySkillPath, linkBotSkills, skillSha } from "./library";
 import { injectedMemory, MAIN_MEMORY, memoryFolder, recentLogEntries } from "./memory";
 import type { PaseoApi } from "./paseo";
 
-/**
- * The connected apps a bot may use right now (allowed for it and signed in on
- * this host), with their accounts when it picks one of several, and its limits.
- */
 async function botApps(bot: Bot): Promise<PromptApp[]> {
   if (bot.apps.length === 0 || !(await readState()).apiKey) return [];
   const connected = (await accounts().catch(() => ({ accounts: [] as AppAccount[] }))).accounts.filter(
@@ -49,16 +45,11 @@ async function botApps(bot: Bot): Promise<PromptApp[]> {
 }
 
 export interface ChatStart {
-  /** The chat's first message, which picks the playbooks. */
   message?: string;
-  /** The bot's team and every bot, when it's on one. */
   team?: { group: BotGroup; bots: Bot[] };
 }
 
-/**
- * Memory and skills live on this host, so only bots running here get them:
- * an agent on another host couldn't read or update the files.
- */
+/** Memory and skills live on this host, so bots on other hosts can't read or update them. */
 export async function promptContext(
   bot: Bot,
   { local, library, paseoTools }: { local: boolean; library: Library; paseoTools: boolean },
@@ -110,7 +101,7 @@ export async function promptContext(
   };
 }
 
-/** Whether this host gives the provider's agents Paseo's tools. Assumes yes when the config can't be read. */
+/** Assumes yes when the config can't be read. */
 async function paseoToolsOn(paseo: PaseoApi | null, provider: string): Promise<boolean> {
   if (!paseo) return true;
   try {
@@ -121,7 +112,7 @@ async function paseoToolsOn(paseo: PaseoApi | null, provider: string): Promise<b
   }
 }
 
-/** The system prompt for a new chat; `settings` supplies the bot's team. */
+/** `settings` supplies the bot's team. */
 export async function systemPrompt(
   { bot, local, message }: { bot: Bot; local: boolean; message?: string },
   library: Library,

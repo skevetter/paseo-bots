@@ -31,9 +31,8 @@ export type CommitBotSettings = (
 ) => Promise<boolean>;
 
 /**
- * The bots settings document with one write queue. Every write reads the latest
- * revision when it runs and retries on a conflict, so autosaves, menu actions
- * and the other plugin surface never overwrite each other.
+ * Writes queue, read the latest revision when they run and retry on a conflict, so autosaves,
+ * menu actions and the other plugin surface never overwrite each other.
  */
 export function useBotSettings() {
   const settings = useBotSettingsState();

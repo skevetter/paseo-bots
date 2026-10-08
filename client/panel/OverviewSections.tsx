@@ -33,13 +33,10 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced;
 }
 
-// ---------------------------------------------------------------- overview
-
 function size(text: string): string {
   return `${(utf8Bytes(text) / 1000).toFixed(1)} KB · ≈${estimateTokens(text).toLocaleString()} tokens`;
 }
 
-/** "Chief of Staff of Ops", "On Ops, led by Scout" or "No team". */
 function teamLine(bot: Bot, groups: PanelProps["groups"]): string {
   const group = teamOf(bot.id, groups);
   if (!group) return "No team. Put it on one from the Team map.";
@@ -261,8 +258,6 @@ function PromptSectionView({ colors, section }: { colors: PanelProps["colors"]; 
   );
 }
 
-// ---------------------------------------------------------------- history
-
 function summarize(before: Bot, after: Bot): string {
   const labels: [keyof Bot, string][] = [
     ["name", "name"],
@@ -312,8 +307,6 @@ export function HistorySection({ colors, bot, history, onRestore }: PanelProps) 
     </SettingsSection>
   );
 }
-
-// ---------------------------------------------------------------- usage
 
 export function UsageSection({ bot, localHost }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);

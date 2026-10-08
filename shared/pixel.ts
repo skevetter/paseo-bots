@@ -1,14 +1,10 @@
-// The pieces bot avatars and team logos share: colour maths, the soft palettes,
-// a seeded random source and run-length rows of pixels.
-
-/** A horizontal run of same-coloured pixels; null colour is transparent. */
+/** A null colour is transparent. */
 export interface PixelRun {
   x: number;
   width: number;
   color: string | null;
 }
 
-/** Run-length encodes rows of pixel colours, top to bottom. */
 export function toRuns(colors: readonly (readonly (string | null)[])[]): PixelRun[][] {
   return colors.map((line) => {
     const runs: PixelRun[] = [];
@@ -20,8 +16,6 @@ export function toRuns(colors: readonly (readonly (string | null)[])[]): PixelRu
     return runs;
   });
 }
-
-// ------------------------------------------------------------------ colour
 
 export function hslToHex(h: number, s: number, l: number): string {
   const hue = ((h % 360) + 360) % 360;
@@ -51,7 +45,6 @@ export interface PaletteDef {
   night?: boolean;
 }
 
-// Soft, cute bodies. Shadows lean toward blue-violet and highlights toward yellow.
 const PALETTE_DEFS: readonly PaletteDef[] = [
   { h: 150, s: 55, l: 70 }, // mint
   { h: 22, s: 90, l: 76 }, // peach
@@ -78,6 +71,7 @@ export interface Palette {
   background: string;
 }
 
+// Shadows lean toward blue-violet and highlights toward yellow.
 export function buildPalette({ h, s, l, night }: PaletteDef): Palette {
   return {
     outline: hslToHex(shiftHue(h, 260, 25), Math.min(s, 45), 24),
@@ -92,8 +86,6 @@ export function buildPalette({ h, s, l, night }: PaletteDef): Palette {
 }
 
 export const PALETTES: readonly Palette[] = PALETTE_DEFS.map(buildPalette);
-
-// ------------------------------------------------------------------ randomness
 
 function hash(seed: string): number {
   // FNV-1a
@@ -122,10 +114,8 @@ export function pick<T>(next: () => number, items: readonly T[]): T {
   return items[Math.floor(next() * items.length)];
 }
 
-/** Number of colour palettes a bot or team can pin its picture to. */
 export const PALETTE_COUNT = PALETTES.length;
 
-/** The palette at `index`, wrapping past the last one. */
 export function paletteAt(index: number): Palette {
   return PALETTES[index % PALETTES.length];
 }
@@ -133,8 +123,6 @@ export function paletteAt(index: number): Palette {
 export function paletteSwatch(index: number): string {
   return paletteAt(index).body;
 }
-
-// ------------------------------------------------------------------ themes
 
 function hexRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
@@ -162,7 +150,7 @@ function blend(a: string, b: string, weight: number): string {
   );
 }
 
-/** Dark-theme background: a quiet tint of the body over near-black. Night palettes are already dark. */
+/** Night palettes are already dark, so they keep their background. */
 const DARK_BASE = "#121416";
 export function darkBackground(palette: { body: string; background: string }): string {
   return luminance(palette.background) < 0.5 ? palette.background : blend(palette.body, DARK_BASE, 0.24);

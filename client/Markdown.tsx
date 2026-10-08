@@ -10,10 +10,6 @@ import { tooltip } from "./ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-// Styles from Paseo's styles/markdown-styles.ts and the assistant rules in
-// components/message.tsx. Sizes scale with the user's content and code sizes.
-
-/** markdown-styles.ts contentHeadingSize: content × (tier / base 14). */
 function headingSize(tier: number): number {
   return Math.round(content() * (tier / 14));
 }
@@ -40,10 +36,9 @@ const HEADINGS: Record<number, HeadingSpec> = {
 
 const compact = () => Platform.OS !== "web";
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 declare const window: { matchMedia?: (query: string) => { matches: boolean } } | undefined;
 
-/** Paseo shows code copy buttons on hover on desktop web, always on touch screens. */
 function hoverCapable(): boolean {
   if (compact()) return false;
   try {
@@ -59,7 +54,6 @@ interface MarkdownProps {
   text: string;
   /** Still streaming: close unfinished inline marks at the end. */
   streaming?: boolean;
-  /** Bare URLs become links (chat); plan cards turn this off like Paseo. */
   linkify?: boolean;
 }
 
@@ -201,7 +195,6 @@ function QuoteView({ colors, blocks }: { colors: Colors; blocks: Block[] }) {
   );
 }
 
-/** utils/markdown-list.ts getMarkdownListSpacing. */
 function listSpacing(nested: boolean, next: Block | undefined): { marginTop: number; marginBottom: number } {
   if (nested) return { marginTop: 4, marginBottom: 0 };
   if (!next) return { marginTop: 4, marginBottom: 0 };
@@ -352,7 +345,7 @@ function renderInline(colors: Colors, inline: Inline, key: number): ReactNode {
     case "link":
       return <Link key={key} colors={colors} url={inline.url} inlines={inline.children} />;
     case "image":
-      // Paseo loads the image inline; plugins can't fetch workspace files, so web images open as links.
+      // Plugins can't fetch workspace files, so web images open as links.
       return (
         <Link
           key={key}
@@ -364,7 +357,7 @@ function renderInline(colors: Colors, inline: Inline, key: number): ReactNode {
   }
 }
 
-/** Opens web links; anything else (workspace files, anchors) is copied, since plugins can't open files. */
+/** Plugins can't open files, so anything but web links (workspace files, anchors) is copied. */
 function Link({ colors, url, inlines }: { colors: Colors; url: string; inlines: Inline[] }) {
   const toast = useToast();
   const onPress = () => {

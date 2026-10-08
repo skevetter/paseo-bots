@@ -154,8 +154,6 @@ describe("display helpers", () => {
   });
 });
 
-// ---------------------------------------------------------------- server
-
 function answerMcp(request: IncomingMessage, response: ServerResponse, body: string, seen: string[]) {
   if (request.method !== "POST") return response.writeHead(200).end();
   seen.push(`${request.headers["mcp-session-id"] ?? "-"} ${request.headers.authorization ?? "-"}`);

@@ -23,23 +23,20 @@ import { ui } from "./typography";
 import { contextMenuProps, measureAnchor } from "./ui/Menu";
 import { tooltip } from "./ui/Tooltip";
 
-// Paseo's sidebar, reproduced from components/left-sidebar.tsx, sidebar-workspace-list.tsx
-// and components/sidebar/*: bot rows are project rows, chat rows are workspace rows.
-
 type Colors = PluginTheme["colors"];
 
 export interface Selection {
   botId: string;
   /** Null is a new, not yet started chat. */
   chatId: string | null;
-  /** First message to send straight away when starting a new chat. */
+  /** Sent straight away when the new chat starts. */
   prompt?: string;
 }
 
 export type MenuSource = "kebab" | "context";
 
 export interface ChatMenuContext {
-  /** Every unpinned chat of the bot in list order, for Move up / Move down. */
+  /** The bot's unpinned chats in list order. */
   siblings: string[];
   pinned: boolean;
 }
@@ -55,18 +52,16 @@ export interface ChatMenuRequest {
 interface BotSidebarProps {
   colors: Colors;
   bots: readonly Bot[];
-  /** With teams, the open team tab: the list shows its bots. */
   openTab: TeamTab | null;
-  /** Archived bots hidden by the display preferences. Keeps the header (and its menu) up when they're all that's left. */
+  /** Keeps the header (and its menu) up when hidden archived bots are all that's left. */
   hiddenArchivedCount: number;
   selection: Selection | null;
   ui: BotListUi;
   localHost: LocalHost;
   /** Touch devices have no hover: row actions stay visible. */
   touch: boolean;
-  /** Phone layout: with no bots at all, show the Paseo Bots splash instead of the empty state. */
+  /** With no bots at all, show the splash instead of the empty state. */
   splash?: boolean;
-  /** The home indicator: Paseo's mobile sidebar pads its panel by the bottom safe area. */
   bottomInset: number;
   onToggle(botId: string): void;
   onTogglePinnedSection(): void;
@@ -81,7 +76,7 @@ interface BotSidebarProps {
 }
 
 const noSelect = { userSelect: "none" } as object;
-/** Paseo hardcodes the project chevron colour (project-leading-visual.tsx). */
+/** Paseo hardcodes the project chevron colour. */
 const CHEVRON_COLOR = "#9ca3af";
 
 export function BotSidebar(props: BotSidebarProps) {
@@ -127,8 +122,6 @@ export function BotSidebar(props: BotSidebarProps) {
     </View>
   );
 }
-
-// ------------------------------------------------------------------ header / footer / empty
 
 function SectionHeader({
   colors,
@@ -229,7 +222,6 @@ function Footer({ colors, onNewBot, onTeamMap }: { colors: Colors; onNewBot(): v
   );
 }
 
-/** The sidebar footer's trailing icon buttons (Paseo's host, import and settings buttons): 32 box, 16pt icon. */
 function FooterIconButton({
   colors,
   icon,
@@ -308,7 +300,6 @@ function SidebarEmptyState({
   );
 }
 
-/** Paseo's SidebarProjectEmptyState (sidebar/empty-states.tsx). */
 function EmptyState({
   colors,
   title,
@@ -345,7 +336,6 @@ function EmptyState({
   );
 }
 
-/** Paseo's Button variant="ghost" size="sm". */
 function GhostButton({
   colors,
   icon,
@@ -383,8 +373,6 @@ function GhostButton({
     </Pressable>
   );
 }
-
-// ------------------------------------------------------------------ pinned
 
 interface PinnedChat {
   chatId: string;
@@ -480,8 +468,6 @@ function PinnedChatRow({
     />
   );
 }
-
-// ------------------------------------------------------------------ bot group
 
 type GroupProps = BotSidebarProps & {
   bot: Bot;
@@ -763,8 +749,6 @@ function BotRowActions({ colors, bot, visible, onSelect, onBotMenu }: BotRowProp
   );
 }
 
-// ------------------------------------------------------------------ rows
-
 interface ChatRowProps {
   colors: Colors;
   tokens: NativeTokens;
@@ -778,7 +762,6 @@ interface ChatRowProps {
   onMenu(anchor: LayoutRectangle, source: MenuSource): void;
 }
 
-/** Paseo's workspace row (sidebar-workspace-list.tsx workspaceRow + sidebar-workspace-row-content.tsx). */
 const ChatRow = memo(function ChatRow({
   colors,
   tokens,
@@ -795,8 +778,7 @@ const ChatRow = memo(function ChatRow({
   const title = displayTitle(chat.title);
   const showKebab = hovered || touch;
   const background = selected ? tokens.surfaceSidebarSelected : hovered ? colors.surface1 : "transparent";
-  // As in BotRow: the press target sits behind the content and the ⋮ is its sibling, so a
-  // kebab press can't also select the chat.
+  // As in BotRow, the ⋮ is the press target's sibling, so a kebab press can't also select the chat.
   return (
     <View
       onPointerEnter={() => setHovered(true)}
@@ -965,7 +947,7 @@ function ChatRowKebab({
   );
 }
 
-/** Paseo's NewWorkspaceGhostRow: the one row indented 16 so it reads as belonging to its bot. */
+/** The one row indented 16, so it reads as belonging to its bot. */
 function NewChatGhostRow({
   colors,
   tokens,
@@ -1035,7 +1017,6 @@ function NewChatGhostRow({
   );
 }
 
-/** Paseo's SidebarGroupToggleRow. */
 function ShowMoreRow({ colors, expanded, onPress }: { colors: Colors; expanded: boolean; onPress(): void }) {
   const { hovered, hoverProps } = useHover();
   const label = expanded ? "Show less" : "Show more";
@@ -1090,10 +1071,7 @@ function ShowMoreRow({ colors, expanded, onPress }: { colors: Colors; expanded: 
   );
 }
 
-/**
- * Kebab triggers. Chat rows use Paseo's workspace trigger (padding 2, radius 4, pulled
- * onto the rail with marginRight -7); bot rows use the 24pt project kebab (`box`).
- */
+/** Without `box` (chat rows) the trigger is pulled onto the rail. */
 function KebabButton({
   colors,
   buttonRef,
@@ -1142,9 +1120,6 @@ function KebabButton({
   );
 }
 
-// ------------------------------------------------------------------ status glyphs
-
-/** Paseo's WorkspaceStatusIndicator: one 16×20 slot every status shares. */
 function ChatStatusSlot({
   colors,
   tokens,
@@ -1200,10 +1175,7 @@ function Dot({ color, opacity = 1 }: { color: string; opacity?: number }) {
   return <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: color, opacity }} />;
 }
 
-/**
- * Lucide CircleAlert at 12pt with a surface0 stroke and statusDotWarning fill, as Paseo
- * draws needs-input: an amber disc with the "!" knocked out.
- */
+/** Lucide CircleAlert in Views: an amber disc with the "!" knocked out. */
 function NeedsInputGlyph({ colors, tokens }: { colors: Colors; tokens: NativeTokens }) {
   return (
     <View style={{ width: 12, height: 12, alignItems: "center", justifyContent: "center" }}>
@@ -1237,8 +1209,7 @@ function NeedsInputGlyph({ colors, tokens }: { colors: Colors; tokens: NativeTok
   );
 }
 
-// Paseo's project status badge (project-leading-visual.tsx): a 12pt shell at -4 on the
-// icon's bottom-right corner, filled with the row's own background so it reads as a hole.
+// The badge is filled with the row's own background so it reads as a hole in the icon.
 const BADGE_SIZE = 12;
 const BADGE_OFFSET = -4;
 const RING_FRAME = 14;
@@ -1291,8 +1262,7 @@ function StatusBadge({
   );
 }
 
-// One clock for every ring (status-ring/clock.ts): every ring reads the same value, so
-// rings that mount mid-turn land in phase with the ones already turning.
+// One clock for every ring, so rings that mount mid-turn land in phase with the ones already turning.
 const RING_PERIOD_MS = 900;
 const ringProgress = new Animated.Value(0);
 const ringRotation = ringProgress.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
@@ -1325,10 +1295,6 @@ function useRingClock() {
   return ringRotation;
 }
 
-/**
- * Paseo's StatusRing: a 6pt dot inside a 12pt ring (1.5 stroke, track at 0.3) with a
- * quarter arc at 0.9 turning every 900ms, in a 14pt frame that knocks out `backdrop`.
- */
 function StatusRing({ color, backdrop }: { color: string; backdrop?: string }) {
   const rotate = useRingClock();
   const circle = { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5 } as const;
@@ -1352,9 +1318,6 @@ function StatusRing({ color, backdrop }: { color: string; backdrop?: string }) {
   );
 }
 
-// ------------------------------------------------------------------ skeleton
-
-/** Paseo's SidebarAgentListSkeleton rows, pulsing 0.4–0.8 over a second each way. */
 function SkeletonRows({ colors }: { colors: Colors }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {

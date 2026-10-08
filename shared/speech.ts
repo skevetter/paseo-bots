@@ -1,9 +1,6 @@
-// Turning a reply into what's read aloud.
-
 /** Browsers cut long utterances short, so readings go out in pieces of about this many characters. */
 const CHUNK_CHARS = 220;
 
-/** A reply's markdown as plain text to read: code blocks, pictures and link targets are left out. */
 export function speakableText(markdown: string): string {
   return markdown
     .replace(/```[\s\S]*?(```|$)/g, " ")
@@ -17,7 +14,6 @@ export function speakableText(markdown: string): string {
     .trim();
 }
 
-/** The pieces a reply is read in: whole sentences, joined up to the chunk size. */
 export function speechChunks(markdown: string): string[] {
   const chunks: string[] = [];
   let current = "";

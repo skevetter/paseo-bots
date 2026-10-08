@@ -9,10 +9,10 @@ import {
   TurboModuleRegistry,
 } from "react-native";
 
-/** Paseo's keyboard shift (keyboard/shift/internal/policy.ts): iOS heights below this are the predictive bar alone. */
+/** iOS heights below this are the predictive bar alone; matches Paseo's keyboard shift. */
 const IOS_KEYBOARD_MIN_HEIGHT = 120;
 
-/** Keyboard height from an iOS frame event: 0 when the frame is off screen (hidden or undocked below the fold) or only the accessory bar. */
+/** A frame at or below the screen bottom is a hidden or undocked keyboard. */
 function iosKeyboardHeight(event: Pick<KeyboardEvent, "endCoordinates">, screenHeight: number): number {
   const { height, screenY } = event.endCoordinates;
   if (!(height > 0) || (Number.isFinite(screenY) && screenY >= screenHeight)) return 0;
@@ -20,14 +20,9 @@ function iosKeyboardHeight(event: Pick<KeyboardEvent, "endCoordinates">, screenH
 }
 
 /**
- * Height of the software keyboard, for lifting the composer above it.
- *
- * Plugin surfaces get no keyboard handling from the host, and Paseo's app runs
- * edge-to-edge under react-native-keyboard-controller, so the window doesn't
- * resize on Android either. Mirrors Paseo's shift: on iOS it follows every frame
- * change (keyboardWillChangeFrame, so accessory bars and split keyboards track),
- * treats heights under 120 as no keyboard, and animates with the keyboard's own
- * curve; Android only reports after the fact, so the jump is eased instead.
+ * Plugins get no keyboard handling from the host, and Paseo runs edge-to-edge, so Android
+ * doesn't resize the window either. iOS uses keyboardWillChangeFrame so accessory bars and
+ * split keyboards track; Android only reports after the fact, so the jump is eased.
  */
 export function useKeyboardHeight(): number {
   const [height, setHeight] = useState(0);
@@ -77,14 +72,11 @@ export function useKeyboardHeight(): number {
   return height;
 }
 
-// ---------------------------------------------------------------- safe area
-
 type SafeAreaModule = {
   getConstants?: () => { initialWindowMetrics?: { insets?: { bottom?: number } } | null };
 };
 let initialBottomInset: number | null | undefined;
 
-/** The host's own safe-area insets (react-native-safe-area-context's startup metrics), when its module is reachable. */
 function readInitialBottomInset(): number | null {
   if (initialBottomInset !== undefined) return initialBottomInset;
   initialBottomInset = null;
@@ -101,10 +93,8 @@ function readInitialBottomInset(): number | null {
 }
 
 /**
- * Bottom safe-area inset below the composer while the keyboard is closed. Paseo's
- * dock pads `insets.bottom` (composer/dock/index.native.tsx). Plugins get no insets
- * API, so this reads the app's startup metrics and otherwise infers the iPhone home
- * indicator from the screen (every iPhone with one is at least 812pt tall).
+ * Plugins get no insets API, so without the app's startup metrics this infers the iPhone
+ * home indicator from the screen: every iPhone with one is at least 812pt tall.
  */
 export function homeIndicatorInset(): number {
   if (Platform.OS === "web") return 0;

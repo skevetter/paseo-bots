@@ -340,8 +340,6 @@ describe("agent config and prompt", () => {
   });
 });
 
-// ---------------------------------------------------------------- server against a fake Composio
-
 interface FakeAccount {
   id: string;
   status: string;

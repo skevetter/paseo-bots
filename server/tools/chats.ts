@@ -5,8 +5,7 @@ import { memoryTexts } from "../memory";
 import type { PaseoApi } from "../paseo";
 import { defineTool } from "./mcp";
 
-// OpenMausBot's session_search: a bot looks through its own chats and memory
-// files (the daily log included). Only its own chats; never another bot's.
+// A bot searches only its own chats, never another bot's.
 
 const MAX_CHATS = 40;
 const PAGE = 400;

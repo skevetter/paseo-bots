@@ -1,7 +1,4 @@
-// Pure stream model: timeline entries → display rows → layout (gaps, turn
-// footers, assistant padding). Mirrors Paseo's agent-stream/layout.ts,
-// agent-stream/spacing.ts, agent-stream/turn-membership.ts and
-// timeline/turn-time.ts. No React or React Native here, so it's unit tested.
+// Mirrors Paseo's agent-stream layout. No React or React Native here, so it's unit tested.
 
 import { ROUTINE_RUN_CARD, type RoutineRunCard, RoutineRunCardSchema } from "../../../shared/rpc";
 import { toolCallName } from "../../../shared/tool-name";
@@ -18,7 +15,6 @@ import {
 } from "../../../shared/tools";
 import { PLUGIN_ID } from "../../../shared/version";
 
-/** The fields of a projected timeline entry the stream reads. */
 export interface StreamEntry {
   provider: string;
   item: { type: string; [key: string]: unknown };
@@ -61,7 +57,6 @@ export type StreamRow =
 export interface TurnFooterInfo {
   /** Key of the assistant row the footer belongs to. */
   key: string;
-  /** The response's assistant text, for the copy button. */
   copy: string;
   completedAt: number | null;
   durationMs: number | null;
@@ -91,8 +86,6 @@ function toTime(timestamp: string): number {
 function toolStatus(value: unknown): ToolCallStatus {
   return value === "running" || value === "failed" || value === "canceled" ? value : "completed";
 }
-
-// ---------------------------------------------------------------- rows
 
 type TodoRow = Extract<StreamRow, { kind: "todo" }>;
 type StreamItem = StreamEntry["item"];
@@ -210,7 +203,7 @@ function compactionRow(base: RowBase, item: StreamItem): StreamRow {
 
 function routineRunRow(base: RowBase, entry: StreamEntry): StreamRow | null {
   const item = entry.item;
-  // This plugin's routine result cards; other plugins' items belong to their renderers.
+  // Other plugins' items belong to their renderers.
   if (item.pluginId !== PLUGIN_ID || item.kind !== ROUTINE_RUN_CARD.kind) return null;
   const card = RoutineRunCardSchema.safeParse(item.data);
   if (!card.success) return null;
@@ -275,10 +268,6 @@ function makeKeysUnique(rows: readonly StreamRow[]): void {
   }
 }
 
-/**
- * One row per visible timeline item. Tool calls hidden by Paseo (plan approval,
- * Claude's task tools) are dropped; task lists become per-change rows.
- */
 export function buildRows(entries: readonly StreamEntry[], running: boolean): StreamRow[] {
   const builder: RowBuilder = { rows: [], lastTodo: null };
   for (const [index, entry] of entries.entries()) {
@@ -287,8 +276,6 @@ export function buildRows(entries: readonly StreamEntry[], running: boolean): St
   makeKeysUnique(builder.rows);
   return builder.rows;
 }
-
-// ---------------------------------------------------------------- turns
 
 type Category = "user" | "assistant" | "tool" | "other";
 
@@ -309,7 +296,6 @@ function category(row: StreamRow | null | undefined): Category | null {
   }
 }
 
-/** turn-membership.ts continuesTurn: canonical turn ids first, else a user message starts a turn. */
 /** Routine result cards arrive between turns and belong to none. */
 const standsAlone = (row: StreamRow) => row.kind === "routine-run";
 
@@ -337,7 +323,6 @@ const GAPS: Partial<Record<`${Category}>${Category}`, number>> = {
   "tool>assistant": 4,
 };
 
-/** spacing.ts getGapBetweenStreamItems. */
 export function gapBetween(row: StreamRow | null, below: StreamRow | null): number {
   const a = category(row);
   const b = category(below);
@@ -350,7 +335,6 @@ interface TurnTiming {
   durationMs: number | null;
 }
 
-/** timeline/turn-time.ts deriveStreamTurnTiming, keyed by assistant row key. */
 export function deriveTurnTiming(rows: readonly StreamRow[], running: boolean): Map<string, TurnTiming> {
   const timing = new Map<string, TurnTiming>();
   let userAt: number | null = null;
@@ -382,7 +366,6 @@ interface AssistantAt {
   key: string;
 }
 
-/** The newest assistant row of the response that ends at `index`, walking back to its prompt. */
 function latestAssistantInResponse(rows: readonly StreamRow[], index: number): AssistantAt | null {
   let later: StreamRow | null = null;
   for (let i = index; i >= 0; i--) {
@@ -394,7 +377,6 @@ function latestAssistantInResponse(rows: readonly StreamRow[], index: number): A
   return null;
 }
 
-/** strategy.ts collectAssistantResponseContent. */
 function responseText(rows: readonly StreamRow[], index: number): string {
   const messages: string[] = [];
   let later: StreamRow | null = null;
@@ -444,7 +426,7 @@ function boundaryFooter(context: FooterContext, row: StreamRow, index: number): 
   return footerFor(context.rows, assistant, context.timing);
 }
 
-/** layout.ts layoutStream for a forward (oldest-first) list. */
+/** For a forward (oldest-first) list. */
 export function layoutStream(rows: readonly StreamRow[], running: boolean): StreamLayout {
   const timing = deriveTurnTiming(rows, running);
   const auxiliaryFooter = running ? null : latestResponseFooter(rows, timing);
@@ -459,8 +441,6 @@ export function layoutStream(rows: readonly StreamRow[], running: boolean): Stre
   });
   return { items, auxiliaryFooter };
 }
-
-// ---------------------------------------------------------------- identity
 
 function sameValue(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -504,10 +484,7 @@ function retainItem(old: StreamLayoutItem, item: StreamLayoutItem): StreamLayout
   return same ? old : { ...item, row };
 }
 
-/**
- * Keeps the previous object for every row and layout item whose content didn't
- * change, so memoised rows skip rendering while another row streams.
- */
+/** Reuses unchanged rows and items so memoised rows skip rendering while another row streams. */
 export function retainLayout(previous: StreamLayout | null, next: StreamLayout): StreamLayout {
   if (!previous) return next;
   const byKey = new Map(previous.items.map((item) => [item.row.key, item]));
@@ -525,8 +502,6 @@ export function retainLayout(previous: StreamLayout | null, next: StreamLayout):
   return { items: changed ? items : previous.items, auxiliaryFooter };
 }
 
-// ---------------------------------------------------------------- timeline merge
-
 export interface MergeableEntry {
   seqStart: number;
   seqEnd: number;
@@ -538,12 +513,7 @@ function sameEntry(a: MergeableEntry, b: MergeableEntry): boolean {
   return JSON.stringify(a.sourceSeqRanges ?? null) === JSON.stringify(b.sourceSeqRanges ?? null);
 }
 
-/**
- * Merges a fetched page into the entries we hold, by the projected entry's
- * first seq: a re-sent entry (a message still streaming, a tool that finished)
- * replaces the old one, unchanged ones keep their identity.
- */
-/** Rows whose text contains `needle` (lower-case), by index: what the user and the bot wrote. */
+/** `needle` must already be lower-case. */
 export function findRows(items: readonly StreamLayoutItem[], needle: string): number[] {
   if (!needle) return [];
   return items.flatMap((item, index) => {
@@ -553,6 +523,10 @@ export function findRows(items: readonly StreamLayoutItem[], needle: string): nu
   });
 }
 
+/**
+ * Keyed by first seq: a re-sent entry (a message still streaming, a tool that finished)
+ * replaces the old one; unchanged ones keep their identity.
+ */
 export function mergeEntries<T extends MergeableEntry>(current: readonly T[], incoming: readonly T[]): T[] {
   if (incoming.length === 0) return current as T[];
   const bySeq = new Map<number, T>();

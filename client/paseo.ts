@@ -1,8 +1,6 @@
 import type { getPaseoClient } from "@getpaseo/plugin/client";
 
-// Paseo's client API types, read off the plugin SDK. Plugins get the API from the host,
-// and Paseo builds a plugin without its dev dependencies, so @getpaseo/client can't be
-// imported, not even for types.
+// Paseo builds plugins without their dev dependencies, so @getpaseo/client can't be imported, even for types.
 
 export type PaseoApi = ReturnType<typeof getPaseoClient>;
 type PaseoAgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;

@@ -9,10 +9,6 @@ import { tooltip } from "./ui/Tooltip";
 
 type Colors = PluginTheme["colors"];
 
-// Paseo's attachment pill (components/attachment-pill.tsx): every body is 48 high inside a
-// radius-6 frame with a borderAccent border; images are 48x48 thumbnails, the rest a
-// labelled body (18 icon slot with FileText 14, name over the file type) up to 260 wide.
-// The remove button sits on the top-left corner and, on desktop, only shows on hover.
 const CONTENT_HEIGHT = 48;
 
 interface AttachmentPillProps {
@@ -20,7 +16,7 @@ interface AttachmentPillProps {
   attachment: ComposerAttachment;
   onRemove?(): void;
   disabled?: boolean;
-  /** Paseo always shows the remove button on phones and compact layouts. Defaults to native platforms. */
+  /** Defaults to native platforms. */
   alwaysShowRemove?: boolean;
 }
 
@@ -133,7 +129,6 @@ function RemoveAttachmentButton({
   );
 }
 
-/** A file still being read or uploaded: Paseo's pending pill with a spinner in the icon slot and no remove button. */
 export function PendingAttachmentPill({ colors, name }: { colors: Colors; name: string }) {
   return (
     <View accessibilityLabel={`Attaching ${name}`} style={frameStyle(colors)}>
@@ -200,7 +195,6 @@ function AttachmentLabel({
   );
 }
 
-/** Paseo's attachment lightbox for images; pasted and attached text opens as a read-only preview. */
 function AttachmentPreview({
   colors,
   attachment,

@@ -1,12 +1,8 @@
-// Paseo's own tools (agents, workspaces, terminals, schedules, the browser)
-// reach every agent through an MCP server the daemon adds at launch, named
-// "paseo". Whether it's added is host configuration, not part of the agent
-// request, so bots get it exactly like any other Paseo agent.
+// The daemon adds the "paseo" MCP server by host configuration, not per agent request.
 
-/** The server name Paseo adds; a library server with this name would replace it. */
+/** A library server with this name would replace Paseo's. */
 export const PASEO_MCP_NAME = "paseo";
 
-/** The daemon config fields that decide whether agents get Paseo's tools. */
 export interface PaseoToolsConfig {
   mcp?: { enabled?: boolean; injectIntoAgents?: boolean };
   providers?: Record<string, { paseoTools?: { enabled?: boolean; disabledTools?: string[] } } | undefined>;
@@ -17,7 +13,7 @@ export type PaseoToolsState =
   /** "mcp": the daemon's MCP endpoint is off; "host": agents don't get it; "provider": turned off for this provider. */
   | { on: false; reason: "mcp" | "host" | "provider" };
 
-/** Mirrors agent-manager.ts: the endpoint on, injection on, and the provider's policy not disabled. */
+/** Mirrors Paseo's agent-manager.ts. */
 export function paseoToolsState(config: PaseoToolsConfig, provider: string): PaseoToolsState {
   if (config.mcp?.enabled === false) return { on: false, reason: "mcp" };
   if (config.mcp?.injectIntoAgents === false) return { on: false, reason: "host" };

@@ -2,10 +2,6 @@ import { spawnProcess, terminateProcess } from "@getpaseo/plugin/server";
 import type { McpServerConfig, McpTool } from "../shared/bot";
 import { PLUGIN_VERSION } from "../shared/version";
 
-// Connects to an MCP server the way an agent would, lists its tools and
-// disconnects. Nothing is kept running; the result only tells the user whether
-// the server starts and what it offers.
-
 const TIMEOUT_MS = 30_000;
 const MAX_TOOLS = 200;
 const MAX_PAGES = 5;
@@ -19,7 +15,6 @@ interface JsonRpcResponse {
   error?: { message?: string };
 }
 
-/** Sends one JSON-RPC request and resolves with its result. */
 type Request = (method: string, params?: unknown) => Promise<unknown>;
 type Notify = (method: string) => Promise<void>;
 
@@ -77,8 +72,6 @@ function parseMessage(line: string): JsonRpcResponse | null {
 function rpcError(response: JsonRpcResponse): Error {
   return new Error(response.error?.message || "The server returned an error.");
 }
-
-// ---------------------------------------------------------------- stdio
 
 function probeStdio(
   config: Extract<McpServerConfig, { type: "stdio" }>,
@@ -158,9 +151,6 @@ function lastLine(stderr: string): string {
   return line ? ` ${line.slice(0, 300)}` : "";
 }
 
-// ---------------------------------------------------------------- HTTP
-
-/** Yields `{event, data}` pairs from a text/event-stream body. */
 async function* serverEvents(
   body: ReadableStream<Uint8Array>,
 ): AsyncGenerator<{ event: string; data: string }> {
@@ -318,9 +308,6 @@ async function probeSse(
   }
 }
 
-// ---------------------------------------------------------------- entry
-
-/** Hides env and header values (usually keys) from anything shown to the user. */
 function redact(text: string, config: McpServerConfig): string {
   const secrets = Object.values(config.type === "stdio" ? config.env : config.headers).filter(
     (value) => value.length >= 4,

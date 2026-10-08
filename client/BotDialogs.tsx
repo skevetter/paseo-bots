@@ -15,8 +15,6 @@ import type { MenuEntry } from "./ui/Menu";
 
 type Colors = PluginTheme["colors"];
 
-// ------------------------------------------------------------------ new bot
-
 export function NewBotDialog({
   colors,
   presets,
@@ -111,7 +109,6 @@ export function NewBotDialog({
   );
 }
 
-/** A whole-row pressable settings row (settings card geometry: 16 padding, 14/12 text). */
 function StartRow({
   colors,
   label,
@@ -173,8 +170,6 @@ function StartRow({
   );
 }
 
-// ------------------------------------------------------------------ rename
-
 interface RenameDialogProps {
   colors: Colors;
   title: string;
@@ -185,10 +180,6 @@ interface RenameDialogProps {
   onSubmit(value: string): Promise<void> | void;
 }
 
-/**
- * Paseo's AdaptiveRenameModal (components/rename-modal.tsx): the current name selected
- * in one input, the error inline, Cancel and Rename side by side. It stays open on errors.
- */
 export function RenameDialog({
   colors,
   title,
@@ -279,7 +270,6 @@ export function RenameDialog({
   );
 }
 
-/** Paseo's Button size="sm": secondary (surface3) or default (accent). */
 function DialogButton({
   colors,
   label,
@@ -322,8 +312,6 @@ function DialogButton({
   );
 }
 
-// ------------------------------------------------------------------ menus
-
 export interface BotMenuActions {
   bot: Bot;
   /** Set when the host exposes navigation and the bot's workspace is known. */
@@ -341,7 +329,6 @@ export interface BotMenuActions {
   onDelete(): Promise<void>;
 }
 
-/** The bot menu, after Paseo's project menu (sidebar-workspace-list.tsx ProjectMenuItems). */
 export function botMenuEntries(actions: BotMenuActions): MenuEntry[] {
   const { bot } = actions;
   const entries: MenuEntry[] = [
@@ -403,7 +390,6 @@ export interface ChatMenuActions {
   onArchive(): Promise<void>;
 }
 
-/** The chat menu, after Paseo's workspace menu (sidebar/sidebar-workspace-menu.tsx). */
 export function chatMenuEntries(actions: ChatMenuActions): MenuEntry[] {
   const entries: MenuEntry[] = [
     { label: "Copy path", icon: "Copy", onSelect: actions.onCopyPath },
@@ -444,8 +430,6 @@ export function chatMenuEntries(actions: ChatMenuActions): MenuEntry[] {
   });
   return entries;
 }
-
-// ------------------------------------------------------------------ export
 
 export function ExportDialog({ colors, bot, onClose }: { colors: Colors; bot: Bot; onClose(): void }) {
   const exportBot = useRpc(exportBotRpc);

@@ -2,9 +2,6 @@ import { readFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import { join } from "node:path";
 
-// Other apps on this computer that keep MCP servers in the {"mcpServers": {...}}
-// shape: the import sheet offers theirs as JSON to review before adding.
-
 function sources(): { label: string; path: string }[] {
   const home = homedir();
   const os = platform();
@@ -22,7 +19,6 @@ function sources(): { label: string; path: string }[] {
   ];
 }
 
-/** The MCP servers Claude Code, Claude Desktop and Cursor have here, each app's as `{"mcpServers": {...}}` text. */
 export async function mcpSources(): Promise<{ sources: { label: string; count: number; json: string }[] }> {
   const found: { label: string; count: number; json: string }[] = [];
   for (const source of sources()) {

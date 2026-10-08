@@ -24,7 +24,6 @@ const TITLES: Record<Exclude<PlanOutcome, "pending">, string> = {
   canceled: "Canceled plan",
 };
 
-/** Paseo's PlanCard (components/plan-card.tsx): a collapsible plan with an optional action footer. */
 export function PlanCard(props: PlanCardProps) {
   // A resolution starts its own presentation state.
   return <PlanCardContent key={props.outcome ?? "proposed"} {...props} />;

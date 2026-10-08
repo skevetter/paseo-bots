@@ -39,7 +39,7 @@ import {
 import { LibraryPicker } from "./LibraryPicker";
 
 const MANAGED = "__managed__";
-/** Shown by a select whose value isn't one of its options (SettingsSelect displays the raw value). */
+/** Not an option; SettingsSelect shows a value outside its options as-is. */
 const CUSTOM = "Custom";
 const ABSOLUTE_PATH = /^(\/|~(\/|$)|[A-Za-z]:[\\/]|\\\\)/;
 
@@ -55,11 +55,9 @@ interface AgentProfile {
   thinkingOptionId?: string;
 }
 
-// ---------------------------------------------------------------- access
-
 export function AccessSection(props: PanelProps) {
   const { colors, bot, localHost, onPatch } = props;
-  // A folder or grants already set count as in use, so they show.
+  // Starts open when its settings are in use, so they aren't hidden.
   const [advanced, setAdvanced] = useState(bot.cwd !== null || bot.alwaysAllow.length > 0);
   return (
     <>
@@ -207,11 +205,6 @@ function paseoToolsHint(state: PaseoToolsState | null, provider: string, hostLab
   return `Paseo's MCP server is off on ${hostLabel}`;
 }
 
-/**
- * Paseo adds its own tools (other agents, workspaces, terminals, schedules, the
- * browser) to every agent it starts, bots included. Whether it does is a host
- * setting, so this shows it and can turn it back on.
- */
 function PaseoToolsSection({ colors, bot, localHost }: Pick<PanelProps, "colors" | "bot" | "localHost">) {
   const host = useBotHost(bot.hostId, localHost);
   const tools = usePaseoTools(host, bot.provider);
@@ -246,14 +239,12 @@ function PaseoToolsSection({ colors, bot, localHost }: Pick<PanelProps, "colors"
   );
 }
 
-// ---------------------------------------------------------------- model
-
 export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
   const hosts = useHosts();
   const providers = useProviders(host);
   const profiles = useAgentProfiles(host);
-  // Another host counts as in use, so it shows.
+  // Starts open when another host is set, so it isn't hidden.
   const [advanced, setAdvanced] = useState(bot.hostId !== null);
 
   return (
@@ -426,8 +417,6 @@ function ProfileSelect({
   );
 }
 
-// ---------------------------------------------------------------- permissions
-
 export function PermissionsSection({ colors, bot, localHost, onPatch }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
   const providers = useProviders(host);
@@ -513,7 +502,7 @@ function OtherBotsSection({ bot, onPatch }: Pick<PanelProps, "bot" | "onPatch">)
   );
 }
 
-/** OpenMausBot's saved commands: each is one exact command in one folder, added from its approval card. */
+/** Each is one exact command in one folder, added from its approval card. */
 function AllowedCommands({ colors, bot }: Pick<PanelProps, "colors" | "bot">) {
   const list = useRpc(commandListRpc);
   const remove = useRpc(commandRemoveRpc);

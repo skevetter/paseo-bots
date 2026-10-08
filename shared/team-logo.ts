@@ -1,10 +1,4 @@
-// Deterministic pixel-art team logos: a cute motif (a strawberry, a star, a
-// mushroom...) on a rounded tile. As with bot avatars only a seed and an optional
-// colour are stored; the motif and colours come from them here, so every client
-// draws the same logo.
-//
-// Each motif is hand-drawn on a 12×12 area of a 16×16 grid and shaded the way the
-// avatars are: light from the top-left, two shadow tones and a coloured outline.
+// Only a seed and an optional colour are stored on a team; output must stay deterministic so every client draws the same logo.
 
 import {
   buildPalette,
@@ -276,7 +270,6 @@ export const MOTIF_NAMES = Object.keys(MOTIFS) as MotifName[];
 export interface TeamLogoImage {
   motif: MotifName;
   background: string;
-  /** Runs per row of the 16×16 grid, top to bottom. */
   rows: PixelRun[][];
 }
 
@@ -340,7 +333,6 @@ function draw(motif: MotifName, team: Palette): TeamLogoImage {
 }
 
 export interface LogoOptions {
-  /** Drawn on a dark theme: the tile is toned down like avatar backgrounds. */
   dark?: boolean;
 }
 
@@ -349,7 +341,7 @@ function themed(motif: MotifName, team: Palette, options: LogoOptions): TeamLogo
   return options.dark ? { ...image, background: darkBackground(team) } : image;
 }
 
-/** A team's logo from its seed; `palette` pins the team colour. */
+/** `palette` pins the team colour. */
 export function teamLogo(
   seed: string,
   palette: number | null = null,

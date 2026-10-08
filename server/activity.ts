@@ -5,9 +5,6 @@ import type { MemoryJournal } from "./journal";
 import { appendDailyLog } from "./memory";
 import type { RoutineScheduler } from "./scheduler";
 
-// What happens around each turn of a bot's chat: the journal notes memory
-// changes, and the daily log gets a line saying what the bot did.
-
 export async function turnStarted(
   host: BotsHost,
   journal: MemoryJournal,

@@ -21,11 +21,7 @@ import { canPickFiles } from "../web";
 
 type Colors = PluginTheme["colors"];
 
-/**
- * A team's name, logo, members, Chief of Staff and shared instructions, as
- * OpenMausBot's team settings. A bot is on one team at most: adding it here
- * takes it off its other team.
- */
+/** A bot is on one team at most: adding it here takes it off its other team. */
 export function TeamSheet({
   colors,
   group,

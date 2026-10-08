@@ -25,14 +25,6 @@ import { PALETTE_COUNT } from "./pixel";
 import { describeSchedule, ScheduleInput, scheduleFrom } from "./routines";
 import { BOT_TEMPLATES, newBot } from "./templates";
 
-// Changes a bot proposes to the setup (bots, teams, the library, defaults and
-// presets) with propose_changes. They wait on a card in its chat, and the app
-// applies them all at once when the user presses Apply. Nothing here writes
-// anything: `applyChanges` returns the new settings, and throws a message the
-// bot can act on when a change doesn't fit the setup.
-
-// ---------------------------------------------------------------- input
-
 const Ref = (what: string) => z.string().min(1).max(100).describe(`${what}: its name or id.`);
 const Ids = (what: string) => z.array(z.string().min(1).max(100)).max(100).describe(what);
 const IMAGE_URL = /^(https?:\/\/\S+|data:image\/\S+)$/i;
@@ -310,9 +302,6 @@ export const ChangesSchema = z.array(ChangeSchema).min(1).max(50);
 type AppInputValue = z.infer<typeof AppInput>;
 type BotFieldValues = { [Key in keyof typeof BotFields]?: z.infer<(typeof BotFields)[Key]> };
 
-// ---------------------------------------------------------------- lookups
-
-/** A provider as get_setup lists it: its models (with their thinking options) and approval modes. */
 export interface ProviderInfo {
   id: string;
   models: { id: string; label: string; isDefault: boolean; thinking: string[] }[];
@@ -320,14 +309,13 @@ export interface ProviderInfo {
   defaultModeId: string | null;
 }
 
-/** A connected app account, for resolving `account` names. */
 export interface AppAccountInfo {
   id: string;
   slug: string;
   names: string[];
 }
 
-/** Paseo's provider snapshot entry, as far as changes need it. */
+/** The fields of Paseo's provider snapshot entry that changes need. */
 interface ProviderEntry {
   provider: string;
   enabled: boolean;
@@ -343,7 +331,6 @@ interface ProviderEntry {
   defaultModeId?: string | null;
 }
 
-/** The enabled providers from Paseo's provider snapshot. */
 export function providerInfo(entries: readonly ProviderEntry[]): ProviderInfo[] {
   return entries
     .filter((entry) => entry.enabled)
@@ -362,7 +349,6 @@ export function providerInfo(entries: readonly ProviderEntry[]): ProviderInfo[] 
     }));
 }
 
-/** The provider a new bot gets when nothing names one: Claude when it's ready, else the first ready one. */
 export function readyProvider(entries: readonly ProviderEntry[]): string {
   const ready = entries.filter((entry) => entry.enabled && entry.status === "ready");
   return (ready.find((entry) => entry.provider === "claude") ?? ready[0])?.provider ?? "";
@@ -370,11 +356,11 @@ export function readyProvider(entries: readonly ProviderEntry[]): string {
 
 export interface ApplyContext {
   now: string;
-  /** Provider for new bots when neither the change nor the defaults name one. */
+  /** For new bots when neither the change nor the defaults name one. */
   provider: string;
-  /** Checks provider, model, mode and thinking ids when known. */
+  /** When known, provider, model, mode and thinking ids are checked against it. */
   providers?: readonly ProviderInfo[] | null;
-  /** Resolves app account names when known. */
+  /** When known, app account names are resolved against it. */
   accounts?: readonly AppAccountInfo[] | null;
 }
 
@@ -472,8 +458,6 @@ function imageUrl(value: string | null): string | null {
 function oneLine(text: string): string {
   return text.replace(/\s*\n\s*/g, " ").trim();
 }
-
-// ---------------------------------------------------------------- bots
 
 function withAvatar(avatar: BotAvatar, input: z.infer<typeof AvatarInput> | undefined): BotAvatar {
   if (!input) return avatar;
@@ -649,8 +633,6 @@ function uniqueBotName(values: BotSettingsValues, name: string, except?: string)
   return trimmed;
 }
 
-// ---------------------------------------------------------------- teams
-
 function withLogo(logo: TeamLogo, input: z.infer<typeof LogoInput> | undefined): TeamLogo {
   if (!input) return logo;
   return {
@@ -664,8 +646,6 @@ function withLogo(logo: TeamLogo, input: z.infer<typeof LogoInput> | undefined):
 function teamMembers(group: BotGroup | null): string[] {
   return group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : [];
 }
-
-// ---------------------------------------------------------------- apply
 
 type ChangeOf<Type extends Change["type"]> = Extract<Change, { type: Type }>;
 
@@ -1016,7 +996,7 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
   }
 }
 
-/** The settings with every change applied in order; throws naming the first change that doesn't fit. */
+/** Throws naming the first change that doesn't fit. */
 export function applyChanges(
   values: BotSettingsValues,
   changes: readonly Change[],
@@ -1033,7 +1013,7 @@ export function applyChanges(
   }, values);
 }
 
-/** Swaps app account names, which only the host can look up, for their ids, so the app applies the changes as they are. */
+/** Swaps app account names for their ids, since only the host can look them up. */
 export function resolveChanges(changes: readonly Change[], context: ApplyContext): Change[] {
   const resolveApps = (apps: readonly AppInputValue[] | undefined) =>
     apps?.map((entry) =>
@@ -1047,8 +1027,6 @@ export function resolveChanges(changes: readonly Change[], context: ApplyContext
     return change;
   });
 }
-
-// ---------------------------------------------------------------- card
 
 const list = (items: readonly string[]) => items.join(", ");
 
@@ -1199,7 +1177,6 @@ function setDefaultsText(change: ChangeOf<"set_defaults">): string {
   return `**New bots start with** ${parts.join("; ") || "the same defaults"}`;
 }
 
-/** One Markdown line for the card, as the user reads the change. */
 export function describeChange(change: Change): string {
   switch (change.type) {
     case "create_bot":
@@ -1271,12 +1248,9 @@ function changeWarning(change: Change): string[] {
   }
 }
 
-/** What deserves a second look before applying: more access, and anything deleted. */
 export function changeWarnings(changes: readonly Change[]): string[] {
   return changes.flatMap((change) => changeWarning(change));
 }
-
-// ---------------------------------------------------------------- setup text
 
 function teamPart(bot: Bot, groups: readonly BotGroup[]): string | null {
   const team = groups.find((group) => group.leadId === bot.id || group.memberIds.includes(bot.id));
@@ -1363,7 +1337,6 @@ function providersSection(providers: readonly ProviderInfo[] | null): string {
   return `Providers:\n${lines.join("\n")}`;
 }
 
-/** get_setup's overview: bots, teams, the library, defaults, presets and providers. */
 export function setupOverview(
   values: BotSettingsValues,
   providers: readonly ProviderInfo[] | null,
@@ -1386,7 +1359,6 @@ export function setupOverview(
   return sections.join("\n\n");
 }
 
-/** get_setup for one bot: everything the settings panel shows. */
 export function botDetails(values: BotSettingsValues, ref: string): string {
   const bot = findBot(values, ref);
   const library = values.library ?? EMPTY_LIBRARY;

@@ -33,7 +33,6 @@ import { useTypeScale } from "./typography";
 import { type MenuApi, useMenu } from "./ui/Menu";
 import { type BotSettingsState, type CommitBotSettings, useBotSettings } from "./useBotSettings";
 
-/** Autosave delay after the last edit in the settings panel. */
 const SAVE_DELAY_MS = 600;
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
@@ -207,10 +206,9 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
   const [panel, setPanel] = useState<PanelState>({ open: false, section: null });
   const [panelVersion, setPanelVersion] = useState(0);
   const [creating, setCreating] = useState(false);
-  /** The team map replaces the chat pane while open. */
   const [teamMap, setTeamMap] = useState(false);
   const [editingTeam, setEditingTeam] = useState<BotGroup | "new" | null>(null);
-  /** Skills & Tools replaces the bot list and chat while open; `target` is its page (null: the list, on compact). */
+  /** `target` is the page; null is the list, on compact. */
   const [libraryView, setLibraryView] = useState<LibraryViewState | null>(null);
   const [renaming, setRenaming] = useState<Bot | null>(null);
   const [exporting, setExporting] = useState<Bot | null>(null);
@@ -264,12 +262,10 @@ function useListUi(latest: LatestSettings, commit: CommitBotSettings): ListUiSta
 function useSurfaceLayout(): SurfaceLayoutState {
   const paneRef = useRef<View>(null);
   const keyboardHeight = useKeyboardHeight();
-  /** The home indicator on phones; the keyboard covers it while it's up. */
+  /** The keyboard covers the home indicator while it's up. */
   const bottomInset = keyboardHeight > 0 ? 0 : homeIndicatorInset();
   const [surfaceWidth, setSurfaceWidth] = useState(0);
-  /** Widths while a resize handle is being dragged; saved to the list UI on release. */
   const [dragWidths, setDragWidths] = useState<DragWidths>({});
-  // Re-renders the whole surface when Paseo's interface/content/code sizes change.
   const typeVersion = useTypeScale();
   return {
     paneRef,
@@ -313,12 +309,11 @@ function useDrafts(latest: LatestSettings, commit: CommitBotSettings): DraftStat
     saveTimer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
   };
 
-  // Save pending edits when the surface closes.
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useEffect(() => () => void flushRef.current(), []);
 
-  /** Applies a patch to the saved bot and to any unsaved draft of it, so autosave can't undo it. */
+  /** Patches any unsaved draft too, so autosave can't undo the change. */
   const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
     setDrafts((current) =>
       current[botId] ? { ...current, [botId]: { ...current[botId], ...patch } } : current,
@@ -330,13 +325,12 @@ function useDrafts(latest: LatestSettings, commit: CommitBotSettings): DraftStat
 }
 
 function useLibraryEntry(flush: () => Promise<void>, setLibraryView: Setter<LibraryViewState | null>) {
-  /** Opens Skills & Tools. Unsaved bot edits are saved first so the library sees them. */
+  /** Saves bot edits first so the library sees them. */
   const enterLibrary = (target: LibraryTarget | null) => {
     void flush();
     setLibraryView({ target });
   };
 
-  // A bot's settings and the bot list ask for Skills & Tools through the navigation store.
   const enterLibraryRef = useRef(enterLibrary);
   enterLibraryRef.current = enterLibrary;
   useEffect(
@@ -372,10 +366,7 @@ function closeCompactPane(state: BackState, set: BackSetters): boolean {
   return false;
 }
 
-// One step back through the Bots screen, as Paseo's own screens go back: a settings page to
-// the settings list, then the settings, Skills & Tools (page, then list), and on phones the
-// team map or a chat back to the bot list. Android's Back and the phone swipes use it; with
-// nothing left to step back from, Back leaves the plugin.
+// With nothing left to step back from, `false` lets Back leave the plugin.
 function useBackNavigation(state: BackState, set: BackSetters): () => boolean {
   const back = useRef(state);
   back.current = state;

@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Animated, Dimensions, Easing, PanResponder, Platform, View } from "react-native";
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 type PointerListener = (event: { clientX: number }) => void;
 const win = globalThis as unknown as {
   addEventListener?: (type: "pointermove" | "pointerup" | "pointercancel", listener: PointerListener) => void;
@@ -12,10 +12,8 @@ const win = globalThis as unknown as {
 };
 
 /**
- * Drag handle on a column edge, like Paseo's sidebar/explorer resize handles
- * (10px wide, col-resize cursor). Web and desktop only; phones don't resize columns.
- * A drag starts only with a pointer-down on the handle itself and follows window
- * pointer events until release, so no other gesture can resize a column.
+ * A drag follows window pointer events from a pointer-down on the handle until release,
+ * so no other gesture can resize a column.
  */
 export function ResizeHandle({
   side,
@@ -75,13 +73,9 @@ const native = Platform.OS !== "web";
 const layers: object[] = [];
 
 /**
- * A full-width level sliding in from the right on phones over the level it came from,
- * like Paseo's mobile panels (mobile-panels/presentation.tsx). Swiping right follows the
- * finger with Paseo's rules (gestures.ts, gesture-intent.ts): 15pt of mostly-horizontal
- * travel starts it, a third of the width or 500pt/s finishes it. The top level claims the
- * swipe before its buttons can, so it works from anywhere on the level. A finished swipe
- * steps back inside the level when `onBack` handles it (a settings page back to the
- * list), otherwise the level slides away and closes.
+ * Swipe thresholds follow Paseo's mobile panels. The top level claims the swipe before its
+ * buttons can, so it works from anywhere on the level; `onBack` returning true steps back
+ * inside the level instead of closing it.
  */
 export function SlideOver({
   onClose,

@@ -10,23 +10,19 @@ type Cursor = NonNullable<TimelinePage["endCursor"]>;
 export interface ChatState {
   entries: ChatEntry[];
   agent: PaseoAgent | null;
-  /** The first page hasn't arrived yet. */
   loading: boolean;
-  /** The last timeline sync failed; `retry()` tries again. */
   error: string | null;
-  /** Older history exists before the first entry we hold. */
   hasOlder: boolean;
   loadingOlder: boolean;
   retrying: boolean;
-  /** Loads the previous page of history (Paseo pages 40 projected items). */
   loadOlder(): void;
   retry(): void;
 }
 
-/** Paseo's TIMELINE_FETCH_PAGE_SIZE (timeline/timeline-fetch-policy.ts). */
+/** Paseo's TIMELINE_FETCH_PAGE_SIZE. */
 const TIMELINE_PAGE_SIZE = 40;
 
-/** A chat's whole timeline, oldest first, page by page (a transcript needs all of it). */
+/** Oldest first. */
 export async function fullTimeline(api: PaseoApi, agentId: string): Promise<ChatEntry[]> {
   const handle = api.agents.ref(agentId);
   let page = await handle.timeline.refetch({ direction: "tail", projection: "projected", limit: 200 });
@@ -237,9 +233,8 @@ class ChatTimelineSync {
 }
 
 /**
- * Live chat state for one agent, synced the way Paseo's timeline sync does it:
- * the tail page once, then only what's new ("after" the end cursor) on each live
- * event, merged by the projected entry's first seq. Older pages load on demand.
+ * Like Paseo's timeline sync: the tail once, then pages after the end cursor on each live
+ * event, merged by each projected entry's first seq.
  */
 export function useChat(api: PaseoApi | null, agentId: string | null): ChatState {
   const [state, setState] = useState<ChatState>(EMPTY);

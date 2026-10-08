@@ -1,6 +1,3 @@
-// Question requests (AskUserQuestion and friends), ported from Paseo's
-// components/question-form-card-core.ts. Pure, so it's unit tested.
-
 export interface QuestionOption {
   label: string;
   description?: string;

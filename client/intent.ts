@@ -8,7 +8,7 @@ export function newBotScreen(): PluginOpenScreenInput {
 
 let handledNewBot: string | null = null;
 
-/** Whether these params ask for a new bot not asked for yet: back, forward and remounts keep the params. */
+/** Back, forward and remounts keep the params, so each request is taken only once. */
 export function takeNewBotRequest(params: PluginScreenParams): boolean {
   const request = params.newBot;
   if (!request || request === handledNewBot) return false;

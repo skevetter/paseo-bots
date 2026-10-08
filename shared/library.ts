@@ -15,16 +15,13 @@ import {
 } from "./bot";
 import { saveTeam } from "./groups";
 
-// The shared library of skills and MCP servers. Bots only hold ids; these
-// helpers keep the ids, names and bot references consistent.
-
 export function newMcpServerId(): string {
   return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
 export type LibraryKind = "skill" | "mcp";
 
-/** A server joining the library, switched off until a test connects to it. */
+/** Off until a test connects to it. */
 function libraryServer(draft: BotMcpServer, name: string, now: string): LibraryMcpServer {
   return {
     id: newMcpServerId(),
@@ -40,12 +37,7 @@ function libraryServer(draft: BotMcpServer, name: string, now: string): LibraryM
   };
 }
 
-/**
- * Adds MCP servers to the library. A server whose name and connection match an
- * existing one reuses it; `reuseByName` also reuses any server with the same
- * name (templates: the user may have filled in keys since). Anything else gets a
- * free name. Returns the new library and the ids, in input order.
- */
+/** `reuseByName` serves templates: the user may have filled in keys since. */
 export function addMcpServers(
   library: Library,
   drafts: readonly BotMcpServer[],
@@ -77,9 +69,8 @@ export function addMcpServers(
 }
 
 /**
- * Adds or refreshes skills. Fetched skills arrive switched off and unreviewed,
- * and a refreshed one needs a new review; a skill written here carries the
- * hash of what the user wrote (`reviewedSha`) and arrives on.
+ * Fetched skills arrive off and unreviewed, and a refresh needs a new review; a
+ * skill written here carries the hash of what the user wrote and arrives on.
  */
 export function upsertSkills(
   library: Library,
@@ -128,7 +119,6 @@ export function updateSkill(library: Library, id: string, patch: Partial<Library
   };
 }
 
-/** Switches a library item on or off for one bot. */
 export function setBotUses(bot: Bot, kind: LibraryKind, id: string, on: boolean): Bot {
   const key = kind === "skill" ? "skillIds" : "mcpServerIds";
   const current = bot[key];
@@ -140,12 +130,10 @@ export function setBotUses(bot: Bot, kind: LibraryKind, id: string, on: boolean)
   return next === current ? bot : { ...bot, [key]: next };
 }
 
-/** Takes a deleted item's id off every bot. */
 export function forgetItem(bots: readonly Bot[], kind: LibraryKind, id: string): Bot[] {
   return bots.map((bot) => setBotUses(bot, kind, id, false));
 }
 
-/** Rewrites "old/tool" grants after a server is renamed so they keep matching. */
 export function renameGrants(bots: readonly Bot[], from: string, to: string): Bot[] {
   if (from === to) return [...bots];
   const prefix = `${from}/`;
@@ -161,19 +149,17 @@ export function renameGrants(bots: readonly Bot[], from: string, to: string): Bo
   );
 }
 
-/** Whether the last test of a server connected; only then can it be turned on. */
+/** Only a server whose last test connected can be turned on. */
 export function mcpServerTested(server: Pick<LibraryMcpServer, "tools" | "checkError">): boolean {
   return server.tools !== null && !server.checkError;
 }
 
-/** One line describing how a server connects: the command line, or transport and URL. */
 export function mcpTarget(config: BotMcpServer["config"]): string {
   return config.type === "stdio"
     ? [config.command, joinArgs(config.args)].filter(Boolean).join(" ")
     : `${config.type.toUpperCase()} · ${config.url}`;
 }
 
-/** Case-insensitive match on any of the given fields. */
 export function matchesQuery(query: string, ...fields: (string | null | undefined)[]): boolean {
   const needle = query.trim().toLowerCase();
   return !needle || fields.some((field) => field?.toLowerCase().includes(needle));
@@ -185,10 +171,6 @@ export interface ImportedBot {
   mcpServers: readonly BotMcpServer[];
 }
 
-/**
- * Adds imported bots, numbering names already in use; their skills (unreviewed, so
- * off) and MCP servers join the library, and a team file's teams come along.
- */
 export function addImportedBots(
   values: BotSettingsValues,
   imported: readonly ImportedBot[],

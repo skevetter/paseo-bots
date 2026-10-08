@@ -16,10 +16,6 @@ import type { BotsHost } from "../host";
 import { createProposal } from "../proposals";
 import { defineTool } from "./mcp";
 
-// The whole setup, for bots that set things up for the user: get_setup reads it,
-// propose_changes puts a batch of changes on a card the user applies.
-
-/** What the host knows that the saved settings don't: providers and connected app accounts. */
 async function hostContext(host: BotsHost): Promise<ApplyContext> {
   const snapshot = await host.paseo?.providers.snapshot().catch(() => null);
   let apps: AppAccountInfo[] | null = null;

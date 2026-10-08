@@ -1,4 +1,4 @@
-// Composer attachments and their wire format (Paseo's `images` and AgentAttachment).
+// The wire types mirror Paseo's `images` and AgentAttachment.
 
 export type ComposerAttachment =
   | { kind: "image"; id: string; name: string; mimeType: string; size: number; data: string }
@@ -9,7 +9,7 @@ const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const TEXT_MAX_BYTES = 1024 * 1024;
 const FILE_MAX_BYTES = 25 * 1024 * 1024;
 
-/** Raster images Paseo sends as `images` (the provider-readable formats). */
+/** The provider-readable formats Paseo sends as `images`. */
 const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 const TEXT_EXTENSIONS =
   /\.(txt|md|markdown|csv|tsv|json|jsonl|yaml|yml|toml|xml|html?|css|scss|js|jsx|ts|tsx|mjs|cjs|py|rb|go|rs|java|kt|swift|c|h|cpp|hpp|cs|php|sh|zsh|bash|sql|log|ini|cfg|conf|env|graphql|vue|svelte)$/i;
@@ -27,7 +27,6 @@ export function classifyFile(name: string, mimeType: string): AttachmentKind {
   return "file";
 }
 
-/** Classifies a file and checks its size before any bytes are read. */
 export function preflightFile(
   name: string,
   mimeType: string,
@@ -39,13 +38,12 @@ export function preflightFile(
   return { kind, reason: rejectReason(kind, size, canUpload) };
 }
 
-/** Normalises clipboard/drop MIME types (`image/jpg`, parameters) the way Paseo does. */
 export function normalizeMimeType(mimeType: string): string {
   const base = (mimeType.split(";", 1)[0] ?? "").trim().toLowerCase();
   return base === "image/jpg" ? "image/jpeg" : base;
 }
 
-/** Paseo's pill subtitle (attachments/file-types.ts getFileTypeLabel): the extension in capitals. */
+/** Matches Paseo's pill subtitle (attachments/file-types.ts getFileTypeLabel). */
 export function getFileTypeLabel(name: string): string | null {
   const base = name.split(/[\\/]/).pop() ?? name;
   const dot = base.lastIndexOf(".");
@@ -54,7 +52,6 @@ export function getFileTypeLabel(name: string): string | null {
   return /^[a-z0-9]+$/i.test(extension) ? extension.toUpperCase() : null;
 }
 
-/** Why a picked file can't be attached, or null. */
 export function rejectReason(kind: AttachmentKind, size: number, canUpload: boolean): string | null {
   if (kind === "image" && size > IMAGE_MAX_BYTES) return "Images can be up to 10 MB.";
   if (kind === "text" && size > TEXT_MAX_BYTES) return canUpload ? null : "Text files can be up to 1 MB.";

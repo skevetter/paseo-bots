@@ -4,9 +4,6 @@ import { botToolName } from "./bot-tools";
 import { ChangeSchema } from "./changes";
 import { toolCallName } from "./tool-name";
 
-// What a bot proposes in a chat (a skill it learned, a routine, changes to the
-// setup) waits as a card in that chat and is saved only when the user accepts it.
-
 const ProposalBase = z.object({
   id: z.string(),
   botId: z.string(),
@@ -17,10 +14,9 @@ const ProposalBase = z.object({
   resolvedAt: z.string().nullable(),
 });
 
-/** A new or updated library skill: its folder name and full SKILL.md. */
+/** `name` is the folder name; `text` the full SKILL.md. */
 const SkillProposalSchema = z.object({ name: z.string(), description: z.string(), text: z.string() });
 
-/** A new routine for the bot; its runs report back to the chat it was proposed in. */
 const RoutineProposalSchema = z.object({
   name: z.string(),
   prompt: z.string(),
@@ -28,7 +24,7 @@ const RoutineProposalSchema = z.object({
   resultsChatId: z.string().nullable(),
 });
 
-/** Changes to the setup, applied together (shared/changes.ts); `provider` is the host's pick for new bots the defaults leave open. */
+/** `provider` is the host's pick for new bots the defaults leave open. */
 const ChangesProposalSchema = z.object({
   summary: z.string(),
   changes: z.array(ChangeSchema),
@@ -44,12 +40,12 @@ export type Proposal = z.infer<typeof ProposalSchema>;
 
 const PROPOSAL_ID = /\bproposal (p-[a-z0-9]{10})\b/i;
 
-/** What a propose_* tool tells the agent; the card finds the proposal from it. */
+/** The card finds the proposal id in this reply. */
 export function proposalReply(id: string, what: string): string {
   return `Proposal ${id}: the user sees ${what} as a card in this chat and decides whether to save it. Don't save it yourself.`;
 }
 
-/** The proposal a propose_* tool call made, from its output (text or MCP content blocks). */
+/** The output is text or MCP content blocks. */
 function proposalIdIn(output: unknown): string | null {
   const text = typeof output === "string" ? output : JSON.stringify(output ?? null);
   return PROPOSAL_ID.exec(text)?.[1] ?? null;
@@ -57,7 +53,6 @@ function proposalIdIn(output: unknown): string | null {
 
 const PROPOSING_TOOLS: readonly string[] = ["propose_skill", "propose_routine", "propose_changes"];
 
-/** The proposal behind a finished propose_* tool call, if the call is one. */
 export function proposalIdOf(call: {
   name: string;
   status: string;

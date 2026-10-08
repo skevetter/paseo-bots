@@ -56,7 +56,7 @@ function requireApi(host: BotHost): PaseoApi {
   return host.api;
 }
 
-/** Resolves the host a bot runs on. `hostId === null` is the host that stores the bots. */
+/** `hostId === null` is the host that stores the bots. */
 export function useBotHost(hostId: string | null, local: LocalHost): BotHost {
   const localApi = usePaseo();
   const hosts = useHosts();
@@ -74,7 +74,6 @@ export function useBotHost(hostId: string | null, local: LocalHost): BotHost {
   );
 }
 
-/** The same resolution outside render, e.g. for menu actions. */
 export function useHostResolver(local: LocalHost): (hostId: string | null) => BotHost {
   const localApi = usePaseo();
   const hosts = useHosts();
@@ -166,7 +165,6 @@ export function useChatInvalidation() {
   }, [paseo, queryClient]);
 }
 
-/** The host's Paseo-tools settings for a provider, and a way to turn them on. */
 export function usePaseoTools(host: BotHost, provider: string) {
   const queryClient = useQueryClient();
   const key = ["paseo-bots", "paseo-tools", host.key];

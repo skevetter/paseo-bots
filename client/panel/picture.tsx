@@ -6,8 +6,6 @@ import { PALETTE_COUNT, paletteSwatch } from "../../shared/pixel";
 import { pickFileHandles, squareImage } from "../web";
 import { InputField, StackedRow } from "./controls";
 
-// The picture controls bot avatars and team logos share.
-
 type Colors = PluginTheme["colors"];
 
 /** Pictures are stored with the bot or team, so they're scaled down to this many pixels. */
@@ -16,7 +14,7 @@ const IMAGE_URL = /^(https?:\/\/\S+|data:image\/\S+)$/i;
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const PALETTES = Array.from({ length: PALETTE_COUNT }, (_, index) => index);
 
-/** Picks an image file (web) and returns it as a square data URL; null when nothing was picked. */
+/** Web file picker; resolves to a square data URL, or null when nothing was picked. */
 export async function pickPicture(): Promise<string | null> {
   const [file] = await pickFileHandles({
     accept: "image/png,image/jpeg,image/webp,image/gif",
@@ -27,7 +25,6 @@ export async function pickPicture(): Promise<string | null> {
   return squareImage(`data:${file.mimeType};base64,${await file.readBase64()}`, PICTURE_SIZE);
 }
 
-/** The generated picture's colour: automatic, or one of the palettes. */
 export function ColourRow({
   colors,
   value,
@@ -65,11 +62,6 @@ export function ColourRow({
   );
 }
 
-/**
- * Paseo's colour swatch (workspace-labels/swatch.tsx): 20pt circle, a 2pt foreground ring drawn
- * inside the box when selected, 12pt hit slop to reach 44pt, radio semantics. The automatic
- * option is an outlined circle.
- */
 function Swatch({
   colors,
   label,
@@ -104,7 +96,6 @@ function Swatch({
   );
 }
 
-/** A stored picture (uploaded or generated) with Remove, or the Image URL field. */
 export function PictureSource(props: {
   colors: Colors;
   imageUrl: string | null;

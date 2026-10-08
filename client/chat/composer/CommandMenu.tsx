@@ -7,11 +7,6 @@ import type { SlashCommand } from "./logic";
 
 type Colors = PluginTheme["colors"];
 
-/**
- * Paseo's /command autocomplete (components/ui/autocomplete.tsx) shown 12 above the input:
- * a surface1 card with a borderAccent frame, radius 8, max 220 high, rows 36 high with the
- * command in 14pt and its description muted in 12pt.
- */
 export function CommandMenu({
   colors,
   commands,

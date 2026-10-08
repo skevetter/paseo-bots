@@ -24,7 +24,6 @@ import { ui } from "../typography";
 
 type Colors = PluginTheme["colors"];
 
-/** The editable part of a library MCP server. */
 export type McpDraft = Pick<LibraryMcpServer, "name" | "description" | "config">;
 
 export const BLANK_SERVER: McpDraft = {
@@ -39,13 +38,12 @@ interface ServerSheetProps {
   colors: Colors;
   initial: McpDraft;
   isNew: boolean;
-  /** Names of the library's other servers; a server name must be unique. */
+  /** For the unique-name check. */
   otherNames: string[];
   onClose(): void;
   onSave(server: McpDraft): void;
 }
 
-/** Adds or edits one MCP server: name, how to start or reach it, and its env vars or headers. */
 export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSave }: ServerSheetProps) {
   const draft = useServerDraft(initial);
   const { server, config } = draft;
@@ -241,10 +239,7 @@ function EndpointField({
   );
 }
 
-/**
- * Adds servers from an `{"mcpServers": {...}}` block: pasted, or read from
- * Claude Code, Claude Desktop or Cursor on this computer. They arrive off.
- */
+/** Imported servers arrive off. */
 export function ImportSheet({
   colors,
   onClose,

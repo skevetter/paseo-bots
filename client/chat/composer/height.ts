@@ -13,11 +13,6 @@ interface InputHeightOptions {
   fontSize: number;
 }
 
-/**
- * Paseo's composer height (composer/input/height.web.ts / height.native.ts): on web the
- * textarea is sized to its measured content between min and max and only scrolls once it
- * hits max; on phones the native input grows by itself within the same bounds.
- */
 export function useInputHeight({ inputRef, text, minHeight, maxHeight, fontSize }: InputHeightOptions): {
   style: TextStyle;
   scrollEnabled: boolean;

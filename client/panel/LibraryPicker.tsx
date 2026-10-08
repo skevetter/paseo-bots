@@ -12,11 +12,6 @@ interface LibraryPickerProps extends Pick<PanelProps, "colors" | "bot" | "librar
   info: string;
 }
 
-/**
- * The library's skills or MCP servers with a switch each for this bot, like
- * OpenMausBot's per-bot Access cards. Items are added and edited on the
- * Skills & Tools page; a row opens its page there.
- */
 export function LibraryPicker({ colors, bot, library, onPatch, kind, title, info }: LibraryPickerProps) {
   const items =
     kind === "skill"

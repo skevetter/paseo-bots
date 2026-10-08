@@ -28,13 +28,6 @@ const proposalQueryKey = (id: string) => ["paseo-bots", "proposal", id];
 
 const OUTCOME = { pending: "pending", accepted: "approved", dismissed: "rejected" } as const;
 
-/**
- * Something a bot proposed with propose_skill (usually after /learn),
- * propose_routine or propose_changes, laid out like Paseo's plan card with the
- * actions under it. Skills are saved to Skills & Tools as reviewed and turned on
- * for the bot; routines are added to the bot and report back to this chat;
- * setup changes are applied together.
- */
 export function ProposalCard({
   colors,
   compact,
@@ -270,7 +263,6 @@ interface ProposalView {
   description: string;
   text: string;
   warnings: string[];
-  /** Lines above the buttons while it's pending. */
   notes: string[];
   action: string;
 }

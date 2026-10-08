@@ -1,14 +1,12 @@
 import { useEffect, useState } from "react";
 import { AppState, NativeModules, Platform, TurboModuleRegistry } from "react-native";
 
-// Paseo scales its UI from the user's Appearance settings (interface, content and
-// code sizes), but the plugin theme only carries colours. This reads the same
-// persisted settings the app does: `@paseo:app-settings` in localStorage on web and
-// desktop, AsyncStorage on phones. Everything falls back to Paseo's own defaults.
+// The plugin theme only carries colours, so sizes come from the settings Paseo persists:
+// localStorage on web and desktop, AsyncStorage on phones.
 
 const SETTINGS_KEY = "@paseo:app-settings";
 const native = Platform.OS !== "web";
-/** Paseo's authored UI base size; every UI size scales from it (appearance/apply.ts). */
+/** Paseo's authored UI base size; every UI size scales from it. */
 const AUTHORED_UI_BASE = 14;
 
 export interface TypeScale {
@@ -20,7 +18,7 @@ export interface TypeScale {
 const DEFAULTS: TypeScale = { ui: native ? 15 : 14, content: native ? 16 : 15, code: 12 };
 let current: TypeScale = DEFAULTS;
 
-/** Paseo's numeric parsing (hooks/use-settings/storage.ts): numbers or numeric strings, floored, clamped. */
+/** Must parse like Paseo's settings storage. */
 function readNumber(value: unknown, min: number, max: number): number | undefined {
   const number = typeof value === "string" && value.trim() !== "" ? Number(value) : value;
   if (typeof number !== "number" || !Number.isFinite(number)) return undefined;
@@ -48,7 +46,7 @@ function parse(raw: string | null | undefined): TypeScale {
   }
 }
 
-// This plugin typechecks without the DOM library. Declare only what this module uses.
+// This plugin typechecks without the DOM library.
 declare const localStorage: { getItem(key: string): string | null } | undefined;
 
 type AsyncStorageModule = {
@@ -81,12 +79,11 @@ async function readScale(): Promise<TypeScale> {
   }
 }
 
-/** Interface text scaled like Paseo's ramp: `ui(14)` is the base size. */
+/** `ui(14)` is the base size. */
 export function ui(size: number): number {
   return Math.round((size * current.ui) / AUTHORED_UI_BASE);
 }
 
-/** Chat message text (Paseo's "content" size) and its line height. */
 export function content(): number {
   return current.content;
 }
@@ -103,11 +100,7 @@ export function codeLine(): number {
   return Math.round(current.code * 1.45);
 }
 
-/**
- * Loads the user's sizes and re-reads them when they may have changed (every few
- * seconds on web, on foreground on phones). Returns a version that bumps on change,
- * so the surface re-renders its tree with the new sizes.
- */
+/** Returns a version that bumps when the sizes change, so the surface re-renders its tree. */
 export function useTypeScale(): number {
   const [version, setVersion] = useState(0);
   useEffect(() => {

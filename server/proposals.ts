@@ -5,9 +5,6 @@ import type { Proposal } from "../shared/proposals";
 import { pluginDataPath } from "./bot-home";
 import { writeSkill } from "./library";
 
-// Proposals wait in one file until the user saves or dismisses their card.
-// Only the newest are kept; an older card says it's no longer available.
-
 const KEEP = 200;
 
 type NewProposal = Pick<Proposal, "botId" | "agentId" | "kind" | "data">;
@@ -72,7 +69,7 @@ export function dismissProposal(id: string): Promise<Proposal> {
   return resolve(id, "dismissed");
 }
 
-/** Saves what the proposal describes on this host; the app then records it in the bots' settings. */
+/** Saves on this host only; the app then records it in the bots' settings. */
 export async function acceptProposal(id: string) {
   const proposal = await getProposal(id);
   if (!proposal) throw new Error("This proposal is no longer available.");

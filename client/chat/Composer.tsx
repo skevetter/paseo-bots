@@ -98,7 +98,6 @@ type Colors = PluginTheme["colors"];
 type Permission = PaseoAgent["pendingPermissions"][number];
 
 const web = Platform.OS === "web";
-/** Paseo's palette: red-600 for the stop button, red-500 for inline send errors. */
 const RED_600 = "#dc2626";
 const RED_500 = "#ef4444";
 const FAILED_TO_SEND = "Failed to send message";
@@ -111,7 +110,6 @@ interface ComposerProps {
   running: boolean;
   layout: ChatPaneProps["layout"];
   keyboardOpen: boolean;
-  /** The chat's live agent snapshot: pending permissions (stop), last usage (context meter). */
   agent?: PaseoAgent | null;
   onStart(message: OutgoingMessage): Promise<void>;
 }
@@ -155,8 +153,6 @@ function useMountedRef(): RefObject<boolean> {
   }, []);
   return mounted;
 }
-
-// ------------------------------------------------------------ drafts
 
 interface ComposerDraftState {
   text: string;
@@ -206,8 +202,6 @@ function useComposerDraft(draftKey: string): ComposerDraftState {
   return { text, attachments, latest, updateText, updateAttachments };
 }
 
-// ------------------------------------------------------------ input
-
 function useComposerInput(text: string, desktopWeb: boolean) {
   const inputRef = useRef<NativeTextInput>(null);
   const { height: windowHeight } = useWindowDimensions();
@@ -223,14 +217,11 @@ function useComposerInput(text: string, desktopWeb: boolean) {
     else inputRef.current?.focus();
   };
 
-  // Desktop web focuses the composer when a chat opens (Paseo's MessageInputAutoFocus).
   const focusOnOpen = useRef(desktopWeb);
   useEffect(() => (focusOnOpen.current ? focusWithRetries(() => domNode(inputRef.current)) : undefined), []);
 
   return { inputRef, inputHeight, focusInput };
 }
-
-// ------------------------------------------------------------ attachments
 
 interface AcceptedFile {
   file: FileHandle;
@@ -363,7 +354,6 @@ function useAttachmentSources({
   const openAttachMenu = async () => {
     const anchor = await measureAnchor(attachRef);
     if (!anchor) return;
-    // Paseo's order: Add image, Paste image (phones), issues/PRs, plugin sources, Upload file.
     // Plugins can't read the clipboard or open pickers on phones, so pasting text stands in there.
     const entries: MenuEntry[] = web
       ? [
@@ -374,13 +364,12 @@ function useAttachmentSources({
     menu.open({ anchor, align: "start", width: 220, title: "Add attachment", entries });
   };
 
-  // Web: pasting images into the input attaches them.
   useEffect(
     () => listenForImagePaste(domNode(inputRef.current), (files) => void addFilesRef.current(files)),
     [inputRef],
   );
 
-  // Web: dropping files anywhere on the chat pane attaches them (Paseo's FileDropZone).
+  // Dropping files anywhere on the chat pane attaches them.
   useEffect(() => {
     const own = domNode(outerRef.current);
     return listenForFileDrop(own?.parentElement ?? own, {
@@ -394,8 +383,6 @@ function useAttachmentSources({
 
   return openAttachMenu;
 }
-
-// ------------------------------------------------------------ sending
 
 interface DeliveryTarget {
   agentId: string | null;
@@ -419,7 +406,6 @@ async function deliverMessage(
     await onStart({ text: outgoing, messageId, ...wire });
     return;
   }
-  // `activeTurnBehavior` is forwarded to the daemon as-is (send_agent_message_request).
   const options = {
     messageId,
     activeTurnBehavior: activeTurnBehaviorFor(sendBehavior),
@@ -440,7 +426,6 @@ interface QueueDrainOptions {
   onError(message: string): void;
 }
 
-// Queued messages go out one at a time whenever the agent is idle (Paseo drains on "stopped running").
 function useQueueDrain({
   draftKey,
   running,
@@ -539,7 +524,7 @@ function useSending({ draftKey, draft, target, running, queue, focusInput }: Sen
     if (target.agentId && mounted.current) setDrain((current) => (current === "idle" ? "awaiting" : current));
   };
 
-  // composer/submit.ts: clear at once so typing can continue, put everything back on failure.
+  // Clear at once so typing can continue; everything goes back on failure.
   const send = async () => {
     const message = { text: draft.text.trim(), attachments: draft.attachments };
     if (isDraftEmpty(message) || !target.host.api) return;
@@ -585,8 +570,6 @@ function useSending({ draftKey, draft, target, running, queue, focusInput }: Sen
   return { processing, sendError, send, enqueue, sendQueuedNow, editQueued };
 }
 
-// ------------------------------------------------------------ stop
-
 interface StopAgentOptions {
   permissions: Permission[];
   canInterrupt: boolean;
@@ -595,8 +578,7 @@ interface StopAgentOptions {
   focusInput(): void;
 }
 
-// Plugins have no cancel API. The one interrupt path is a pending permission: denying it
-// with `interrupt` ends the turn, which is what Paseo's stop does in that state.
+// Plugins have no cancel API: denying a pending permission with `interrupt` is the one way to end a turn.
 function useStopAgent({ permissions, canInterrupt, agentId, api, focusInput }: StopAgentOptions) {
   const toast = useToast();
   const mounted = useMountedRef();
@@ -619,8 +601,6 @@ function useStopAgent({ permissions, canInterrupt, agentId, api, focusInput }: S
   };
   return { stopping, stop };
 }
-
-// ------------------------------------------------------------ /commands
 
 function cachedCommands(agentId: string, api: PaseoApi): Promise<CommandResult> {
   const cached = commandCache.get(agentId);
@@ -697,8 +677,6 @@ function useSlashCommands(
   };
 }
 
-// ------------------------------------------------------------ keys
-
 type KeyEffect = (() => void) | null;
 
 interface KeyHandlerOptions {
@@ -725,10 +703,9 @@ function commandMenuKeyEffect(key: ComposerKeyEvent, { commands }: KeyHandlerOpt
 }
 
 function composerKeyEffect(key: ComposerKeyEvent, options: KeyHandlerOptions): KeyEffect {
-  // Paseo's Escape shortcut interrupts the agent.
   if (key.key === "Escape" && options.canInterrupt) return options.stop;
   const action = resolveEnterKey(key, options.enter);
-  // While a send or upload is in flight Enter falls through to a newline, like Paseo.
+  // While a send or upload is in flight Enter falls through to a newline.
   if (!action || options.blocked) return null;
   return action === "alternate" ? options.alternateAction : options.defaultAction;
 }
@@ -744,8 +721,6 @@ function createKeyHandler(options: KeyHandlerOptions) {
     effect();
   };
 }
-
-// ------------------------------------------------------------ controller
 
 interface SendAvailability {
   canInterrupt: boolean;
@@ -895,8 +870,6 @@ function useComposerController({
     onKeyPress,
   };
 }
-
-// ------------------------------------------------------------ render
 
 function composerPlaceholder(botName: string, agentId: string | null, compact: boolean): string {
   if (!agentId) return `Message ${botName}`;
@@ -1178,10 +1151,6 @@ function SendErrorText({ message }: { message: string | null }) {
   );
 }
 
-// Paseo's composer (composer/index.tsx + composer/input/input.tsx): the queue track and any
-// send error above a surface1 card with a borderAccent frame, radius 16; attachment tray,
-// auto-growing input, then a toolbar with "Add attachment" on the left and the context
-// meter and send/stop button on the right.
 function ChatComposer(props: ChatComposerProps) {
   const { colors, bot, host, agentId, running, layout, keyboardOpen, agent } = props;
   const composer = useComposerController(props);
@@ -1279,7 +1248,6 @@ function ChatComposer(props: ChatComposerProps) {
   );
 }
 
-/** Paseo's "Add attachment" trigger: 28 round, Plus muted, foreground and surface2 on hover. */
 function AttachButton({
   colors,
   anchorRef,
@@ -1323,7 +1291,6 @@ function AttachButton({
   );
 }
 
-/** Paseo's 28pt round send / stop button. */
 function RoundButton({
   label,
   background,
@@ -1360,7 +1327,7 @@ function RoundButton({
   );
 }
 
-/** Lucide's Square filled white (the plugin Icon has no fill): an 18/24 box with a 2/24 radius. */
+/** The plugin Icon can't fill, so this draws Lucide's Square filled white. */
 function FilledSquare({ size }: { size: number }) {
   const side = Math.round((size * 18) / 24);
   return (
@@ -1368,7 +1335,6 @@ function FilledSquare({ size }: { size: number }) {
   );
 }
 
-/** Paseo's queued message row: text over two lines, a pencil to edit and an accent arrow to send now. */
 function QueuedRow({
   colors,
   item,
