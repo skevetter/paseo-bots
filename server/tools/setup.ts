@@ -1,15 +1,13 @@
 import { z } from "zod";
+import { applyChanges, resolveChanges } from "../../shared/changes/apply";
 import {
   type AppAccountInfo,
   type ApplyContext,
-  applyChanges,
-  botDetails,
-  ChangesSchema,
   providerInfo,
   readyProvider,
-  resolveChanges,
-  setupOverview,
-} from "../../shared/changes";
+} from "../../shared/changes/context";
+import { botDetails, setupOverview } from "../../shared/changes/overview";
+import { ChangesSchema } from "../../shared/changes/schema";
 import { proposalReply } from "../../shared/proposals";
 import { accounts, status } from "../composio";
 import type { BotsHost } from "../host";

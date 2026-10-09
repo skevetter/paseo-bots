@@ -6,21 +6,11 @@ import {
   DEFAULT_BOT_LIST_UI,
   presetFromBot,
 } from "../shared/bot";
-import {
-  type ApplyContext,
-  applyChanges,
-  botDetails,
-  type Change,
-  ChangeSchema,
-  ChangesSchema,
-  changeWarnings,
-  describeChange,
-  type ProviderInfo,
-  providerInfo,
-  readyProvider,
-  resolveChanges,
-  setupOverview,
-} from "../shared/changes";
+import { applyChanges, resolveChanges } from "../shared/changes/apply";
+import { type ApplyContext, type ProviderInfo, providerInfo, readyProvider } from "../shared/changes/context";
+import { changeWarnings, describeChange } from "../shared/changes/describe";
+import { botDetails, setupOverview } from "../shared/changes/overview";
+import { type Change, ChangeSchema, ChangesSchema } from "../shared/changes/schema";
 import { defined, makeBot, NOW } from "./helpers";
 
 const PROVIDERS: ProviderInfo[] = [

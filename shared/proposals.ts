@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { RoutineScheduleSchema } from "./bot";
 import { botToolName } from "./bot-tools";
-import { ChangeSchema } from "./changes";
+import { ChangeSchema } from "./changes/schema";
 import { toolCallName } from "./tool-name";
 
 const ProposalBase = z.object({
