@@ -30,29 +30,40 @@ interface Card {
   item: { id: string; kind: string; data: { status: string; output: string | null; error: string | null } };
 }
 
-/** Cards posted to `brokenChat` throw, like a results chat that's gone. */
-async function startScheduler(bots: Bot[], launch: Launch, brokenChat?: string) {
-  const host = fakeHost(bots);
+/** Cards wait for `posting.until`; cards posted to `brokenChat` throw, like a results chat that's gone. */
+function fakePaseo(brokenChat?: string) {
   const appended: Card[] = [];
   const status = new Map<string, string>();
-  host.attach({
+  const unreachable = new Set<string>();
+  const posting = { until: Promise.resolve() };
+  const api = {
     agents: {
       ref: (agentId: string) => ({
-        refresh: async () => ({ agent: { status: status.get(agentId) ?? "idle", archivedAt: null } }),
+        refresh: async () => {
+          if (unreachable.has(agentId)) throw new Error("Paseo didn't answer.");
+          return { agent: { status: status.get(agentId) ?? "idle", archivedAt: null } };
+        },
         timeline: {
-          append: (item: never) => {
+          append: async (item: never) => {
+            await posting.until;
             if (agentId === brokenChat) throw new Error("That chat is gone.");
             appended.push({ agentId, item });
-            return Promise.resolve();
           },
         },
       }),
     },
-  } as never);
+  } as never;
+  return { api, appended, status, unreachable, posting };
+}
+
+async function startScheduler(bots: Bot[], launch: Launch, brokenChat?: string) {
+  const host = fakeHost(bots);
+  const paseo = fakePaseo(brokenChat);
+  host.attach(paseo.api);
   const relay = new Relay(host, []);
   const scheduler = new RoutineScheduler(host, relay, launch);
   scheduler.stop();
-  return { scheduler, relay, appended, status };
+  return { scheduler, relay, host, ...paseo };
 }
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
@@ -371,6 +382,46 @@ describe("the routine scheduler's saved state", () => {
       expect(second.url).toBe(first.url);
       const saved = JSON.parse(await readFile(join(pluginDataPath(), "webhooks.json"), "utf8"));
       expect(first.url.endsWith(`/${saved["rt-race"]}`)).toBe(true);
+    } finally {
+      relay.stop();
+    }
+  });
+});
+
+const webhook = (patch: Partial<Routine> = {}) => routine({ schedule: { kind: "webhook" }, ...patch });
+async function hook(url: string, body?: string): Promise<[number, unknown]> {
+  const answer = await fetch(url, { method: "POST", body });
+  return [answer.status, await answer.json()];
+}
+describe("overlapping routine webhook calls", () => {
+  useTempPaseoHome("paseo-bots-scheduler-overlap-");
+
+  it("lets three webhook runs be unfinished at once while their cards post", async () => {
+    let started = 0;
+    let posted: () => void = () => {};
+    const { scheduler, relay, status, posting } = await startScheduler(
+      [makeBot({ id: "bot-p", routines: [webhook({ id: "rt-p", resultsChatId: "p-results" })] })],
+      async () => {
+        const chat = `p-chat-${++started}`;
+        status.set(chat, "running");
+        return chat;
+      },
+    );
+    posting.until = new Promise((resolve) => {
+      posted = resolve;
+    });
+    try {
+      const { url } = await scheduler.webhookUrl("rt-p");
+      const calls: Promise<[number, unknown]>[] = [];
+      for (const count of [1, 2, 3]) {
+        calls.push(hook(url, `event ${count}`));
+        await vi.waitFor(() => expect(started).toBe(count));
+      }
+      expect(await hook(url, "event 4")).toEqual([429, { status: "skipped-busy" }]);
+      posted();
+      expect(await Promise.all(calls)).toEqual(
+        [1, 2, 3].map((count) => [202, { status: "running", chat: `p-chat-${count}` }]),
+      );
     } finally {
       relay.stop();
     }

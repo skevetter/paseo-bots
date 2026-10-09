@@ -131,7 +131,8 @@ export class RoutineScheduler {
   private readonly records = serial();
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
-  private readonly launches = new Map<string, Set<Promise<void>>>();
+  /** Runs whose chat is starting, by routine and run id. */
+  private readonly launches = new Map<string, Map<string, Promise<void>>>();
 
   constructor(
     private readonly host: BotsHost,
@@ -218,7 +219,7 @@ export class RoutineScheduler {
         .reverse()
         .find((entry) => entry.agentId === agentId && entry.status === "running");
     // A run whose chat is still starting is recorded once its launch settles, so a turn that ended early still matches.
-    await Promise.all(this.launches.get(routineId) ?? []);
+    await Promise.all(this.launches.get(routineId)?.values() ?? []);
     const run = await this.update((records) => {
       const found = waiting(records[routineId]);
       if (!found) return null;
@@ -295,7 +296,7 @@ export class RoutineScheduler {
     if (trigger === "schedule") record.lastRunAt = now;
     const blocked = await this.blocked(request, record);
     record.runs = [...record.runs, run].slice(-KEEP_RUNS);
-    if (!blocked) return { run, release: this.track(routine.id) };
+    if (!blocked) return { run, release: this.track(routine.id, run.id) };
     Object.assign(run, { endedAt: now, ...blocked });
     return { run, release: null };
   }
@@ -311,19 +312,20 @@ export class RoutineScheduler {
       };
     // Skip while the previous run is still working (webhooks allow a few at once).
     const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
-    const starting = this.launches.get(routine.id)?.size ?? 0;
-    return starting + (await this.busyRuns(record, limit)) >= limit ? { status: "skipped-busy" } : null;
+    const starting = this.launches.get(routine.id);
+    const busy = await this.busyRuns(record, limit, starting);
+    return (starting?.size ?? 0) + busy >= limit ? { status: "skipped-busy" } : null;
   }
 
-  private track(routineId: string): () => void {
+  private track(routineId: string, runId: string): () => void {
     let settle = () => {};
     const launch = new Promise<void>((resolve) => {
       settle = resolve;
     });
-    const launches = this.launches.get(routineId) ?? new Set();
-    this.launches.set(routineId, launches.add(launch));
+    const launches = this.launches.get(routineId) ?? new Map();
+    this.launches.set(routineId, launches.set(runId, launch));
     return () => {
-      launches.delete(launch);
+      launches.delete(runId);
       if (launches.size === 0) this.launches.delete(routineId);
       settle();
     };
@@ -348,8 +350,15 @@ export class RoutineScheduler {
     });
   }
 
-  private async busyRuns(record: RoutineRecord, limit: number): Promise<number> {
-    const recent = record.runs.filter((entry) => entry.agentId && entry.status === "running").slice(-limit);
+  /** A run that's still starting already counts as starting. */
+  private async busyRuns(
+    record: RoutineRecord,
+    limit: number,
+    starting?: ReadonlyMap<string, unknown>,
+  ): Promise<number> {
+    const recent = record.runs
+      .filter((entry) => entry.agentId && entry.status === "running" && !starting?.has(entry.id))
+      .slice(-limit);
     let busy = 0;
     for (const entry of recent) if (await this.working(entry.agentId)) busy++;
     return busy;
