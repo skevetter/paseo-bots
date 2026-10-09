@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { CommandAllowlist } from "../server/commands";
 import { botLimits, type ProviderModes } from "../shared/bot-checks";
 
 import { shellCommand } from "../shared/commands";
@@ -35,6 +36,36 @@ describe("allowed commands", () => {
     ).rejects.toThrow("credentials");
     await expect(commands.add("bot-a", "ls", "relative/dir")).rejects.toThrow("absolute path");
     await expect(commands.add("bot-a", "ls", "/work/../etc")).rejects.toThrow("absolute path");
+  });
+
+  it("never widens a rule to another spelling of its folder or a longer command", async () => {
+    const commands = new CommandAllowlist();
+    const real = join(home, "real");
+    const link = join(home, "link");
+    await mkdir(real);
+    await symlink(real, link);
+    await commands.add("bot-s", "ls", real);
+    await commands.add("bot-s", "cat notes", link);
+    for (const cwd of [`${real}/`, `${real}/../real`, `${home}/./real`, `${home}//real`, link])
+      expect(await commands.matches("bot-s", "ls", cwd), cwd).toBe(false);
+    expect(await commands.matches("bot-s", "cat notes", real)).toBe(false);
+    expect(await commands.matches("bot-s", "cat notes", link)).toBe(true);
+    for (const command of [
+      " ls",
+      "ls ",
+      "ls\n",
+      "ls\nrm -rf ~",
+      "ls; rm -rf ~",
+      "ls && x",
+      "ls || x",
+      "ls $(x)",
+      "ls `x`",
+      "ls | sh",
+      "ls > ~/.bashrc",
+      "ls &",
+    ])
+      expect(await commands.matches("bot-s", command, real), JSON.stringify(command)).toBe(false);
+    expect(await commands.matches("bot-s", "ls", real)).toBe(true);
   });
 
   it("reads the command and folder of a shell approval", () => {
