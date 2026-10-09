@@ -511,10 +511,17 @@ function retainItem(old: StreamLayoutItem, item: StreamLayoutItem): StreamLayout
 /** Reuses unchanged rows and items so memoised rows skip rendering while another row streams. */
 export function retainLayout(previous: StreamLayout | null, next: StreamLayout): StreamLayout {
   if (!previous) return next;
-  const byKey = new Map(previous.items.map((item) => [item.row.key, item]));
+  let byKey: Map<string, StreamLayoutItem> | null = null;
+  // Rows only move when older history loads, so the item at the same index is nearly always the match.
+  const oldItem = (key: string, index: number) => {
+    const aligned = previous.items[index];
+    if (aligned?.row.key === key) return aligned;
+    byKey ??= new Map(previous.items.map((item) => [item.row.key, item]));
+    return byKey.get(key);
+  };
   let changed = previous.items.length !== next.items.length;
   const items = next.items.map((item, index) => {
-    const old = byKey.get(item.row.key);
+    const old = oldItem(item.row.key, index);
     const kept = old ? retainItem(old, item) : item;
     if (kept !== previous.items[index]) changed = true;
     return kept;

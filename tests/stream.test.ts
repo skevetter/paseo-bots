@@ -366,6 +366,16 @@ describe("retainLayout", () => {
     expect(first.items[1]?.row.kind).toBe("todo");
     expect(second.items[1]).toBe(first.items[1]);
   });
+
+  it("finds rows by key when older history loads above them", () => {
+    const older = [user("old"), assistant("old reply")];
+    const newer = [user("new"), assistant("new reply")];
+    const first = layoutStream(buildRows(newer, false), false);
+    const second = retainLayout(first, layoutStream(buildRows([...older, ...newer], false), false));
+    expect(second.items.slice(2)).toEqual(first.items);
+    expect(second.items[2]).toBe(first.items[0]);
+    expect(second.items[3]).toBe(first.items[1]);
+  });
 });
 
 describe("mergeEntries", () => {
