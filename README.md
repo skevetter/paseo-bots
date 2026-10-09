@@ -57,7 +57,7 @@ Compared with oliexe/paseo-bots 0.2.0, this fork:
 - writes state files through a temporary file and sets an unreadable file aside;
 - checks each relay token before it reads a request, and bounds request sizes;
 - keeps routine history through corrupt files, missed runs and failing routines;
-- shows loading and error states for apps, MCP server tests and routine runs;
+- shows loading and error states for apps, server tests and runs;
 - labels icon buttons for screen readers;
 - lints with Biome and releases from this repository with semantic-release.
 
@@ -68,6 +68,7 @@ npm ci
 npm run lint
 npm run typecheck
 npm test
+npm run bench
 ```
 
 Paseo supplies React 19.1, React Native 0.81 and React Query 5.90 at runtime. Use no newer React Query API.
