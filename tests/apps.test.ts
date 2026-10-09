@@ -2,7 +2,8 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { setKey } from "../server/composio";
 import {
   appDomain,
   appForTool,
@@ -464,22 +465,24 @@ function handleFakeRequest(
   send(404, { message: "not found" });
 }
 
+const fakeAccounts = (): FakeAccount[] => [
+  {
+    id: "ca_1",
+    status: "ACTIVE",
+    toolkit: { slug: "gmail" },
+    alias: null,
+    data: { displayName: "me@example.com", access_token: "secret-token" },
+  },
+  { id: "ca_2", status: "ACTIVE", toolkit: { slug: "slack" } },
+];
+
 function serveFakeComposio(): FakeComposio {
   const fake: FakeComposio = {
     home: "",
     origin: "",
     calls: [],
     forwarded: [],
-    accounts: [
-      {
-        id: "ca_1",
-        status: "ACTIVE",
-        toolkit: { slug: "gmail" },
-        alias: null,
-        data: { displayName: "me@example.com", access_token: "secret-token" },
-      },
-      { id: "ca_2", status: "ACTIVE", toolkit: { slug: "slack" } },
-    ],
+    accounts: [],
     sessionBodies: [],
     linkBodies: [],
   };
@@ -498,6 +501,11 @@ function serveFakeComposio(): FakeComposio {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     fake.origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
     process.env.PASEO_BOTS_COMPOSIO_ORIGIN = fake.origin;
+  });
+
+  beforeEach(async () => {
+    fake.accounts = fakeAccounts();
+    await setKey({ key: "ak_test" });
   });
 
   afterAll(async () => {
@@ -608,7 +616,7 @@ function relayTests(fake: FakeComposio) {
       expect(await init.text()).toContain('"ok":true');
       expect(fake.forwarded.at(-1)?.key).toBe("ak_test");
 
-      // Slack isn't allowed for bot-1 (and it's no longer connected either, so only Gmail counts).
+      // Slack is connected but isn't allowed for bot-1, so only Gmail counts.
       const gmail = await postTo(url, auth, {
         jsonrpc: "2.0",
         id: 2,
@@ -640,9 +648,6 @@ function relayTests(fake: FakeComposio) {
   });
 
   it("refuses executing a connected app the bot isn't allowed", async () => {
-    fake.accounts = [...fake.accounts, { id: "ca_3", status: "ACTIVE", toolkit: { slug: "slack" } }];
-    const composio = await import("../server/composio");
-    await composio.accounts({ fresh: true });
     const { Relay } = await import("../server/relay");
     const relay = new Relay(fakeHost([makeBot({ id: "bot-1", apps: ["gmail"] })]), []);
     try {

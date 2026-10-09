@@ -229,8 +229,8 @@ function sseMcpServer() {
   });
 }
 
-describe("server library", () => {
-  useTempPaseoHome("paseo-bots-lib-");
+describe("renamed plugin data", () => {
+  useTempPaseoHome("paseo-bots-rename-");
 
   it("moves the old paseo-bot data folder to the new name and links it", async () => {
     const { migrateRenamedPluginData, pluginDataPath } = await import("../server/bot-home");
@@ -245,6 +245,10 @@ describe("server library", () => {
     migrateRenamedPluginData();
     expect(await readlink(legacy)).toBe(pluginDataPath());
   });
+});
+
+describe("server library", () => {
+  useTempPaseoHome("paseo-bots-lib-");
 
   it("only gives bots skills whose SKILL.md is what the user reviewed", async () => {
     const { writeSkill, sha256 } = await import("../server/library");

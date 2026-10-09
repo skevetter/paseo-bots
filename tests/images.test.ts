@@ -39,6 +39,7 @@ describe("avatar pictures", () => {
 
   it("draws with the key and returns a data URL, without echoing error bodies", async () => {
     const images = await import("../server/images");
+    await images.setImageKey({ key: "sk-test-1234" });
     const requests: { url: string; body: Record<string, unknown>; auth: string | undefined }[] = [];
     const reply =
       (status: number, body: unknown) =>
