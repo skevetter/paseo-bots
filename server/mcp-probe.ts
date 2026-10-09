@@ -1,8 +1,11 @@
 import { spawnProcess, terminateProcess } from "@getpaseo/plugin/server";
 import type { McpServerConfig, McpTool } from "../shared/bot";
+import { browserUnreachableMessage, browserUrlOf } from "../shared/browser";
 import { PLUGIN_VERSION } from "../shared/version";
+import { deadline } from "./composio";
 
 const TIMEOUT_MS = 30_000;
+const BROWSER_TIMEOUT_MS = 3_000;
 const MAX_TOOLS = 200;
 const MAX_PAGES = 5;
 const PROTOCOL_VERSION = "2025-06-18";
@@ -322,10 +325,24 @@ function redact(text: string, config: McpServerConfig): string {
   return secrets.reduce((out, secret) => out.split(secret).join("•••"), text);
 }
 
-function probe(config: McpServerConfig, signal: AbortSignal): Promise<McpTool[]> {
-  if (config.type === "stdio") return probeStdio(config, signal);
+/** chrome-devtools-mcp lists its tools without the browser, so check the browser is listening first. */
+async function browserAnswers(url: string): Promise<boolean> {
+  try {
+    const response = await fetch(new URL("/json/version", url), { signal: deadline(BROWSER_TIMEOUT_MS) });
+    await response.body?.cancel();
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function probe(config: McpServerConfig, signal: AbortSignal): Promise<McpTool[]> {
   if (config.type === "http") return probeHttp(config, signal);
-  return probeSse(config, signal);
+  if (config.type === "sse") return probeSse(config, signal);
+  const browserUrl = browserUrlOf(config);
+  if (browserUrl && !(await browserAnswers(browserUrl)))
+    throw new Error(browserUnreachableMessage(browserUrl));
+  return probeStdio(config, signal);
 }
 
 function failureMessage(error: unknown, aborted: boolean): string {

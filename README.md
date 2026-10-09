@@ -79,6 +79,7 @@ Press **Skills & Tools** at the bottom of the bot list.
 
 - **Skills**: press **+** to import skills from GitHub (`owner/repo`, a folder or a `SKILL.md` link) or write a new one. Open an imported skill and press **Review** to turn it on.
 - **MCP servers**: press **+**, then **New server**, or **Import config** to pick up the servers set up in Claude Code, Claude Desktop or Cursor. Press **Test and turn on** on the server's page.
+- **Browser (your Chromium browser)**: a built-in MCP server that runs [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) against the Chrome, Brave or other Chromium browser you already use. A bot with it acts as you on every site you're signed in to, so it's off for every bot until you give it to one. Start the browser with `--remote-debugging-port=9222`, set **Browser address** if you use another port, and press **Test and turn on**. An existing server that runs `chrome-devtools-mcp` takes its place instead of a second entry.
 
 Then give them to a bot in its settings: skills under **Skills**, MCP servers under **Access**.
 

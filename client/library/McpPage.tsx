@@ -10,12 +10,14 @@ import {
 import { useState } from "react";
 import { Text, View } from "react-native";
 import type { Bot, LibraryMcpServer, McpTool } from "../../shared/bot";
+import { BROWSER_SERVER_ID, isBrowserServer, mcpServerLabel } from "../../shared/browser";
 import { mcpServerTested, mcpTarget } from "../../shared/library";
 import { mcpProbeRpc } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
 import { errorText, MONO_FONT, MONO_PROPS } from "../native";
 import { Alert, Button, CardNote, SectionLink, SectionMeta } from "../panel/controls";
 import { code, ui } from "../typography";
+import { BrowserSection } from "./BrowserSection";
 import { type McpDraft, ServerSheet } from "./McpSheets";
 import { BotsCard, DangerZone, PageTitle } from "./parts";
 
@@ -63,9 +65,16 @@ export function McpPage({
 
   return (
     <>
-      {showTitle ? <PageTitle colors={colors} title={server.name} /> : null}
+      {showTitle ? <PageTitle colors={colors} title={mcpServerLabel(server)} /> : null}
       {!server.enabled && !tested ? (
         <TestFirstNotice colors={colors} testing={testing} onTest={() => void test(server.config, true)} />
+      ) : null}
+      {isBrowserServer(server) ? (
+        <BrowserSection
+          colors={colors}
+          config={server.config}
+          onConfig={(config) => saveEdit({ name: server.name, description: server.description, config })}
+        />
       ) : null}
       <ServerSection
         server={server}
@@ -85,14 +94,16 @@ export function McpPage({
         onToggle={onToggleBot}
       />
 
-      <DangerZone
-        label="Delete server"
-        hint="Removes it from the library and from every bot"
-        actionLabel="Delete"
-        confirmTitle="Delete MCP server?"
-        confirmMessage={`Delete "${server.name}"? No bot will get it any more.`}
-        onConfirm={onDelete}
-      />
+      {server.id === BROWSER_SERVER_ID ? null : (
+        <DangerZone
+          label="Delete server"
+          hint="Removes it from the library and from every bot"
+          actionLabel="Delete"
+          confirmTitle="Delete MCP server?"
+          confirmMessage={`Delete "${server.name}"? No bot will get it any more.`}
+          onConfirm={onDelete}
+        />
+      )}
 
       {editing ? (
         <ServerSheet

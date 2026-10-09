@@ -4,6 +4,7 @@ import { type ReactNode, useRef } from "react";
 import { type LayoutRectangle, Pressable, Text, View } from "react-native";
 import type { AppAccount } from "../../shared/apps";
 import type { Library, LibraryMcpServer, LibrarySkill } from "../../shared/bot";
+import { mcpServerLabel } from "../../shared/browser";
 import { matchesQuery, mcpTarget } from "../../shared/library";
 import { nativeTokens, useHover } from "../native";
 import type { LibraryTarget } from "../navigation";
@@ -170,7 +171,9 @@ function ServersGroup({
   onAdd,
 }: GroupRowsProps & { servers: readonly LibraryMcpServer[]; onAdd(anchor: LayoutRectangle): void }) {
   const shown = servers
-    .filter((server) => matchesQuery(query, server.name, server.description, mcpTarget(server.config)))
+    .filter((server) =>
+      matchesQuery(query, mcpServerLabel(server), server.name, server.description, mcpTarget(server.config)),
+    )
     .sort((a, b) => a.name.localeCompare(b.name));
   return (
     <Group colors={colors} label="MCP servers" addLabel="Add MCP server" onAdd={onAdd}>
@@ -179,7 +182,7 @@ function ServersGroup({
           key={server.id}
           colors={colors}
           icon="Plug"
-          label={server.name}
+          label={mcpServerLabel(server)}
           note={server.enabled ? undefined : "Off"}
           selected={isSelected(selected, "mcp", server.id)}
           touch={touch}

@@ -2,7 +2,7 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { ScrollView, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { type LayoutRectangle, View } from "react-native";
 import type { AppAccount, AppCard } from "../../shared/apps";
 import {
@@ -14,6 +14,7 @@ import {
   type LibraryMcpServer,
   type LibrarySkill,
 } from "../../shared/bot";
+import { mcpServerLabel, withBrowserServer } from "../../shared/browser";
 import {
   addMcpServers,
   forgetItem,
@@ -118,7 +119,7 @@ export function LibraryView({
   const apps = useAppConnections(setTarget);
   const actions = useLibraryActions(commit, setTarget);
   const menus = useAddMenus(setSheet);
-  const library = values.library ?? EMPTY_LIBRARY;
+  const library = useMemo(() => withBrowserServer(values.library ?? EMPTY_LIBRARY), [values.library]);
 
   const shown = target ?? (compact ? null : firstTarget(library));
   const selection = resolveSelection({ library, shown, accounts: apps.accounts, catalog: apps.catalog });
@@ -249,7 +250,7 @@ function useLibraryActions(commit: LibraryViewProps["commit"], setTarget: SetTar
   /** Changes the library and the bots together in one write. */
   const save: SaveLibrary = (mutate) =>
     commit((values) => {
-      const current = values.library ?? EMPTY_LIBRARY;
+      const current = withBrowserServer(values.library ?? EMPTY_LIBRARY);
       const next = mutate(current, values.bots);
       return { ...values, library: next.library ?? current, bots: next.bots ?? values.bots };
     });
@@ -480,7 +481,7 @@ function pageTitle(selection: Selection, shown: LibraryTarget | null): string {
     case "skill":
       return selection.skill.id;
     case "mcp":
-      return selection.server.name;
+      return mcpServerLabel(selection.server);
     case "app":
       return selection.app.name;
     default:

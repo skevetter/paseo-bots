@@ -1,6 +1,7 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import type { Bot } from "../../shared/bot";
+import { mcpServerLabel } from "../../shared/browser";
 import { type LibraryKind, mcpServerTested, mcpTarget, setBotUses } from "../../shared/library";
 import { openLibrary } from "../navigation";
 import type { PanelProps } from "./BotPanel";
@@ -25,7 +26,7 @@ export function LibraryPicker({ colors, bot, library, onPatch, kind, title, info
         }))
       : library.mcpServers.map((server) => ({
           id: server.id,
-          label: server.name,
+          label: mcpServerLabel(server),
           hint: server.description || mcpTarget(server.config),
           enabled: server.enabled,
           offHint: mcpServerTested(server)
