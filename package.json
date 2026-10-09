@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "coverage": "vitest run --coverage",
-    "bench": "vitest bench --run bench/"
+    "bench": "vitest bench --run --no-file-parallelism bench/"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
