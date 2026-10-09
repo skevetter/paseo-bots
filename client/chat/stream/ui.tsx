@@ -20,6 +20,7 @@ import { tooltip } from "../../ui/Tooltip";
 type Colors = PluginTheme["colors"];
 
 export const isWeb = Platform.OS === "web";
+export const METADATA_SIZE = 13;
 
 export function keysWithOccurrence(values: string[]): string[] {
   const seen = new Map<string, number>();

@@ -44,7 +44,8 @@ import {
   type StreamLayoutItem,
   type StreamRow,
 } from "./stream/model";
-import { CompletedTurnFooter, RowContent, type RowContext, RowFrame, WorkingIndicator } from "./stream/rows";
+import { RowContent, type RowContext, RowFrame } from "./stream/rows";
+import { CompletedTurnFooter, WorkingIndicator } from "./stream/TurnFooter";
 import { SecondaryButton } from "./stream/ui";
 
 type Colors = PluginTheme["colors"];
