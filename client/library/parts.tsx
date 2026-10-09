@@ -43,12 +43,12 @@ export function PageTitle({ colors, title }: { colors: Colors; title: string }) 
 export function BackBar({
   colors,
   title,
-  backLabel = "Back to Skills & Tools",
+  backLabel,
   onBack,
 }: {
   colors: Colors;
   title: string;
-  backLabel?: string;
+  backLabel: string;
   onBack(): void;
 }) {
   const { hovered, hoverProps } = useHover();

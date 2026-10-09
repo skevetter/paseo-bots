@@ -103,7 +103,12 @@ export const CompletedTurnFooter = memo(function CompletedTurnFooter({
   return (
     <TurnFooterRow>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <CopyButton colors={colors} getContent={getContent} style={{ alignSelf: "center", marginLeft: -4 }} />
+        <CopyButton
+          colors={colors}
+          getContent={getContent}
+          label="Copy turn"
+          style={{ alignSelf: "center", marginLeft: -4 }}
+        />
         {canSpeak && voice !== undefined && footer.copy ? (
           <SpeakButton colors={colors} text={footer.copy} voice={voice} />
         ) : null}

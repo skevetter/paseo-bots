@@ -3,6 +3,7 @@ import type { Routine } from "../../../shared/bot";
 import { describeSchedule, nextRun } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
 import { relativeTime } from "../../../shared/time";
+import { actionsLabel } from "../../a11y";
 import { type MenuEntry, useMenu } from "../../ui/Menu";
 import type { PanelProps } from "../BotPanel";
 import { type BadgeVariant, KebabButton, PressableRow, RowText, StatusBadge } from "../controls";
@@ -111,7 +112,7 @@ export function RoutineRow({
             <StatusBadge colors={colors} label={badge.label} variant={badge.variant} />
             <KebabButton
               colors={colors}
-              label="Routine actions"
+              label={actionsLabel(routine.name || "Untitled routine")}
               onOpen={(anchor) =>
                 menu.open({
                   anchor,

@@ -166,6 +166,7 @@ function Popover({
   return (
     <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
       <Pressable
+        accessibilityRole="button"
         accessibilityLabel="Close menu"
         onPress={onClose}
         style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}

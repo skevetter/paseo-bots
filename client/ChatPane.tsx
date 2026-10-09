@@ -212,18 +212,33 @@ function Header({
       {onFind ? (
         <HeaderButton colors={colors} compact={compact} icon="Search" label="Find in chat" onPress={onFind} />
       ) : null}
-      {/* On desktop the open panel owns its close button, so the toggle hides (workspace-explorer-toggle.tsx). */}
-      {compact || !panelOpen ? (
-        <HeaderButton
-          colors={colors}
-          compact={compact}
-          icon="PanelRight"
-          label="Show bot settings"
-          expanded={panelOpen}
-          onPress={onTogglePanel}
-        />
-      ) : null}
+      <PanelToggle colors={colors} compact={compact} panelOpen={panelOpen} onToggle={onTogglePanel} />
     </View>
+  );
+}
+
+function PanelToggle({
+  colors,
+  compact,
+  panelOpen,
+  onToggle,
+}: {
+  colors: Colors;
+  compact: boolean;
+  panelOpen: boolean;
+  onToggle(): void;
+}) {
+  // On desktop the open panel owns its close button, so the toggle hides (workspace-explorer-toggle.tsx).
+  if (!compact && panelOpen) return null;
+  return (
+    <HeaderButton
+      colors={colors}
+      compact={compact}
+      icon="PanelRight"
+      label={panelOpen ? "Hide bot settings" : "Show bot settings"}
+      expanded={panelOpen}
+      onPress={onToggle}
+    />
   );
 }
 

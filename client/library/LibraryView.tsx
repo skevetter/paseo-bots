@@ -599,7 +599,7 @@ function CompactColumns({
       {open ? (
         <SlideOver onClose={onClose}>
           <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
-            <BackBar colors={colors} title={title} onBack={onClose} />
+            <BackBar colors={colors} title={title} backLabel="Back to Skills & Tools" onBack={onClose} />
             {page}
           </View>
         </SlideOver>

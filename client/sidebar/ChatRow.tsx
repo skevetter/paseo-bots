@@ -5,6 +5,7 @@ import type { Bot } from "../../shared/bot";
 import { displayTitle } from "../../shared/chat";
 import { BUCKET_LABELS, type ChatBucket, chatBucket } from "../../shared/sidebar";
 import { Avatar } from "../Avatar";
+import { actionsLabel } from "../a11y";
 import type { NativeTokens } from "../native";
 import type { PaseoAgent } from "../paseo";
 import { ui } from "../typography";
@@ -113,6 +114,7 @@ export const ChatRow = memo(function ChatRow({
           touch={touch}
           selected={selected}
           hovered={hovered}
+          title={title}
           onMenu={onMenu}
         />
       ) : null}
@@ -190,8 +192,10 @@ function ChatRowKebab({
   touch,
   selected,
   hovered,
+  title,
   onMenu,
-}: Pick<ChatRowProps, "colors" | "tokens" | "touch" | "selected" | "onMenu"> & ChatRowState) {
+}: Pick<ChatRowProps, "colors" | "tokens" | "touch" | "selected" | "onMenu"> &
+  ChatRowState & { title: string }) {
   const kebabRef = useRef<View>(null);
   return (
     <View style={{ position: "absolute", top: 8, right: 12, flexDirection: "row" }}>
@@ -206,7 +210,7 @@ function ChatRowKebab({
         <KebabButton
           colors={colors}
           buttonRef={kebabRef}
-          label="Chat actions"
+          label={actionsLabel(title)}
           onPress={() => void measureAnchor(kebabRef).then((anchor) => anchor && onMenu(anchor, "kebab"))}
         />
       </View>

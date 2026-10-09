@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Bot, BotListUi } from "../../shared/bot";
 import { SIDEBAR_GROUP_LIMIT } from "../../shared/sidebar";
+import { disclosureLabel } from "../a11y";
 import { useBotChats, useBotHost } from "../data";
 import { type NativeTokens, useHover } from "../native";
 import { ui } from "../typography";
@@ -41,7 +42,7 @@ export function PinnedSection(props: PinnedProps) {
     <View style={{ marginBottom: 4 }}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Pinned"
+        accessibilityLabel={disclosureLabel(!collapsed, "Pinned")}
         accessibilityState={{ expanded: !collapsed }}
         onPress={onTogglePinnedSection}
         {...hoverProps}

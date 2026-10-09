@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { ChatBucket } from "../../shared/sidebar";
 import { Avatar } from "../Avatar";
+import { actionsLabel, disclosureLabel } from "../a11y";
 import { useHover } from "../native";
 import { ui } from "../typography";
 import { contextMenuProps, measureAnchor } from "../ui/Menu";
@@ -45,7 +46,7 @@ export function BotRow(props: BotRowProps) {
     >
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={bot.name}
+        accessibilityLabel={disclosureLabel(isOpen, bot.name)}
         accessibilityState={{ expanded: isOpen }}
         onPress={() => onToggle(bot.id)}
         {...contextMenuProps((anchor) => onBotMenu(bot, anchor, "context"))}
@@ -161,7 +162,7 @@ function BotRowActions({ colors, bot, visible, onSelect, onBotMenu }: BotRowProp
         <KebabButton
           colors={colors}
           buttonRef={kebabRef}
-          label="Bot actions"
+          label={actionsLabel(bot.name)}
           box
           onPress={() =>
             void measureAnchor(kebabRef).then((anchor) => anchor && onBotMenu(bot, anchor, "kebab"))

@@ -142,12 +142,12 @@ function useShimmer(active: boolean, duration: number): Shimmer {
 export const CopyButton = memo(function CopyButton({
   colors,
   getContent,
-  label = "Copy turn",
+  label,
   style,
 }: {
   colors: Colors;
   getContent(): string;
-  label?: string;
+  label: string;
   style?: object;
 }) {
   const [copied, setCopied] = useState(false);
