@@ -142,6 +142,8 @@ async function importSkillDir(tree: RepoTree, dir: string): Promise<ImportedSkil
           (other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`),
         ),
     )
+    // The cap must not drop the one file a skill needs.
+    .sort((a, b) => Number(b.path === `${base}SKILL.md`) - Number(a.path === `${base}SKILL.md`))
     .slice(0, MAX_FILES_PER_SKILL);
   const files = new Map<string, string>();
   for (const blob of blobs) {
