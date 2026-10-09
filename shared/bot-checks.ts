@@ -56,6 +56,11 @@ export function utf8Bytes(text: string): number {
   return bytes;
 }
 
+/** Kilobytes to one decimal, in the 1000-byte units the limits use. */
+export function kb(bytes: number): string {
+  return (bytes / 1000).toFixed(1);
+}
+
 /** `isLocalHost`: the bot runs on the storing host. */
 export function botProblems(bot: Bot, isLocalHost: boolean): string[] {
   const problems: string[] = [];

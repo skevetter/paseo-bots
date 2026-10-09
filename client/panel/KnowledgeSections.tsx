@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
 import type { Playbook } from "../../shared/bot";
-import { SOUL_MAX_BYTES, utf8Bytes } from "../../shared/bot-checks";
+import { kb, SOUL_MAX_BYTES, utf8Bytes } from "../../shared/bot-checks";
 import { newPlaybookId } from "../../shared/bot-ids";
 
 import { parseTriggers } from "../../shared/playbooks";
@@ -21,8 +21,6 @@ import { CardNote, DrillRow, SectionLink, SectionMeta } from "./rows";
 import { Alert } from "./status";
 
 type Colors = PanelProps["colors"];
-
-const kb = (bytes: number) => (bytes / 1000).toFixed(1);
 
 function LocalOnly({ colors, what }: { colors: Colors; what: string }) {
   return (

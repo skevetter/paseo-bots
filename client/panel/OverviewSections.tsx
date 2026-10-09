@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { Bot } from "../../shared/bot";
 import { botMcpServers, botSkills } from "../../shared/bot-agent";
-import { botLimits, estimateTokens, utf8Bytes } from "../../shared/bot-checks";
+import { botLimits, estimateTokens, kb, utf8Bytes } from "../../shared/bot-checks";
 import type { PromptSection } from "../../shared/bot-prompt";
 
 import { teamOf } from "../../shared/groups";
@@ -30,7 +30,7 @@ function useDebounced<T>(value: T, ms: number): T {
 }
 
 function size(text: string): string {
-  return `${(utf8Bytes(text) / 1000).toFixed(1)} KB · ≈${estimateTokens(text).toLocaleString()} tokens`;
+  return `${kb(utf8Bytes(text))} KB · ≈${estimateTokens(text).toLocaleString()} tokens`;
 }
 
 function teamLine(bot: Bot, groups: PanelProps["groups"]): string {

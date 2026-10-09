@@ -5,6 +5,7 @@ import { SettingsAction, SettingsCard, SettingsSection, SettingsSwitch } from "@
 import { useEffect, useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Bot, BotAvatar, Preset } from "../shared/bot";
+import { kb, utf8Bytes } from "../shared/bot-checks";
 import { exportBotRpc } from "../shared/rpc";
 import { BOT_TEMPLATES, type BotTemplate } from "../shared/templates";
 import { Avatar } from "./Avatar";
@@ -466,7 +467,7 @@ export function ExportDialog({ colors, bot, onClose }: { colors: Colors; bot: Bo
             label="Copy the bot file"
             hint={
               json
-                ? `${(json.length / 1000).toFixed(1)} KB · host, folder, tool grants, secrets and chats aren't included.`
+                ? `${kb(utf8Bytes(json))} KB · host, folder, tool grants, secrets and chats aren't included.`
                 : "Building..."
             }
             actionLabel="Copy"
