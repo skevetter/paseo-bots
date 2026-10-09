@@ -195,6 +195,29 @@ describe("the relay's own failures", () => {
     }
   });
 
+  it("starts again after a start that failed", async () => {
+    const refuse = function (this: Server) {
+      queueMicrotask(() => this.emit("error", Object.assign(new Error("listen EACCES"), { code: "EACCES" })));
+      return this;
+    };
+    const listen = vi
+      .spyOn(Server.prototype, "listen")
+      .mockImplementationOnce(refuse)
+      .mockImplementationOnce(refuse);
+    const relay = new Relay(fakeHost([]), []);
+    try {
+      await expect(relay.start()).rejects.toThrow("EACCES");
+      listen.mockRestore();
+      const port = await relay.start();
+      expect((await post(`http://127.0.0.1:${port}/nowhere`, {}, (request) => request.end())).status).toBe(
+        404,
+      );
+    } finally {
+      listen.mockRestore();
+      await relay.stop();
+    }
+  });
+
   it("cuts off an answer that failed after it started", async () => {
     const relay = new Relay(fakeHost([]), []);
     relay.addRoute(async (_request, response, path) => {

@@ -134,9 +134,15 @@ export class Relay {
     this.routes.push(route);
   }
 
-  /** Reuses the previous port when it's free so running chats keep their URLs. */
+  /** Reuses the previous port when it's free so running chats keep their URLs. A failed start can be retried. */
   start(): Promise<number> {
-    this.listening ??= this.open(this.starts);
+    if (!this.listening) {
+      const listening = this.open(this.starts);
+      this.listening = listening;
+      listening.catch(() => {
+        if (this.listening === listening) this.listening = null;
+      });
+    }
     return this.listening;
   }
 
