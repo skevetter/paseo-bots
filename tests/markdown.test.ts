@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  type Block,
-  capMessageForRender,
-  formatDuration,
-  type Inline,
-  parseInline,
-  parseMarkdown,
-  utf8ByteLength,
-} from "../shared/markdown";
+import { parseMarkdown } from "../shared/markdown/blocks";
+import { parseInline } from "../shared/markdown/inline";
+import { capMessageForRender, utf8ByteLength } from "../shared/markdown/render-limit";
+import { formatDuration } from "../shared/markdown/timestamps";
+import type { Block, Inline } from "../shared/markdown/types";
 
 const text = (value: string): Inline => ({ kind: "text", text: value });
 

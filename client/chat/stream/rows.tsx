@@ -4,12 +4,8 @@ import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import { Image, Pressable, Text, View } from "react-native";
 import { appSignIns } from "../../../shared/apps";
 import type { ComposerAttachment } from "../../../shared/attachments";
-import {
-  capMessageForRender,
-  formatDuration,
-  formatMessageTimestamp,
-  utf8ByteLength,
-} from "../../../shared/markdown";
+import { capMessageForRender, utf8ByteLength } from "../../../shared/markdown/render-limit";
+import { formatDuration, formatMessageTimestamp } from "../../../shared/markdown/timestamps";
 import { proposalIdOf } from "../../../shared/proposals";
 import {
   buildToolCallPresentation,
