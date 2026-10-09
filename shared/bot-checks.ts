@@ -7,7 +7,7 @@ export interface ProviderModes {
   defaultModeId?: string | null;
 }
 
-const UNATTENDED_MODE_WORDS = /(^|-)(bypass|yolo|dangerous(ly)?|full-access|allow-all)(-|$)/;
+const UNATTENDED_MODE_WORDS = /(^|-)(bypass|yolo|dangerous(ly)?|full-access|allow-all|dont-ask)(-|$)/;
 
 /** Whether the bot's mode, or the provider's default when it has none, runs commands without asking. */
 export function runsUnattended(bot: Pick<Bot, "modeId">, provider: ProviderModes | undefined): boolean {

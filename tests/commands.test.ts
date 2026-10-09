@@ -153,7 +153,8 @@ describe("what a bot won't do", () => {
       defaultModeId: "default",
       modes: [{ id: "default" }, { id: "accept_edits" }, { id: "dont_ask" }],
     };
-    expect(asks("dont_ask", hermes)).toBe(true);
+    expect(asks("dont_ask", hermes)).toBe(false);
+    expect(asks("dontAsk")).toBe(false);
     expect(asks("accept_edits", hermes)).toBe(true);
     expect(asks(null, hermes)).toBe(true);
   });
