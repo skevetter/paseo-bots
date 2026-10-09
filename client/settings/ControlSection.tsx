@@ -43,16 +43,29 @@ function EndpointRows({ onRotate }: { onRotate(): void }) {
     refetchInterval: STATE_POLL_MS,
   });
   const url = info.data?.url;
+  const command = info.data?.command ?? "";
+  const copy = (text: string, done: string) =>
+    void copyText(text).then(() => toast.show(done, { variant: "success" }));
   return (
     <>
+      <SettingsAction
+        label="Client config"
+        hint={command ? `Starts ${command}` : "Starting..."}
+        actionLabel="Copy"
+        disabled={!url}
+        onPress={() =>
+          copy(
+            JSON.stringify({ mcpServers: { "paseo-bots": { command } } }, null, 2),
+            "MCP client config copied",
+          )
+        }
+      />
       <SettingsAction
         label="Endpoint"
         hint={url ? `${url}, token in ${info.data?.tokenFile}` : "Starting..."}
         actionLabel="Copy"
         disabled={!url}
-        onPress={() =>
-          void copyText(url ?? "").then(() => toast.show("Endpoint copied", { variant: "success" }))
-        }
+        onPress={() => copy(url ?? "", "Endpoint copied")}
       />
       <SettingsAction
         label="Rotate token"

@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { json, readMessage, refuseNonPost, tokenMatches } from "../mcp-http";
 import { answerMcp } from "../tools/mcp";
 import { controlToken, publishControl, rotateControlToken, unpublishControl } from "./files";
+import { installShim } from "./shim";
 import type { ControlContext, ControlTool } from "./tool";
 
 export const CONTROL_PORT = 6898;
@@ -59,6 +60,7 @@ export class ControlServer {
     server.on("error", (error) => console.error("paseo-bots: the control server failed", error));
     this.server = server;
     this.address = `http://127.0.0.1:${port}${PATH}`;
+    await installShim();
     await publishControl(this.address);
     return this.address;
   }

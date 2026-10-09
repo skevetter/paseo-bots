@@ -193,7 +193,11 @@ function handleControl(server: PluginServerContext, services: Omit<ControlContex
   };
   const control = new ControlServer({ ...services, settings: read }, CONTROL_TOOLS);
   const stop = followControlSetting(settings, control);
-  server.handle(controlStatusRpc, () => ({ url: control.url, tokenFile: controlPaths().tokenFile }));
+  server.handle(controlStatusRpc, () => ({
+    url: control.url,
+    tokenFile: controlPaths().tokenFile,
+    command: controlPaths().shim,
+  }));
   server.handle(controlRotateRpc, async () => {
     await control.rotate();
     return { ok: true };

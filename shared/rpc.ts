@@ -471,11 +471,11 @@ export const commandRemoveRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-/** No token: the app shows where the endpoint is, and clients read the token file. */
+/** No token: the app shows where the endpoint is; `command` is the stdio shim MCP clients start. */
 export const controlStatusRpc = defineRpc({
   name: "bots.control.status",
   input: z.object({}),
-  output: z.object({ url: z.string().nullable(), tokenFile: z.string() }),
+  output: z.object({ url: z.string().nullable(), tokenFile: z.string(), command: z.string() }),
 });
 
 /** The old token stops working at once. */
