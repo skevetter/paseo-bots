@@ -5,7 +5,7 @@ import { aggregateBuckets, chatBucket, orderChats, SIDEBAR_GROUP_LIMIT } from ".
 import { useBotChats, useBotHost } from "../data";
 import type { PaseoAgent } from "../paseo";
 import { BotRow } from "./BotRow";
-import { ChatRow } from "./ChatRow";
+import { ChatRow, useChatRowActions } from "./ChatRow";
 import { NewChatGhostRow, ShowMoreRow } from "./controls";
 import type { GroupProps } from "./types";
 
@@ -95,6 +95,7 @@ function BotChatList({
   onChatMenu,
 }: ChatListProps) {
   const siblings = chats.map((chat) => chat.id);
+  const actions = useChatRowActions(bot, { onSelect, onChatMenu }, { siblings, pinned: false });
   const visible = expanded ? chats : chats.slice(0, SIDEBAR_GROUP_LIMIT);
   const startDraft = () => onSelect({ botId: bot.id, chatId: null });
   return (
@@ -111,10 +112,8 @@ function BotChatList({
           bot={bot}
           touch={touch}
           selected={selection?.botId === bot.id && selection.chatId === chat.id}
-          onPress={() => onSelect({ botId: bot.id, chatId: chat.id })}
-          onMenu={(anchor, source) =>
-            onChatMenu({ bot, chat, anchor, source, context: { siblings, pinned: false } })
-          }
+          onPress={actions.onPress}
+          onMenu={actions.onMenu}
         />
       ))}
       {chats.length > SIDEBAR_GROUP_LIMIT ? (

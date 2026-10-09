@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { memo, useRef, useState } from "react";
+import { memo, useCallback, useRef, useState } from "react";
 import { type LayoutRectangle, Pressable, Text, View } from "react-native";
 import type { Bot } from "../../shared/bot";
 import { displayTitle } from "../../shared/chat";
@@ -13,7 +13,7 @@ import { contextMenuProps, measureAnchor } from "../ui/Menu";
 import { KebabButton } from "./controls";
 import { ChatStatusSlot, StatusBadge } from "./status";
 import { noSelect } from "./styles";
-import type { MenuSource } from "./types";
+import type { ChatMenuContext, ChatMenuRequest, MenuSource, Selection } from "./types";
 
 type Colors = PluginTheme["colors"];
 
@@ -26,8 +26,30 @@ interface ChatRowProps {
   touch: boolean;
   /** Pinned rows sit outside their bot, so they lead with its avatar and name it underneath. */
   hoisted?: boolean;
-  onPress(): void;
-  onMenu(anchor: LayoutRectangle, source: MenuSource): void;
+  /** Stable callbacks (see useChatRowActions) let unchanged rows skip rendering. */
+  onPress(chat: PaseoAgent): void;
+  onMenu(chat: PaseoAgent, anchor: LayoutRectangle, source: MenuSource): void;
+}
+
+interface ChatRowActionProps {
+  onSelect(selection: Selection): void;
+  onChatMenu(request: ChatMenuRequest): void;
+}
+
+/** Row callbacks that keep their identity while the sidebar re-renders. */
+export function useChatRowActions(bot: Bot, props: ChatRowActionProps, context: ChatMenuContext) {
+  const latest = useRef({ props, context });
+  latest.current = { props, context };
+  const onPress = useCallback(
+    (chat: PaseoAgent) => latest.current.props.onSelect({ botId: bot.id, chatId: chat.id }),
+    [bot.id],
+  );
+  const onMenu = useCallback(
+    (chat: PaseoAgent, anchor: LayoutRectangle, source: MenuSource) =>
+      latest.current.props.onChatMenu({ bot, chat, anchor, source, context: latest.current.context }),
+    [bot],
+  );
+  return { onPress, onMenu };
 }
 
 export const ChatRow = memo(function ChatRow({
@@ -70,8 +92,8 @@ export const ChatRow = memo(function ChatRow({
         accessibilityRole="button"
         accessibilityLabel={`${title}, ${BUCKET_LABELS[bucket]}`}
         accessibilityState={{ selected }}
-        onPress={onPress}
-        {...contextMenuProps((anchor) => onMenu(anchor, "context"))}
+        onPress={() => onPress(chat)}
+        {...contextMenuProps((anchor) => onMenu(chat, anchor, "context"))}
         style={({ pressed }) => ({
           position: "absolute",
           top: 0,
@@ -115,6 +137,7 @@ export const ChatRow = memo(function ChatRow({
           selected={selected}
           hovered={hovered}
           title={title}
+          chat={chat}
           onMenu={onMenu}
         />
       ) : null}
@@ -193,8 +216,9 @@ function ChatRowKebab({
   selected,
   hovered,
   title,
+  chat,
   onMenu,
-}: Pick<ChatRowProps, "colors" | "tokens" | "touch" | "selected" | "onMenu"> &
+}: Pick<ChatRowProps, "colors" | "tokens" | "touch" | "selected" | "chat" | "onMenu"> &
   ChatRowState & { title: string }) {
   const kebabRef = useRef<View>(null);
   return (
@@ -211,7 +235,9 @@ function ChatRowKebab({
           colors={colors}
           buttonRef={kebabRef}
           label={actionsLabel(title)}
-          onPress={() => void measureAnchor(kebabRef).then((anchor) => anchor && onMenu(anchor, "kebab"))}
+          onPress={() =>
+            void measureAnchor(kebabRef).then((anchor) => anchor && onMenu(chat, anchor, "kebab"))
+          }
         />
       </View>
     </View>

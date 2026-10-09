@@ -7,10 +7,12 @@ import { disclosureLabel } from "../a11y";
 import { useBotChats, useBotHost } from "../data";
 import { type NativeTokens, useHover } from "../native";
 import { ui } from "../typography";
-import { ChatRow } from "./ChatRow";
+import { ChatRow, useChatRowActions } from "./ChatRow";
 import { ShowMoreRow } from "./controls";
 import { noSelect } from "./styles";
-import type { BotSidebarProps } from "./types";
+import type { BotSidebarProps, ChatMenuContext } from "./types";
+
+const PINNED_MENU: ChatMenuContext = { siblings: [], pinned: true };
 
 interface PinnedChat {
   chatId: string;
@@ -92,6 +94,7 @@ function PinnedChatRow({
   const host = useBotHost(bot.hostId, localHost);
   const chats = useBotChats(host, bot.id);
   const chat = chats.data?.find((entry) => entry.id === chatId);
+  const actions = useChatRowActions(bot, { onSelect, onChatMenu }, PINNED_MENU);
   if (!chat) return null;
   return (
     <ChatRow
@@ -102,10 +105,8 @@ function PinnedChatRow({
       hoisted
       touch={touch}
       selected={selection?.botId === bot.id && selection.chatId === chat.id}
-      onPress={() => onSelect({ botId: bot.id, chatId: chat.id })}
-      onMenu={(anchor, source) =>
-        onChatMenu({ bot, chat, anchor, source, context: { siblings: [], pinned: true } })
-      }
+      onPress={actions.onPress}
+      onMenu={actions.onMenu}
     />
   );
 }
