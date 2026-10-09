@@ -72,7 +72,13 @@ async function saveSkill(
 interface TreeEntry {
   path: string;
   type: "blob" | "tree";
+  sha: string;
   size?: number;
+}
+
+interface GitTree {
+  tree: TreeEntry[];
+  truncated: boolean;
 }
 
 interface RepoTree {
@@ -102,17 +108,41 @@ async function importGitHubSkills(
   const { owner, repo } = source;
   const api = `https://api.github.com/repos/${owner}/${repo}`;
   const ref = source.ref ?? (await fetchJson<{ default_branch: string }>(api)).default_branch;
-  const tree = await fetchJson<{ tree: TreeEntry[]; truncated: boolean }>(
-    `${api}/git/trees/${encodeURIComponent(ref)}?recursive=1`,
-  );
-  const skillDirs = findSkillDirs(tree.tree, source.path);
+  const entries = await repoEntries(source, ref);
+  const skillDirs = findSkillDirs(entries, source.path);
   if (skillDirs.length === 0)
     throw new Error(`No SKILL.md found in ${owner}/${repo}${source.path ? `/${source.path}` : ""}.`);
 
   const skills: ImportedSkill[] = [];
   for (const dir of skillDirs)
-    skills.push(await importSkillDir({ owner, repo, ref, entries: tree.tree, skillDirs }, dir));
+    skills.push(await importSkillDir({ owner, repo, ref, entries, skillDirs }, dir));
   return skills;
+}
+
+const treeUrl = (owner: string, repo: string, sha: string) =>
+  `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(sha)}`;
+
+/** GitHub cuts a recursive listing of a large repository short, so then only the folder asked for is listed. */
+async function repoEntries(
+  source: Extract<SkillSource, { kind: "github" }>,
+  ref: string,
+): Promise<TreeEntry[]> {
+  const { owner, repo, path } = source;
+  const whole = await fetchJson<GitTree>(`${treeUrl(owner, repo, ref)}?recursive=1`);
+  if (!whole.truncated) return whole.tree;
+  const tooBig = new Error(
+    `${owner}/${repo} is too big for GitHub to list at once. Import a folder inside it, like ${owner}/${repo}/skills/<name>.`,
+  );
+  if (!path) throw tooBig;
+  let sha: string | undefined = ref;
+  for (const name of path.split("/")) {
+    const level: GitTree = await fetchJson<GitTree>(treeUrl(owner, repo, sha));
+    sha = level.tree.find((entry) => entry.type === "tree" && entry.path === name)?.sha;
+    if (!sha) return [];
+  }
+  const folder = await fetchJson<GitTree>(`${treeUrl(owner, repo, sha)}?recursive=1`);
+  if (folder.truncated) throw tooBig;
+  return folder.tree.map((entry) => ({ ...entry, path: `${path}/${entry.path}` }));
 }
 
 function findSkillDirs(entries: TreeEntry[], path: string): string[] {

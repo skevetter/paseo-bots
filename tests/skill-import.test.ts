@@ -55,6 +55,39 @@ function serveRepo(name: string, branches: Branches, defaultBranch = "main") {
   vi.stubGlobal("fetch", async (input: string | URL) => answer(new URL(input)));
 }
 
+/** A repository too big for GitHub's recursive listing of its root; folder SHAs are their paths. */
+function serveLargeRepo(name: string, files: Record<string, string>) {
+  const api = `https://api.github.com/repos/${name}`;
+  const raw = `https://raw.githubusercontent.com/${name}/main/`;
+  const under = (dir: string) =>
+    Object.fromEntries(
+      Object.entries(files)
+        .filter(([path]) => path.startsWith(`${dir}/`))
+        .map(([path, text]) => [path.slice(dir.length + 1), text]),
+    );
+  const listing = (dir: string, recursive: boolean) => {
+    if (recursive) return dir ? treeOf(under(dir)) : { truncated: true, tree: [] };
+    const tree = treeOf(dir ? under(dir) : files).tree.filter((entry) => !entry.path.includes("/"));
+    return {
+      truncated: false,
+      tree: tree.map((entry) => ({ ...entry, sha: dir ? `${dir}/${entry.path}` : entry.path })),
+    };
+  };
+  const file = (path: string) => {
+    const text = files[decodeURIComponent(path)];
+    return text === undefined ? missing() : new Response(text);
+  };
+  vi.stubGlobal("fetch", async (input: string | URL) => {
+    const url = new URL(input);
+    const at = `${url.origin}${url.pathname}`;
+    if (at === api) return Response.json({ default_branch: "main" });
+    if (at.startsWith(raw)) return file(at.slice(raw.length));
+    if (!at.startsWith(`${api}/git/trees/`)) return missing();
+    const sha = decodeURIComponent(at.slice(`${api}/git/trees/`.length));
+    return Response.json(listing(sha === "main" ? "" : sha, url.search === "?recursive=1"));
+  });
+}
+
 const skillMd = (name: string, description = "d") => `---\nname: ${name}\ndescription: ${description}\n---\n`;
 
 afterEach(() => {
@@ -152,6 +185,28 @@ describe("importSkills from GitHub", () => {
     ]);
     expect(fromFile.skills).toEqual(fromFolder.skills);
     expect(fromRepo.skills.map((skill) => skill.description)).toEqual(["On main"]);
+  });
+
+  it("lists just the folder asked for when GitHub cuts the repository's listing short", async () => {
+    serveLargeRepo("acme/huge", {
+      "skills/pick/SKILL.md": skillMd("pick", "Picked"),
+      "skills/pick/notes.md": "notes",
+      "skills/other/SKILL.md": skillMd("other"),
+      "src/main.ts": "code",
+    });
+
+    const { skills } = await importSkills({ source: "acme/huge/skills/pick" });
+
+    expect(skills).toEqual([
+      { id: "pick", description: "Picked", source: "github.com/acme/huge/skills/pick" },
+    ]);
+    expect((await readSkill({ id: "pick" })).files).toEqual(["SKILL.md", "notes.md"]);
+    await expect(importSkills({ source: "acme/huge/skills/gone" })).rejects.toThrow(
+      "No SKILL.md found in acme/huge/skills/gone.",
+    );
+    await expect(importSkills({ source: "acme/huge" })).rejects.toThrow(
+      "acme/huge is too big for GitHub to list at once.",
+    );
   });
 });
 
