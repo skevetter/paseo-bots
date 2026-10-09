@@ -2,11 +2,13 @@ import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import {
   BotGroupSchema,
-  BotMcpServerSchema,
   BotSchema,
   BotStateSchema,
+  ImportedBotSchema,
+  ImportedSkillSchema,
   McpServerConfigSchema,
   McpToolSchema,
+  SkillIdSchema,
   TeamFileTeamSchema,
 } from "./bot";
 import { ProposalSchema } from "./proposals";
@@ -15,8 +17,6 @@ const BotId = z.string().regex(/^[a-z0-9-]+$/);
 /** "MEMORY.md" or a topic file such as "projects.md" (stored under memory/). */
 export const MEMORY_FILE_NAME = /^[A-Za-z0-9 ._-]+\.md$/;
 const MemoryFileName = z.string().regex(MEMORY_FILE_NAME);
-/** Matches sanitizeSkillName: a leading dot would name "." or ".." instead of a skill folder. */
-const SkillName = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/);
 
 /** `root` backs the Bots project, `path` the bot's workspace. */
 export const ensureBotHomeRpc = defineRpc({
@@ -139,8 +139,6 @@ export const memoryUndoRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-const ImportedSkillSchema = z.object({ id: SkillName, description: z.string(), source: z.string() });
-
 /** `source`: "owner/repo", "owner/repo/path", a GitHub URL or a raw SKILL.md URL. */
 export const skillImportRpc = defineRpc({
   name: "bots.library.import-skills",
@@ -150,7 +148,7 @@ export const skillImportRpc = defineRpc({
 
 export const skillReadRpc = defineRpc({
   name: "bots.library.read-skill",
-  input: z.object({ id: SkillName }),
+  input: z.object({ id: SkillIdSchema }),
   output: z.object({
     text: z.string(),
     sha: z.string().nullable(),
@@ -162,13 +160,13 @@ export const skillReadRpc = defineRpc({
 
 export const skillWriteRpc = defineRpc({
   name: "bots.library.write-skill",
-  input: z.object({ id: SkillName, text: z.string().max(256_000) }),
+  input: z.object({ id: SkillIdSchema, text: z.string().max(256_000) }),
   output: z.object({ description: z.string(), sha: z.string() }),
 });
 
 export const skillDeleteRpc = defineRpc({
   name: "bots.library.delete-skill",
-  input: z.object({ id: SkillName }),
+  input: z.object({ id: SkillIdSchema }),
   output: z.object({ ok: z.boolean() }),
 });
 
@@ -285,17 +283,7 @@ export const exportBotRpc = defineRpc({
 export const importBotRpc = defineRpc({
   name: "bots.import",
   input: z.object({ botId: BotId, json: z.string().max(5_000_000) }),
-  output: z.object({
-    bot: BotSchema,
-    skills: z.array(ImportedSkillSchema),
-    mcpServers: z.array(BotMcpServerSchema),
-  }),
-});
-
-const ImportedBotSchema = z.object({
-  bot: BotSchema,
-  skills: z.array(ImportedSkillSchema),
-  mcpServers: z.array(BotMcpServerSchema),
+  output: ImportedBotSchema,
 });
 
 /** Secrets are redacted as in single exports. */
@@ -432,13 +420,23 @@ export const proposalGetRpc = defineRpc({
   output: z.object({ proposal: ProposalSchema.nullable() }),
 });
 
-/** A skill is written to the library here; the app then records it (and routines) in the bots' settings. */
+/** Newest first. */
+export const proposalListRpc = defineRpc({
+  name: "bots.proposals.list",
+  input: z.object({
+    status: z.enum(["pending", "accepted", "dismissed"]).optional(),
+    origin: z.enum(["chat", "control"]).optional(),
+  }),
+  output: z.object({ proposals: z.array(ProposalSchema) }),
+});
+
+/** Applies the proposal to the bots, the library or the allowed commands, then marks it accepted. */
 export const proposalAcceptRpc = defineRpc({
   name: "bots.proposals.accept",
   input: z.object({ id: ProposalId }),
   output: z.object({
     proposal: ProposalSchema,
-    skill: z.object({ id: SkillName, description: z.string(), sha: z.string() }).optional(),
+    skill: z.object({ id: SkillIdSchema, description: z.string(), sha: z.string() }).optional(),
   }),
 });
 

@@ -4,12 +4,8 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { type Bot, type BotState, EMPTY_LIBRARY } from "../../../shared/bot";
-import { newRoutineId } from "../../../shared/bot-ids";
-
-import { applyChanges } from "../../../shared/changes/apply";
+import type { Bot, BotState } from "../../../shared/bot";
 import { changeWarnings, describeChange } from "../../../shared/changes/describe";
-import { setBotUses, updateSkill, upsertSkills } from "../../../shared/library";
 import type { Proposal } from "../../../shared/proposals";
 import { describeSchedule, upcomingRuns } from "../../../shared/routines";
 import { proposalAcceptRpc, proposalDismissRpc, proposalGetRpc } from "../../../shared/rpc";
@@ -24,8 +20,6 @@ import { PlanCard } from "./PlanCard";
 
 type Colors = PluginTheme["colors"];
 type Busy = "save" | "dismiss" | null;
-type Commit = (mutate: (values: BotState) => BotState) => Promise<boolean>;
-type AcceptedSkill = { id: string; description: string; sha: string };
 
 const proposalQueryKey = (id: string) => ["paseo-bots", "proposal", id];
 
@@ -76,8 +70,8 @@ function ProposalBody({
   proposal: Proposal;
   refetch: () => void;
 }) {
-  const { settings, commit } = useBotState();
-  const { busy, save, drop } = useProposalActions({ proposal, commit, refetch });
+  const { settings } = useBotState();
+  const { busy, save, drop } = useProposalActions({ proposal, reload: settings.reload, refetch });
   const view = proposalView(proposal, settings.status === "ready" ? settings.values : null);
 
   return (
@@ -159,11 +153,11 @@ function ProposalFooter({
 
 function useProposalActions({
   proposal,
-  commit,
+  reload,
   refetch,
 }: {
   proposal: Proposal;
-  commit: Commit;
+  reload: () => Promise<void>;
   refetch: () => void;
 }) {
   const accept = useRpc(proposalAcceptRpc);
@@ -172,27 +166,13 @@ function useProposalActions({
   const toast = useToast();
   const [busy, setBusy] = useState<Busy>(null);
 
-  const acceptChanges = async (changes: Extract<Proposal, { kind: "changes" }>) => {
-    // Applied before the proposal counts as accepted: a change that no longer fits leaves the card pending.
-    const context = { now: new Date().toISOString(), provider: changes.data.provider };
-    if (!(await commit((current) => applyChanges(current, changes.data.changes, context)))) return;
-    queryClient.setQueryData(proposalQueryKey(changes.id), await accept({ id: changes.id }));
-  };
-
-  const acceptAndRecord = async () => {
-    const { proposal: saved, skill } = await accept({ id: proposal.id });
-    await commit((current) => {
-      if (proposal.kind === "routine") return addRoutine(current, saved.botId, proposal.data);
-      return skill ? addSkill(current, saved.botId, skill) : current;
-    });
-    queryClient.setQueryData(proposalQueryKey(proposal.id), { proposal: saved });
-    if (skill) void queryClient.invalidateQueries({ queryKey: skillQueryKey(skill.id) });
-  };
-
   const save = async () => {
     setBusy("save");
     try {
-      await (proposal.kind === "changes" ? acceptChanges(proposal) : acceptAndRecord());
+      const { proposal: saved, skill } = await accept({ id: proposal.id });
+      queryClient.setQueryData(proposalQueryKey(proposal.id), { proposal: saved });
+      await reload();
+      if (skill) void queryClient.invalidateQueries({ queryKey: skillQueryKey(skill.id) });
     } catch (error) {
       toast.error(`Couldn't save it: ${errorText(error)}`);
       refetch();
@@ -216,49 +196,24 @@ function useProposalActions({
   return { busy, save, drop };
 }
 
-function addRoutine(
-  current: BotState,
-  botId: string,
-  data: Extract<Proposal, { kind: "routine" }>["data"],
-): BotState {
-  const routine = {
-    id: newRoutineId(),
-    ...data,
-    enabled: true,
-    createdAt: new Date().toISOString(),
-  };
-  return {
-    ...current,
-    bots: current.bots.map((entry) =>
-      entry.id === botId ? { ...entry, routines: [...entry.routines, routine] } : entry,
-    ),
-  };
-}
-
-function addSkill(current: BotState, botId: string, skill: AcceptedSkill): BotState {
-  return {
-    ...current,
-    library: updateSkill(
-      upsertSkills(current.library ?? EMPTY_LIBRARY, [
-        { id: skill.id, description: skill.description, source: "", reviewedSha: skill.sha },
-      ]),
-      skill.id,
-      { enabled: true },
-    ),
-    bots: current.bots.map((entry) =>
-      entry.id === botId ? setBotUses(entry, "skill", skill.id, true) : entry,
-    ),
-  };
-}
-
 function proposalView(proposal: Proposal, values: BotState | null): ProposalView {
   const bot = values?.bots.find((entry) => entry.id === proposal.botId);
-  if (proposal.kind === "skill") {
-    const exists = !!values?.library?.skills.some((skill) => skill.id === proposal.data.name);
-    return skillView(proposal, bot, exists);
+  switch (proposal.kind) {
+    case "skill":
+      return skillView(
+        proposal,
+        bot,
+        !!values?.library?.skills.some((skill) => skill.id === proposal.data.name),
+      );
+    case "routine":
+      return routineView(proposal, bot);
+    case "changes":
+      return changesView(proposal);
+    case "command":
+      return commandView(proposal, bot);
+    case "import":
+      return importView(proposal);
   }
-  if (proposal.kind === "routine") return routineView(proposal, bot);
-  return changesView(proposal);
 }
 
 interface ProposalView {
@@ -330,5 +285,43 @@ function changesView(proposal: Extract<Proposal, { kind: "changes" }>): Proposal
     warnings: changeWarnings(changes),
     notes: [`Apply ${count}? A bot's earlier settings stay under History in its settings.`],
     action: "Apply changes",
+  };
+}
+
+function commandView(proposal: Extract<Proposal, { kind: "command" }>, bot: Bot | undefined): ProposalView {
+  const who = bot?.name ?? "The bot";
+  return {
+    titles: {
+      pending: "Always allow a command",
+      accepted: "Allowed a command",
+      dismissed: "Dismissed a command",
+    },
+    description: `In ${proposal.data.cwd}`,
+    text: `\`\`\`\n${proposal.data.command}\n\`\`\``,
+    warnings: [`${who} runs this command without asking you, in that folder only.`],
+    notes: ["Remove it later under Access in the bot's settings."],
+    action: "Allow command",
+  };
+}
+
+function importView(proposal: Extract<Proposal, { kind: "import" }>): ProposalView {
+  const { summary, bots, teams } = proposal.data;
+  const servers = [...new Set(bots.flatMap((entry) => entry.mcpServers.map((server) => server.name)))];
+  return {
+    titles: {
+      pending: "Import bots",
+      accepted: "Imported bots",
+      dismissed: "Dismissed an import",
+    },
+    description: summary,
+    text: [
+      ...bots.map((entry) => `- **${entry.bot.name}**`),
+      ...teams.map((team) => `- Team **${team.name}**`),
+    ].join("\n"),
+    warnings: servers.length
+      ? [`Adds the MCP servers ${servers.join(", ")} to Skills & Tools, switched off.`]
+      : [],
+    notes: ["Routines arrive paused and skills need a review."],
+    action: "Import",
   };
 }

@@ -21,7 +21,7 @@ import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
 import { systemPrompt } from "./server/prompt";
-import { acceptProposal, dismissProposal, getProposal } from "./server/proposals";
+import { acceptProposal, dismissProposal, getProposal, listProposals } from "./server/proposals";
 import { Relay } from "./server/relay";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
@@ -66,6 +66,7 @@ import {
   proposalAcceptRpc,
   proposalDismissRpc,
   proposalGetRpc,
+  proposalListRpc,
   routineRunNowRpc,
   routineStatusRpc,
   routineWebhookRpc,
@@ -213,7 +214,8 @@ export default function contribute(server: PluginServerContext) {
     };
   });
   server.handle(proposalGetRpc, async ({ id }) => ({ proposal: await getProposal(id) }));
-  server.handle(proposalAcceptRpc, ({ id }) => acceptProposal(id));
+  server.handle(proposalListRpc, async (filter) => ({ proposals: await listProposals(filter) }));
+  server.handle(proposalAcceptRpc, ({ id }) => acceptProposal(id, { store, commands }));
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
   server.handle(routineStatusRpc, (_input, context) => {
     attach(context);

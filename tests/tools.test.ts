@@ -262,13 +262,20 @@ describe("skill proposals", () => {
       "---\nname: weekly-report\ndescription: Use for the weekly report\n---\n\n1. Collect PRs.\n",
     );
 
-    const accepted = await acceptProposal(id);
+    const { BotStore } = await import("../server/state");
+    const store = new BotStore();
+    await store.update((values) => ({ ...values, bots: [makeBot({ id: "bot-a" })] }));
+    const services = { store, commands: { add: async () => ({ id: "", command: "", cwd: "" }) } };
+    const accepted = await acceptProposal(id, services);
+    const saved = (await store.read()).values;
+    expect(saved.bots[0]?.skillIds).toEqual(["weekly-report"]);
+    expect(saved.library?.skills[0]).toMatchObject({ id: "weekly-report", enabled: true });
     expect(accepted.proposal.status).toBe("accepted");
     expect(accepted.skill).toMatchObject({ id: "weekly-report", description: "Use for the weekly report" });
     expect(await readFile(join(librarySkillPath("weekly-report"), "SKILL.md"), "utf8")).toBe(
       proposal.kind === "skill" ? proposal.data.text : "",
     );
-    await expect(acceptProposal(id)).rejects.toThrow("already saved");
+    await expect(acceptProposal(id, services)).rejects.toThrow("already saved");
     await expect(dismissProposal(id)).rejects.toThrow("already saved");
 
     const other = defined(
@@ -282,7 +289,7 @@ describe("skill proposals", () => {
       "proposal id",
     );
     expect((await dismissProposal(other)).status).toBe("dismissed");
-    await expect(acceptProposal(other)).rejects.toThrow("dismissed");
-    await expect(acceptProposal("p-0000000000")).rejects.toThrow("no longer available");
+    await expect(acceptProposal(other, services)).rejects.toThrow("dismissed");
+    await expect(acceptProposal("p-0000000000", services)).rejects.toThrow("no longer available");
   });
 });

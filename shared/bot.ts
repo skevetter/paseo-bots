@@ -233,6 +233,21 @@ export const TeamFileTeamSchema = z.object({
 });
 export type TeamFileTeam = z.infer<typeof TeamFileTeamSchema>;
 
+/** Matches sanitizeSkillName: a leading dot would name "." or ".." instead of a skill folder. */
+export const SkillIdSchema = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9._-]*$/);
+
+export const ImportedSkillSchema = z.object({
+  id: SkillIdSchema,
+  description: z.string(),
+  source: z.string(),
+});
+
+export const ImportedBotSchema = z.object({
+  bot: BotSchema,
+  skills: z.array(ImportedSkillSchema),
+  mcpServers: z.array(BotMcpServerSchema),
+});
+
 /** An empty provider picks one that's ready. */
 const BotDefaultsSchema = z.object({
   provider: z.string().default(""),

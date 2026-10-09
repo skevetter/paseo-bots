@@ -1,14 +1,16 @@
 import { z } from "zod";
-import { RoutineScheduleSchema } from "./bot";
+import { ImportedBotSchema, RoutineScheduleSchema, TeamFileTeamSchema } from "./bot";
 import { botToolName } from "./bot-tools";
 import { ChangeSchema } from "./changes/schema";
 import { toolCallName } from "./tool-name";
 
 const ProposalBase = z.object({
   id: z.string(),
+  /** The bot it's for; empty when it isn't about one bot. */
   botId: z.string(),
-  /** The chat the proposal came from. */
+  /** The chat the proposal came from; empty for external control. */
   agentId: z.string(),
+  origin: z.enum(["chat", "control"]).default("chat"),
   status: z.enum(["pending", "accepted", "dismissed"]),
   createdAt: z.string(),
   resolvedAt: z.string().nullable(),
@@ -31,10 +33,22 @@ const ChangesProposalSchema = z.object({
   provider: z.string().default(""),
 });
 
+/** An always-allowed command, matched exactly. */
+const CommandProposalSchema = z.object({ command: z.string(), cwd: z.string() });
+
+/** Bots and teams read from a file, whose memory and skill files are already written. */
+const ImportProposalSchema = z.object({
+  summary: z.string(),
+  bots: z.array(ImportedBotSchema),
+  teams: z.array(TeamFileTeamSchema),
+});
+
 export const ProposalSchema = z.discriminatedUnion("kind", [
   ProposalBase.extend({ kind: z.literal("skill"), data: SkillProposalSchema }),
   ProposalBase.extend({ kind: z.literal("routine"), data: RoutineProposalSchema }),
   ProposalBase.extend({ kind: z.literal("changes"), data: ChangesProposalSchema }),
+  ProposalBase.extend({ kind: z.literal("command"), data: CommandProposalSchema }),
+  ProposalBase.extend({ kind: z.literal("import"), data: ImportProposalSchema }),
 ]);
 export type Proposal = z.infer<typeof ProposalSchema>;
 
