@@ -1,4 +1,4 @@
-import { localTime } from "./activity";
+import { localTime } from "./time";
 import { toolCallLabel } from "./tool-name";
 
 interface TranscriptEntry {

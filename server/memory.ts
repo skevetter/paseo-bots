@@ -1,7 +1,8 @@
 import { appendFile, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { type LogEntry, localDay, parseLog } from "../shared/activity";
+import { type LogEntry, parseLog } from "../shared/activity";
 import { MEMORY_FILE_NAME } from "../shared/rpc";
+import { localDay } from "../shared/time";
 import { botDataPath } from "./bot-home";
 
 const MEMORY_MAX_LINES = 200;

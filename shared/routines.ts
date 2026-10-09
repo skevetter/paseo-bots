@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Routine, RoutineSchedule } from "./bot";
+import { localDay, localTime, pad2 } from "./time";
 
 /** A run missed by more than this is skipped instead of caught up. */
 const CATCH_UP_MS = 12 * 60 * 60 * 1000;
@@ -103,8 +104,7 @@ export function upcomingRuns(schedule: RoutineSchedule, since: Date, now: Date, 
 
 /** The format the "At" field edits. */
 export function formatLocalDateTime(date: Date): string {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return `${localDay(date)} ${localTime(date)}`;
 }
 
 /** Null when it isn't a real date. */
@@ -336,10 +336,6 @@ function previousCronTime(cron: ParsedCron, atOrBefore: Date, notBefore: Date): 
 }
 
 const CRON_DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
-}
 
 function describeMinuteCadence(minute: string, hour: string, dayOfWeek: string): string | null {
   if (hour !== "*" || dayOfWeek !== "*") return null;

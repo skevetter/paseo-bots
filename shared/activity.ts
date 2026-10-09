@@ -1,3 +1,4 @@
+import { localDay, localTime } from "./time";
 import { toolCallLabel } from "./tool-name";
 
 const REPLY_MAX = 240;
@@ -43,16 +44,6 @@ export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; t
     if (!tools.includes(label) && tools.length < MAX_TOOLS) tools.push(label);
   }
   return { reply: String(reply?.text ?? ""), tools };
-}
-
-const pad = (value: number) => String(value).padStart(2, "0");
-
-export function localDay(date: Date): string {
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-export function localTime(date: Date): string {
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 export function logLine(input: {
