@@ -209,6 +209,24 @@ describe("the relay's lifecycle", () => {
   });
 });
 
+describe("the relay's bot tools endpoint", () => {
+  useTempPaseoHome("paseo-bots-relay-tools-");
+  const relay = new Relay(fakeHost([makeBot({ id: "bot-a" })]), []);
+  afterAll(() => relay.stop());
+  const mount = async (botId = "bot-a") => httpMount(await relay.mountTools(botId, newUuid()));
+  const call = (target: string, authorization: string, body: string) =>
+    post(target, { authorization, "content-type": "application/json" }, (request) => request.end(body));
+
+  it("refuses a body that isn't a JSON-RPC message", async () => {
+    const { url, authorization } = await mount();
+    for (const body of ["null", "42"]) {
+      const answer = await call(url, authorization, body);
+      expect(answer.status).toBe(400);
+      expect(JSON.parse(answer.body)).toMatchObject({ jsonrpc: "2.0", id: null, error: { code: -32600 } });
+    }
+  });
+});
+
 function pour(response: ServerResponse, sent: { bytes: number }): void {
   const chunk = Buffer.alloc(MB, "x");
   const next = () => {

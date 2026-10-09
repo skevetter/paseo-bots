@@ -249,12 +249,18 @@ export class Relay {
       });
       return null;
     }
+    let message: unknown;
     try {
-      return { body, message: JSON.parse(body) as Record<string, unknown> };
+      message = JSON.parse(body);
     } catch {
       json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
       return null;
     }
+    if (!message || typeof message !== "object") {
+      json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
+      return null;
+    }
+    return { body, message: message as Record<string, unknown> };
   }
 
   private async handleTools(
