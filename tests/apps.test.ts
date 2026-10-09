@@ -15,13 +15,10 @@ import {
   isComposioUrl,
   withAppRule,
 } from "../shared/apps";
-import {
-  type Bot,
-  buildAgentConfig,
-  EMPTY_LIBRARY,
-  type McpServerConfig,
-  promptSections,
-} from "../shared/bot";
+import { type Bot, EMPTY_LIBRARY, type McpServerConfig } from "../shared/bot";
+import { buildAgentConfig } from "../shared/bot-agent";
+import { promptSections } from "../shared/bot-prompt";
+
 import { defined, fakeHost, makeBot } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";

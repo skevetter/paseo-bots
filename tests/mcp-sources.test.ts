@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mcpSources } from "../server/mcp-sources";
-import { parseMcpJson } from "../shared/bot";
+import { parseMcpJson } from "../shared/mcp-servers";
+
 import { defined } from "./helpers";
 
 const machine = vi.hoisted(() => ({ home: "", platform: "darwin" as NodeJS.Platform }));

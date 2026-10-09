@@ -1,5 +1,6 @@
 import { randomSeed } from "./avatar";
-import { type Bot, newBotId, type Preset } from "./bot";
+import type { Bot, Preset } from "./bot";
+import { newBotId } from "./bot-ids";
 
 export interface BotTemplate {
   id: string;

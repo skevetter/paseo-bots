@@ -8,14 +8,13 @@ import {
   type BotMcpServer,
   BotMcpServerSchema,
   BotSchema,
-  botMcpServers,
-  botSkills,
   type Library,
-  newBotId,
-  newRoutineId,
   type TeamFileTeam,
   TeamFileTeamSchema,
 } from "../shared/bot";
+import { botMcpServers, botSkills } from "../shared/bot-agent";
+import { newBotId, newRoutineId } from "../shared/bot-ids";
+
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
 import { type ImportedSkill, librarySkillPath } from "./library";

@@ -1,12 +1,6 @@
 import type { WireAttachment } from "./attachments";
-import {
-  BOT_LABEL,
-  type Bot,
-  buildAgentConfig,
-  defaultModelId,
-  type Library,
-  type PluginServers,
-} from "./bot";
+import { BOT_LABEL, type Bot, type Library } from "./bot";
+import { buildAgentConfig, defaultModelId, type PluginServers } from "./bot-agent";
 
 /** Carries the routine id. */
 export const ROUTINE_LABEL = "paseo-bots.routine";

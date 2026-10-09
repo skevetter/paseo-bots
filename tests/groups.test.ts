@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { type BotGroup, promptSections } from "../shared/bot";
+import type { BotGroup } from "../shared/bot";
+import { promptSections } from "../shared/bot-prompt";
+
 import {
   groupBots,
   OTHER_BOTS_TAB,

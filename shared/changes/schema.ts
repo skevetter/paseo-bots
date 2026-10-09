@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { MCP_NAME } from "../bot";
+import { MCP_NAME } from "../mcp-servers";
+
 import { PALETTE_COUNT } from "../pixel";
 import { ScheduleInput } from "../routines";
 import { BOT_TEMPLATES } from "../templates";

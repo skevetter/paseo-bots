@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { botDataPath } from "../server/bot-home";
 import { librarySkillPath, migrateBotSkills, readSkill } from "../server/library";
 import { probeMcpServer } from "../server/mcp-probe";
-import { type Bot, type BotMcpServer, EMPTY_LIBRARY, type Library, parseMcpJson } from "../shared/bot";
+import { type Bot, type BotMcpServer, EMPTY_LIBRARY, type Library } from "../shared/bot";
 import {
   addMcpServers,
   forgetItem,
@@ -18,6 +18,7 @@ import {
   updateSkill,
   upsertSkills,
 } from "../shared/library";
+import { parseMcpJson } from "../shared/mcp-servers";
 import { defined, useTempPaseoHome } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";

@@ -1,6 +1,8 @@
 import type { z } from "zod";
 import { randomSeed } from "../avatar";
-import { type BotGroup, type BotSettingsValues, newGroupId, type TeamLogo } from "../bot";
+import type { BotGroup, BotSettingsValues, TeamLogo } from "../bot";
+import { newGroupId } from "../bot-ids";
+
 import { saveTeam, teamLogoOf } from "../groups";
 import type { ApplyContext } from "./context";
 import { imageUrl, oneLine } from "./fields";

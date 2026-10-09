@@ -3,17 +3,14 @@ import {
   type BotMcpServer,
   type BotSettingsValues,
   EMPTY_LIBRARY,
-  joinArgs,
   type Library,
   type LibraryMcpServer,
   type LibrarySkill,
-  newGroupId,
-  numberedName,
-  RESERVED_MCP_NAMES,
   type TeamFileTeam,
-  uniqueName,
 } from "./bot";
+import { newGroupId, numberedName, uniqueName } from "./bot-ids";
 import { saveTeam } from "./groups";
+import { joinArgs, RESERVED_MCP_NAMES } from "./mcp-servers";
 
 export function newMcpServerId(): string {
   return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;

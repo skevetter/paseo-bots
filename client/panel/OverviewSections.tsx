@@ -4,15 +4,11 @@ import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@get
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
-import {
-  type Bot,
-  botLimits,
-  botMcpServers,
-  botSkills,
-  estimateTokens,
-  type PromptSection,
-  utf8Bytes,
-} from "../../shared/bot";
+import type { Bot } from "../../shared/bot";
+import { botMcpServers, botSkills } from "../../shared/bot-agent";
+import { botLimits, estimateTokens, utf8Bytes } from "../../shared/bot-checks";
+import type { PromptSection } from "../../shared/bot-prompt";
+
 import { teamOf } from "../../shared/groups";
 import { describeSchedule } from "../../shared/routines";
 import { systemPromptRpc } from "../../shared/rpc";

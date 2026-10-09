@@ -2,7 +2,6 @@ import { copyText } from "@getpaseo/plugin/client/react-native";
 import type { LayoutRectangle } from "react-native";
 import { randomSeed } from "../shared/avatar";
 import {
-  applyDefaults,
   type Bot,
   type BotGroup,
   type BotListUi,
@@ -11,15 +10,14 @@ import {
   DEFAULT_BOT_LIST_UI,
   EMPTY_LIBRARY,
   type Library,
-  newBotId,
-  newGroupId,
   type Preset,
-  presetFromBot,
 } from "../shared/bot";
+import { newBotId, newGroupId } from "../shared/bot-ids";
 import { displayTitle } from "../shared/chat";
 import { saveTeam, type TeamDraft, type TeamTab, tabOf, teamTabs, withoutBot } from "../shared/groups";
 import { fitColumns } from "../shared/layout";
 import { addImportedBots } from "../shared/library";
+import { applyDefaults, presetFromBot } from "../shared/presets";
 import { moveKey } from "../shared/sidebar";
 import { type BotTemplate, botFromPreset, newBot } from "../shared/templates";
 import { chatTranscript } from "../shared/transcript";

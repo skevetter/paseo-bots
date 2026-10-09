@@ -1,13 +1,9 @@
 import type { z } from "zod";
 import { randomSeed } from "../avatar";
-import {
-  type Bot,
-  type BotAvatar,
-  type BotSettingsValues,
-  type Library,
-  newPlaybookId,
-  pushHistory,
-} from "../bot";
+import type { Bot, BotAvatar, BotSettingsValues, Library } from "../bot";
+import { pushHistory } from "../bot-history";
+import { newPlaybookId } from "../bot-ids";
+
 import { setBotUses } from "../library";
 import { type ApplyContext, accountId, checkAgent } from "./context";
 import { findServer, findSkill } from "./refs";

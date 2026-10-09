@@ -1,5 +1,6 @@
-import { type BotSettingsValues, EMPTY_LIBRARY, type McpServerConfig, RESERVED_MCP_NAMES } from "../bot";
+import { type BotSettingsValues, EMPTY_LIBRARY, type McpServerConfig } from "../bot";
 import { addMcpServers, forgetItem, mcpServerTested } from "../library";
+import { RESERVED_MCP_NAMES } from "../mcp-servers";
 import type { ApplyContext } from "./context";
 import { findServer, findSkill } from "./refs";
 import type { ChangeOf } from "./schema";

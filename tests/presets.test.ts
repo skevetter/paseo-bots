@@ -2,14 +2,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  applyDefaults,
-  DEFAULT_BOT_DEFAULTS,
-  EMPTY_LIBRARY,
-  numberedName,
-  presetFromBot,
-} from "../shared/bot";
+import { DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "../shared/bot";
+import { numberedName } from "../shared/bot-ids";
 import { addImportedBots } from "../shared/library";
+import { applyDefaults, presetFromBot } from "../shared/presets";
 import { defined, makeBot } from "./helpers";
 
 describe("defaults and presets", () => {

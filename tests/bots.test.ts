@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildAgentConfig, EMPTY_LIBRARY } from "../shared/bot";
+import { EMPTY_LIBRARY } from "../shared/bot";
+import { buildAgentConfig } from "../shared/bot-agent";
+
 import { defined, fakeHost, makeBot } from "./helpers";
 
 const started: { botId: string; prompt: string; title: string; labels: Record<string, string> }[] = [];

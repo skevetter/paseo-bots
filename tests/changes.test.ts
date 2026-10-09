@@ -1,16 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  type Bot,
-  type BotGroup,
-  type BotSettingsValues,
-  DEFAULT_BOT_LIST_UI,
-  presetFromBot,
-} from "../shared/bot";
+import { type Bot, type BotGroup, type BotSettingsValues, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { applyChanges, resolveChanges } from "../shared/changes/apply";
 import { type ApplyContext, type ProviderInfo, providerInfo, readyProvider } from "../shared/changes/context";
 import { changeWarnings, describeChange } from "../shared/changes/describe";
 import { botDetails, setupOverview } from "../shared/changes/overview";
 import { type Change, ChangeSchema, ChangesSchema } from "../shared/changes/schema";
+import { presetFromBot } from "../shared/presets";
 import { defined, makeBot, NOW } from "./helpers";
 
 const PROVIDERS: ProviderInfo[] = [

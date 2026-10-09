@@ -11,9 +11,10 @@ import {
   type BotListUi,
   type BotSettingsValues,
   DEFAULT_BOT_LIST_UI,
-  pushHistory,
   type TeamFileTeam,
 } from "../shared/bot";
+import { pushHistory } from "../shared/bot-history";
+
 import type { ImportedBot } from "../shared/library";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
 import {

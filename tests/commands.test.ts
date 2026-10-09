@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { botLimits, type ProviderModes } from "../shared/bot";
+import { botLimits, type ProviderModes } from "../shared/bot-checks";
+
 import { shellCommand } from "../shared/commands";
 import { makeBot } from "./helpers";
 

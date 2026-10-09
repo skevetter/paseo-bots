@@ -4,7 +4,9 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { type Bot, type BotSettingsValues, EMPTY_LIBRARY, newRoutineId } from "../../../shared/bot";
+import { type Bot, type BotSettingsValues, EMPTY_LIBRARY } from "../../../shared/bot";
+import { newRoutineId } from "../../../shared/bot-ids";
+
 import { applyChanges } from "../../../shared/changes/apply";
 import { changeWarnings, describeChange } from "../../../shared/changes/describe";
 import { setBotUses, updateSkill, upsertSkills } from "../../../shared/library";

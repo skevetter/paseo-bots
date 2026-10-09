@@ -1,16 +1,10 @@
 import { join } from "node:path";
 import { recentWork } from "../shared/activity";
 import type { AppAccount, PromptApp } from "../shared/apps";
-import {
-  type Bot,
-  type BotGroup,
-  type BotSettingsValues,
-  botSkills,
-  composeSystemPrompt,
-  type Library,
-  type PromptContext,
-  promptSections,
-} from "../shared/bot";
+import type { Bot, BotGroup, BotSettingsValues, Library } from "../shared/bot";
+import { botSkills } from "../shared/bot-agent";
+import { composeSystemPrompt, type PromptContext, promptSections } from "../shared/bot-prompt";
+
 import { teamOf, teamPrompt } from "../shared/groups";
 import { type PaseoToolsConfig, paseoToolsState } from "../shared/paseo-tools";
 import { selectPlaybooks } from "../shared/playbooks";

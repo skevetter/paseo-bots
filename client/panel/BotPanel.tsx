@@ -2,7 +2,9 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, Modal, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
-import { type Bot, type BotGroup, botProblems, type HistoryEntry, type Library } from "../../shared/bot";
+import type { Bot, BotGroup, HistoryEntry, Library } from "../../shared/bot";
+import { botProblems } from "../../shared/bot-checks";
+
 import { type LocalHost, useBotHost } from "../data";
 import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";

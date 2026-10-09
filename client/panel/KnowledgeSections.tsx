@@ -4,7 +4,10 @@ import { SettingsAction, SettingsCard, SettingsRow, SettingsSection } from "@get
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, View } from "react-native";
-import { newPlaybookId, type Playbook, SOUL_MAX_BYTES, utf8Bytes } from "../../shared/bot";
+import type { Playbook } from "../../shared/bot";
+import { SOUL_MAX_BYTES, utf8Bytes } from "../../shared/bot-checks";
+import { newPlaybookId } from "../../shared/bot-ids";
+
 import { parseTriggers } from "../../shared/playbooks";
 import { memoryDeleteRpc, memoryListRpc, memoryReadRpc, memoryWriteRpc } from "../../shared/rpc";
 import { useBotHost } from "../data";

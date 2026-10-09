@@ -5,18 +5,17 @@ import { SettingsAction, SettingsCard, SettingsSection, SettingsSelect } from "@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
+import type { BotMcpServer, LibraryMcpServer, McpServerConfig } from "../../shared/bot";
 import {
-  type BotMcpServer,
   formatPairs,
   joinArgs,
-  type LibraryMcpServer,
   MCP_NAME,
-  type McpServerConfig,
   parseMcpJson,
   parsePairs,
   RESERVED_MCP_NAMES,
   splitArgs,
-} from "../../shared/bot";
+} from "../../shared/mcp-servers";
+
 import { PASEO_MCP_NAME } from "../../shared/paseo-tools";
 import { mcpSourcesRpc } from "../../shared/rpc";
 import { Button, FormTextArea, InputField, SheetFooter, TextAreaField } from "../panel/controls";

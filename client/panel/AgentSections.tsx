@@ -10,7 +10,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { APPS_MCP_NAME } from "../../shared/apps";
-import { botMcpServers, toolGrants } from "../../shared/bot";
+import { botMcpServers, toolGrants } from "../../shared/bot-agent";
+
 import { TOOLS_MCP_NAME } from "../../shared/bot-tools";
 import type { PaseoToolsState } from "../../shared/paseo-tools";
 import { commandListRpc, commandRemoveRpc } from "../../shared/rpc";

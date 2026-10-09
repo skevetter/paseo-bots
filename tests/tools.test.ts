@@ -2,7 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { withPluginCommands } from "../client/chat/composer/logic";
-import { buildAgentConfig, EMPTY_LIBRARY } from "../shared/bot";
+import { EMPTY_LIBRARY } from "../shared/bot";
+import { buildAgentConfig } from "../shared/bot-agent";
+
 import { botToolName, supportsToolGrants } from "../shared/bot-tools";
 import { proposalIdOf } from "../shared/proposals";
 import { expandLearn, sanitizeSkillName } from "../shared/skills";

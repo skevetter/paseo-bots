@@ -2,7 +2,9 @@ import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection, SettingsSelect } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { View } from "react-native";
-import { type Bot, newRoutineId, type Routine, type RoutineSchedule } from "../../../shared/bot";
+import type { Bot, Routine, RoutineSchedule } from "../../../shared/bot";
+import { newRoutineId } from "../../../shared/bot-ids";
+
 import { displayTitle, ROUTINE_LABEL } from "../../../shared/chat";
 import { type BotHost, useBotChats } from "../../data";
 import type { PaseoAgent } from "../../paseo";

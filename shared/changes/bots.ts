@@ -1,4 +1,6 @@
-import { type Bot, type BotSettingsValues, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY, newRoutineId } from "../bot";
+import { type Bot, type BotSettingsValues, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "../bot";
+import { newRoutineId } from "../bot-ids";
+
 import { withoutBot } from "../groups";
 import { scheduleFrom } from "../routines";
 import { BOT_TEMPLATES, newBot } from "../templates";

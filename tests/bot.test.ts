@@ -1,22 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { pixelAvatar, SPRITE_NAMES, SPRITE_SIZE } from "../shared/avatar";
-import {
-  type Bot,
-  botProblems,
-  botSettings,
-  buildAgentConfig,
-  defaultModelId,
-  EMPTY_LIBRARY,
-  formatPairs,
-  joinArgs,
-  type Library,
-  type LibraryMcpServer,
-  migrateV2,
-  parseMcpJson,
-  parsePairs,
-  promptSections,
-  splitArgs,
-} from "../shared/bot";
+import { type Bot, botSettings, EMPTY_LIBRARY, type Library, type LibraryMcpServer } from "../shared/bot";
+import { buildAgentConfig, defaultModelId } from "../shared/bot-agent";
+import { botProblems } from "../shared/bot-checks";
+import { migrateV2 } from "../shared/bot-migrations";
+import { promptSections } from "../shared/bot-prompt";
+import { formatPairs, joinArgs, parseMcpJson, parsePairs, splitArgs } from "../shared/mcp-servers";
+
 import { BOT_TEMPLATES } from "../shared/templates";
 import { relativeTime } from "../shared/time";
 import { defined } from "./helpers";
