@@ -145,11 +145,12 @@ describe("splash lineup", () => {
 });
 
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PLUGIN_VERSION } from "../shared/version";
 
 describe("plugin version", () => {
   it("matches package.json", () => {
-    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "..", "package.json"), "utf8")) as {
       version: string;
     };
     expect(PLUGIN_VERSION).toBe(pkg.version);
