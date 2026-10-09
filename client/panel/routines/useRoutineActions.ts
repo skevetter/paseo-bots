@@ -1,12 +1,16 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { copyText, type ToastApi, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import type { Routine } from "../../../shared/bot";
 import { type RoutineRun, routineRunNowRpc, routineWebhookRpc } from "../../../shared/rpc";
 import { confirmDialog, errorText } from "../../native";
 import type { PanelProps } from "../BotPanel";
+import { type RunStart, type RunStarts, withRunStart } from "./runs";
 
 export interface RoutineActions {
+  /** Run now calls in flight or failed, by routine id. */
+  starts: RunStarts;
   setRoutines(routines: Routine[]): void;
   update(id: string, patch: Partial<Routine>): void;
   run(routine: Routine): Promise<void>;
@@ -33,19 +37,24 @@ export function useRoutineActions({
   const webhook = useRpc(routineWebhookRpc);
   const toast = useToast();
   const queryClient = useQueryClient();
+  const [starts, setStarts] = useState<RunStarts>({});
+  const mark = (id: string, start: RunStart | null) =>
+    setStarts((current) => withRunStart(current, id, start));
 
   const setRoutines = (routines: Routine[]) => onPatch({ routines });
   const update = (id: string, patch: Partial<Routine>) =>
     setRoutines(bot.routines.map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
 
   const run = async (routine: Routine) => {
+    mark(routine.id, { status: "starting" });
     try {
       await flush();
       const { run: started } = await runNow({ botId: bot.id, routineId: routine.id });
+      mark(routine.id, null);
       showRunOutcome(toast, routine, bot.name, started);
       void queryClient.invalidateQueries({ queryKey: ["paseo-bots"] });
     } catch (error) {
-      toast.error(errorText(error));
+      mark(routine.id, { status: "failed", error: errorText(error) });
     }
   };
 
@@ -69,5 +78,5 @@ export function useRoutineActions({
     if (confirmed) setRoutines(bot.routines.filter((entry) => entry.id !== routine.id));
   };
 
-  return { setRoutines, update, run, copyWebhook, remove };
+  return { starts, setRoutines, update, run, copyWebhook, remove };
 }

@@ -6,7 +6,8 @@ import { relativeTime } from "../../../shared/time";
 import { actionsLabel } from "../../a11y";
 import { type MenuEntry, useMenu } from "../../ui/Menu";
 import type { PanelProps } from "../BotPanel";
-import { type BadgeVariant, KebabButton, PressableRow, RowText, StatusBadge } from "../controls";
+import { KebabButton, PressableRow, RowText, StatusBadge } from "../controls";
+import { routineState, runStartError } from "./runs";
 import type { RoutineActions } from "./useRoutineActions";
 
 type Colors = PanelProps["colors"];
@@ -18,13 +19,6 @@ function formatNextRun(next: Date, now: number = Date.now()): string {
   if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
   if (diff < 86_400_000) return `in ${Math.round(diff / 3_600_000)}h`;
   return `in ${Math.round(diff / 86_400_000)}d`;
-}
-
-function routineState(routine: Routine, next: Date | null): { label: string; variant: BadgeVariant } {
-  if (!routine.enabled) return { label: "Paused", variant: "muted" };
-  // A webhook routine has no next time but stays ready to run.
-  if (!next && routine.schedule.kind !== "webhook") return { label: "Finished", variant: "muted" };
-  return { label: "Active", variant: "success" };
 }
 
 /** Status is left to the badge. */
@@ -57,7 +51,7 @@ function routineMenuEntries(routine: Routine, actions: RoutineActions, onEdit: (
     {
       label: "Run now",
       icon: "RotateCw",
-      disabled: !routine.prompt.trim(),
+      disabled: !routine.prompt.trim() || actions.starts[routine.id]?.status === "starting",
       pendingLabel: "Starting...",
       onSelect: () => actions.run(routine),
     },
@@ -97,7 +91,8 @@ export function RoutineRow({
 }) {
   const menu = useMenu();
   const next = nextRun(routine.schedule, new Date(record?.lastRunAt ?? routine.createdAt), now);
-  const badge = routineState(routine, next);
+  const start = actions.starts[routine.id];
+  const badge = routineState(routine, next, start);
   return (
     <PressableRow colors={colors} accessibilityLabel={`Edit routine ${routine.name}`} onPress={onEdit}>
       {() => (
@@ -106,6 +101,7 @@ export function RoutineRow({
             colors={colors}
             label={routine.name || "Untitled routine"}
             hint={routineMeta(routine, record?.runs.at(-1), next)}
+            error={runStartError(start)}
             hintLines={2}
           />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>

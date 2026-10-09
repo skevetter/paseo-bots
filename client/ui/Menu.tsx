@@ -301,10 +301,11 @@ function MenuRow({
   const { hovered, hoverProps } = useHover();
   const { pending, select } = useMenuSelect(entry, onClose);
   const tint = entry.destructive ? colors.statusDanger : colors.foreground;
+  const label = pending && entry.pendingLabel ? entry.pendingLabel : entry.label;
   return (
     <Pressable
       accessibilityRole="menuitem"
-      accessibilityLabel={entry.label}
+      accessibilityLabel={label}
       accessibilityState={{ disabled: !!entry.disabled || pending, selected: entry.selected }}
       disabled={entry.disabled || pending}
       onPress={select}
@@ -326,7 +327,7 @@ function MenuRow({
     >
       <MenuRowLeading colors={colors} entry={entry} pending={pending} />
       <Text numberOfLines={1} style={{ flexShrink: 1, fontSize: ui(14), lineHeight: 18, color: tint }}>
-        {pending && entry.pendingLabel ? entry.pendingLabel : entry.label}
+        {label}
       </Text>
       <MenuRowTrailing colors={colors} entry={entry} />
     </Pressable>

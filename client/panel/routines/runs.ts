@@ -1,6 +1,7 @@
 import type { Routine } from "../../../shared/bot";
 import { upcomingRuns } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
+import type { BadgeVariant } from "../controls";
 
 const UPCOMING = 6;
 export const UPCOMING_DAYS = 7;
@@ -76,4 +77,29 @@ export function runHint(entry: RoutineRun, now: Date): string {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/** A Run now the user asked for, kept until the server records the run or the call fails. */
+export type RunStart = { status: "starting" } | { status: "failed"; error: string };
+export type RunStarts = Readonly<Record<string, RunStart>>;
+
+export function withRunStart(starts: RunStarts, id: string, start: RunStart | null): RunStarts {
+  const { [id]: _previous, ...rest } = starts;
+  return start ? { ...rest, [id]: start } : rest;
+}
+
+export function routineState(
+  routine: Routine,
+  next: Date | null,
+  start: RunStart | undefined,
+): { label: string; variant: BadgeVariant } {
+  if (start?.status === "starting") return { label: "Starting...", variant: "muted" };
+  if (!routine.enabled) return { label: "Paused", variant: "muted" };
+  // A webhook routine has no next time but stays ready to run.
+  if (!next && routine.schedule.kind !== "webhook") return { label: "Finished", variant: "muted" };
+  return { label: "Active", variant: "success" };
+}
+
+export function runStartError(start: RunStart | undefined): string | null {
+  return start?.status === "failed" ? `Couldn't start the run: ${start.error}` : null;
 }
