@@ -33,7 +33,7 @@ Personal bots for [Paseo](https://paseo.sh), like Grok Bot or Hermes Bots. Give 
 ## Install
 
 ```bash
-paseo plugin install git:skevetter/paseo-bots --ref v0.3.1
+paseo plugin install git:skevetter/paseo-bots --ref v0.4.0
 ```
 
 Each version is listed on the [Releases](https://github.com/skevetter/paseo-bots/releases) page. Requires Paseo 0.11.0 or later.
