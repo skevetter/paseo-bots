@@ -19,7 +19,7 @@ This repository is a fork of [oliexe/paseo-bots](https://github.com/oliexe/paseo
 ## Install
 
 ```bash
-paseo plugin install git:skevetter/paseo-bots --ref v1.1.0
+paseo plugin install git:skevetter/paseo-bots --ref v1.2.0
 ```
 
 The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](https://github.com/skevetter/paseo-bots/releases) lists each version.
