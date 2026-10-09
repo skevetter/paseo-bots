@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { lstat, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
 import {
@@ -17,6 +17,7 @@ import { newBotId, newRoutineId } from "../shared/bot-ids";
 import { teamMembers } from "../shared/groups";
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
+import { exists } from "./files";
 import { type ImportedSkill, librarySkillPath } from "./library";
 
 const FORMAT = "paseo-bots";
@@ -219,10 +220,6 @@ function parseVersions(raw: unknown): z.infer<typeof ExportV2Schema> {
     mcpServers: mcpServers.filter((server) => server.enabled),
     files: v1.data.files,
   };
-}
-
-async function exists(path: string): Promise<boolean> {
-  return (await lstat(path).catch(() => null)) !== null;
 }
 
 function importTarget(path: string, root: string, fresh: Set<string>): string | null {

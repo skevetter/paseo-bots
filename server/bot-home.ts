@@ -2,6 +2,7 @@ import { lstatSync, renameSync, symlinkSync } from "node:fs";
 import { lstat, mkdir, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { exists } from "./files";
 
 // The SDK has no data-directory API; other plugins use `$PASEO_HOME/plugin-data/<plugin-id>`.
 function pluginDataRoot(): string {
@@ -35,15 +36,6 @@ export function migrateRenamedPluginData(): void {
 export function botsHomePath(): string {
   // Nested: macOS paths are case-insensitive and "bots" holds the legacy per-bot folders.
   return join(pluginDataPath(), "shared", "Bots");
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 let migration: Promise<void> | null = null;

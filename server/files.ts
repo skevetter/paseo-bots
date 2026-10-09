@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const fileLocks = new Map<string, Promise<unknown>>();
@@ -25,6 +25,11 @@ async function readIfPresent(path: string): Promise<string | null> {
     if (isMissing(error)) return null;
     throw error;
   }
+}
+
+/** True for anything at `path`, a broken symlink included. */
+export async function exists(path: string): Promise<boolean> {
+  return (await lstat(path).catch(() => null)) !== null;
 }
 
 async function setAside(path: string, error: unknown): Promise<void> {
