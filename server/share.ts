@@ -14,7 +14,7 @@ import {
 } from "../shared/bot";
 import { botMcpServers, botSkills } from "../shared/bot-agent";
 import { newBotId, newRoutineId } from "../shared/bot-ids";
-
+import { teamMembers } from "../shared/groups";
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
 import { type ImportedSkill, librarySkillPath } from "./library";
@@ -308,9 +308,7 @@ export function isTeamFile(json: string): boolean {
 function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFileTeam[] {
   const index = new Map(bots.map((bot, position) => [bot.id, position]));
   return groups.flatMap((group) => {
-    const members = [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])].flatMap(
-      (id) => index.get(id) ?? [],
-    );
+    const members = teamMembers(group).flatMap((id) => index.get(id) ?? []);
     if (members.length === 0) return [];
     const lead = group.leadId ? (index.get(group.leadId) ?? null) : null;
     return [{ name: group.name, logo: group.logo, lead, members, instructions: group.instructions }];

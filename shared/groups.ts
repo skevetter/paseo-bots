@@ -12,6 +12,11 @@ export function teamOf(botId: string, groups: readonly BotGroup[]): BotGroup | n
   return groups.find((group) => group.leadId === botId || group.memberIds.includes(botId)) ?? null;
 }
 
+/** The lead first, then each member once. */
+export function teamMembers(group: BotGroup | null): string[] {
+  return group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : [];
+}
+
 export function groupBots(group: BotGroup, bots: readonly Bot[]): { lead: Bot | null; members: Bot[] } {
   const live = (id: string) => bots.find((bot) => bot.id === id && !bot.archived) ?? null;
   const lead = group.leadId ? live(group.leadId) : null;
@@ -111,10 +116,7 @@ export function teamTabs(groups: readonly BotGroup[], bots: readonly Bot[]): Tea
   const byId = new Map(bots.map((bot) => [bot.id, bot]));
   const teamed = new Set<string>();
   const tabs: TeamTab[] = groups.map((group) => {
-    const ids = [
-      ...(group.leadId ? [group.leadId] : []),
-      ...group.memberIds.filter((id) => id !== group.leadId),
-    ];
+    const ids = teamMembers(group);
     for (const id of ids) teamed.add(id);
     return { id: group.id, group, bots: ids.flatMap((id) => byId.get(id) ?? []) };
   });

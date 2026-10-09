@@ -12,7 +12,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { randomSeed } from "../../shared/avatar";
 import type { Bot, BotGroup, TeamLogo as Logo } from "../../shared/bot";
-import { type TeamDraft, teamLogoOf, teamOf } from "../../shared/groups";
+import { type TeamDraft, teamLogoOf, teamMembers, teamOf } from "../../shared/groups";
 import { TeamLogo } from "../Avatar";
 import { errorText, nativeTokens } from "../native";
 import { Button, SheetActions } from "../panel/controls";
@@ -152,7 +152,7 @@ function initialDraft(group: BotGroup | null): TeamDraft & { logo: Logo } {
     name: group.name,
     logo: teamLogoOf(group),
     leadId: group.leadId ?? null,
-    memberIds: [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])],
+    memberIds: teamMembers(group),
     instructions: group.instructions ?? "",
   };
 }

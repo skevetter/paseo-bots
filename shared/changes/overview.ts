@@ -6,16 +6,16 @@ import {
   EMPTY_LIBRARY,
   type Library,
 } from "../bot";
+import { teamMembers, teamOf } from "../groups";
 import { mcpServerTested } from "../library";
 import { describeSchedule } from "../routines";
 import { BOT_TEMPLATES } from "../templates";
 import type { AppAccountInfo, ProviderInfo } from "./context";
 import { list } from "./describe";
 import { findBot } from "./refs";
-import { teamMembers } from "./teams";
 
 function teamPart(bot: Bot, groups: readonly BotGroup[]): string | null {
-  const team = groups.find((group) => group.leadId === bot.id || group.memberIds.includes(bot.id));
+  const team = teamOf(bot.id, groups);
   if (!team) return null;
   return `team ${team.name}${team.leadId === bot.id ? " (Chief of Staff)" : ""}`;
 }

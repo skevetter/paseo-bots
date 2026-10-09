@@ -2,8 +2,7 @@ import type { z } from "zod";
 import { randomSeed } from "../avatar";
 import type { BotGroup, BotSettingsValues, TeamLogo } from "../bot";
 import { newGroupId } from "../bot-ids";
-
-import { saveTeam, teamLogoOf } from "../groups";
+import { saveTeam, teamLogoOf, teamMembers } from "../groups";
 import type { ApplyContext } from "./context";
 import { imageUrl, oneLine } from "./fields";
 import { findBot, findTeam } from "./refs";
@@ -17,10 +16,6 @@ function withLogo(logo: TeamLogo, input: z.infer<typeof LogoInput> | undefined):
     imageUrl:
       input.image_url !== undefined ? imageUrl(input.image_url) : input.new_logo ? null : logo.imageUrl,
   };
-}
-
-export function teamMembers(group: BotGroup | null): string[] {
-  return group ? [...new Set([...(group.leadId ? [group.leadId] : []), ...group.memberIds])] : [];
 }
 
 export function createTeam(
