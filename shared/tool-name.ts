@@ -22,6 +22,13 @@ export function toolCallName(call: { name: string; metadata?: unknown }): string
   return titleToolName(metadata.data.title) ?? call.name;
 }
 
+/** Shown as `server/tool` for MCP tools in daily logs and transcripts. */
+export function toolCallLabel(call: { name: string; metadata?: unknown }): string {
+  const name = toolCallName(call);
+  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
+  return mcp ? `${mcp[1]}/${mcp[2]}` : name;
+}
+
 export function permissionToolName(request: { name: string; title?: string; metadata?: unknown }): string {
   if (!request.title || !AcpPermissionMetadata.safeParse(request.metadata).success) return request.name;
   return titleToolName(request.title) ?? request.name;

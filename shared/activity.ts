@@ -1,4 +1,4 @@
-import { toolCallName } from "./tool-name";
+import { toolCallLabel } from "./tool-name";
 
 const REPLY_MAX = 240;
 const TITLE_MAX = 60;
@@ -22,11 +22,6 @@ export function redactSecrets(text: string): string {
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{20,}/g, "$1 [redacted]");
 }
 
-export function toolLabel(name: string): string {
-  const mcp = /^mcp__(.+?)__(.+)$/.exec(name);
-  return mcp ? `${mcp[1]}/${mcp[2]}` : name;
-}
-
 interface TimelineItemLike {
   type: string;
   text?: unknown;
@@ -44,7 +39,7 @@ export function lastTurn(items: readonly TimelineItemLike[]): { reply: string; t
   const tools: string[] = [];
   for (const item of turn) {
     if (item.type !== "tool_call" || typeof item.name !== "string") continue;
-    const label = toolLabel(toolCallName({ name: item.name, metadata: item.metadata }));
+    const label = toolCallLabel({ name: item.name, metadata: item.metadata });
     if (!tools.includes(label) && tools.length < MAX_TOOLS) tools.push(label);
   }
   return { reply: String(reply?.text ?? ""), tools };

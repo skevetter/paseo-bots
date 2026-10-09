@@ -1,5 +1,5 @@
-import { localTime, toolLabel } from "./activity";
-import { toolCallName } from "./tool-name";
+import { localTime } from "./activity";
+import { toolCallLabel } from "./tool-name";
 
 interface TranscriptEntry {
   item: { type: string; text?: unknown; name?: unknown; status?: unknown; metadata?: unknown };
@@ -12,7 +12,7 @@ function plain(text: string): string {
 
 function entryToolLabel(item: TranscriptEntry["item"]): string | null {
   if (item.type !== "tool_call" || typeof item.name !== "string") return null;
-  const label = toolLabel(toolCallName({ name: item.name, metadata: item.metadata }));
+  const label = toolCallLabel({ name: item.name, metadata: item.metadata });
   return item.status === "failed" ? `${label} (failed)` : label;
 }
 
