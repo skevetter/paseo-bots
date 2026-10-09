@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -25,6 +25,19 @@ describe("avatar pictures", () => {
     expect(await images.imageStatus()).toEqual({ configured: true, keyHint: "sk-…1234" });
     const info = await stat(join(home, "plugin-data", "paseo-bots", "images.json"));
     expect(info.mode & 0o077).toBe(0);
+  });
+
+  it("sets an unreadable key file aside instead of overwriting it", async () => {
+    const images = await import("../server/images");
+    const folder = join(home, "plugin-data", "paseo-bots");
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "images.json"), '{"openaiKey": "sk-cut-off');
+    expect(await images.imageStatus()).toEqual({ configured: false, keyHint: null });
+    await images.setImageKey({ key: "sk-new-5678" });
+    const aside = (await readdir(folder)).filter((file) => file.startsWith("images.json.corrupt-"));
+    expect(aside).toHaveLength(1);
+    expect(await readFile(join(folder, aside[0] ?? ""), "utf8")).toBe('{"openaiKey": "sk-cut-off');
+    expect(await images.imageStatus()).toEqual({ configured: true, keyHint: "sk-…5678" });
   });
 
   it("quotes the direction inside a fixed brief", async () => {

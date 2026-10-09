@@ -1,7 +1,7 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pluginDataPath } from "./bot-home";
 import { deadline } from "./composio";
+import { readJson, writeJson } from "./files";
 
 // The user's OpenAI key stays on this host.
 
@@ -19,18 +19,8 @@ function statePath(): string {
   return join(pluginDataPath(), "images.json");
 }
 
-async function readState(): Promise<State> {
-  try {
-    return JSON.parse(await readFile(statePath(), "utf8")) as State;
-  } catch {
-    return { openaiKey: null };
-  }
-}
-
-async function writeState(state: State): Promise<void> {
-  await mkdir(dirname(statePath()), { recursive: true });
-  await writeFile(statePath(), JSON.stringify(state, null, 2), { encoding: "utf8", mode: 0o600 });
-  await chmod(statePath(), 0o600).catch(() => {});
+function readState(): Promise<State> {
+  return readJson<State>(statePath(), { openaiKey: null });
 }
 
 export async function imageStatus() {
@@ -41,12 +31,12 @@ export async function imageStatus() {
 export async function setImageKey({ key }: { key: string }) {
   const openaiKey = key.trim();
   if (!openaiKey.startsWith("sk-")) throw new Error("OpenAI keys start with sk-.");
-  await writeState({ openaiKey });
+  await writeJson(statePath(), { openaiKey } satisfies State, 0o600);
   return { ok: true };
 }
 
 export async function removeImageKey() {
-  await writeState({ openaiKey: null });
+  await writeJson(statePath(), { openaiKey: null } satisfies State, 0o600);
   return { ok: true };
 }
 
