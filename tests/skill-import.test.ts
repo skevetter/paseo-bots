@@ -240,6 +240,32 @@ describe("importSkills replacing and refusing", () => {
     expect((await readSkill({ id: "huge" })).files).toEqual(["SKILL.md", "small.md"]);
   });
 
+  it("leaves out links, Windows-style paths and dot folders a repository lists", async () => {
+    serveRepo("acme/kit", {
+      main: {
+        "links/SKILL.md": skillMd("links"),
+        "links/ok.md": "kept",
+        "links/shortcut.md": "../../../.ssh/id_rsa",
+        "links/nested/SKILL.md": "../SKILL.md",
+        "links/win\\dows.md": "split on Windows",
+        "links/../outside.md": "out",
+      },
+    });
+    const served = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: string | URL) => {
+      const answer = await served(input);
+      if (!String(input).includes("/git/trees/")) return answer;
+      const listing = (await answer.json()) as { tree: { path: string; mode?: string }[] };
+      for (const entry of listing.tree) if (/shortcut|nested\/SKILL/.test(entry.path)) entry.mode = "120000";
+      return Response.json(listing);
+    });
+
+    const { skills } = await importSkills({ source: "acme/kit/links" });
+
+    expect(skills.map((skill) => skill.id)).toEqual(["links"]);
+    expect((await readSkill({ id: "links" })).files).toEqual(["SKILL.md", "ok.md"]);
+  });
+
   it("keeps a skill to 4 MB and refuses a file that turns out larger than its listing says", async () => {
     const chunks = Object.fromEntries(
       Array.from({ length: 10 }, (_, n) => [`bulk/part-${n}.md`, String(n).repeat(500 * 1024)]),

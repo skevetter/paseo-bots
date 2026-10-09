@@ -76,14 +76,21 @@ async function saveSkill(
 
 interface TreeEntry {
   path: string;
-  type: "blob" | "tree";
+  type: "blob" | "tree" | "commit";
   sha: string;
+  /** Git's file mode; "120000" is a symbolic link. */
+  mode?: string;
   size?: number;
 }
 
 interface GitTree {
   tree: TreeEntry[];
   truncated: boolean;
+}
+
+/** A link's blob is its target's path, and a backslash is a folder break on Windows. */
+function isPlainFile(entry: TreeEntry): boolean {
+  return entry.type === "blob" && entry.mode !== "120000" && !/[\\\0]|(^|\/)\.\.?(\/|$)/.test(entry.path);
 }
 
 interface RepoTree {
@@ -155,7 +162,7 @@ function findSkillDirs(entries: TreeEntry[], path: string): string[] {
   return entries
     .filter(
       (entry) =>
-        entry.type === "blob" &&
+        isPlainFile(entry) &&
         posix.basename(entry.path) === "SKILL.md" &&
         (entry.path === `${prefix}SKILL.md` || entry.path.startsWith(prefix)),
     )
@@ -169,7 +176,7 @@ function skillBlobs(tree: RepoTree, dir: string): TreeEntry[] {
   let room = MAX_SKILL_BYTES;
   return tree.entries
     .filter(
-      (entry) => entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
+      (entry) => isPlainFile(entry) && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
     )
     .filter(
       (entry) =>
