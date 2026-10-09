@@ -1,7 +1,13 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { Modal } from "@getpaseo/plugin/client/react-native";
-import { SettingsCard, SettingsSection, SettingsSelect, SettingsSwitch } from "@getpaseo/plugin/client/ui";
+import {
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+  SettingsSelect,
+  SettingsSwitch,
+} from "@getpaseo/plugin/client/ui";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
@@ -9,6 +15,7 @@ import { type AppAccount, type AppTool, accountLabel } from "../../shared/apps";
 import type { AppRule } from "../../shared/bot";
 import { appsToolsRpc } from "../../shared/rpc";
 import { APPS_KEY } from "../library/apps";
+import { readOnlyToolsHint } from "../library/status";
 import { errorText } from "../native";
 import { Button, CardNote, SearchField, SectionMeta, SheetActions } from "./controls";
 
@@ -76,7 +83,7 @@ export function AppAccessSheet({
         ) : null}
         <ToolsModeSection
           mode={mode}
-          hint={mode === "read" && tools.data ? `${readOnly.length} of ${list.length} tools` : undefined}
+          hint={mode === "read" ? readOnlyToolsHint(tools, readOnly.length, list.length) : undefined}
           onPick={pick}
         />
         {mode === "chosen" ? (
@@ -235,7 +242,9 @@ function toolsStatusNotes({
 }) {
   return [
     tools.isLoading ? <CardNote key="loading" colors={colors} loading text="Loading tools..." /> : null,
-    tools.error ? <CardNote key="error" colors={colors} text={errorText(tools.error)} /> : null,
+    tools.error ? (
+      <SettingsRow key="error" label="Couldn't load the tools" error={errorText(tools.error)} />
+    ) : null,
     tools.data && empty ? (
       <CardNote key="empty" colors={colors} text={filtered ? "No tools match" : "This app has no tools"} />
     ) : null,

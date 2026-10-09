@@ -9,6 +9,7 @@ import { matchesQuery } from "../../shared/library";
 import { appsRemoveKeyRpc, appsSetKeyRpc } from "../../shared/rpc";
 import { errorText } from "../native";
 import {
+  Alert,
   Button,
   CardNote,
   InputField,
@@ -37,22 +38,24 @@ interface AppsPageProps {
 
 export function AppsPage({ colors, showTitle, pending, onConnect }: AppsPageProps) {
   const status = useAppsStatus();
-  const configured = status.data?.configured ?? false;
   return (
     <>
       {showTitle ? <PageTitle colors={colors} title="Connected apps" /> : null}
-      {status.isLoading ? (
-        <CardNote colors={colors} loading text="Loading..." />
-      ) : configured ? (
+      {status.isLoading ? <CardNote colors={colors} loading text="Loading..." /> : null}
+      {status.isError && !status.data ? (
+        <SettingsCard>
+          <SettingsRow label="Couldn't check Composio" error={errorText(status.error)} />
+        </SettingsCard>
+      ) : null}
+      {status.data?.configured ? (
         <Catalog
           colors={colors}
           pending={pending}
           onConnect={onConnect}
-          keyHint={status.data?.keyHint ?? null}
+          keyHint={status.data.keyHint ?? null}
         />
-      ) : (
-        <Setup colors={colors} />
-      )}
+      ) : null}
+      {status.data && !status.data.configured ? <Setup colors={colors} /> : null}
     </>
   );
 }
@@ -145,6 +148,16 @@ function Catalog({
       <View style={{ marginBottom: 12 }}>
         <SearchField colors={colors} value={query} onChangeText={setQuery} placeholder="Search apps" />
       </View>
+      {accounts.isError ? (
+        <View style={{ marginBottom: 24 }}>
+          <Alert
+            colors={colors}
+            variant="error"
+            title="Couldn't load your connected apps"
+            description={errorText(accounts.error)}
+          />
+        </View>
+      ) : null}
       <SettingsSection
         title="Apps"
         trailing={

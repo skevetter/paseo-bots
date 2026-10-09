@@ -6,7 +6,7 @@ import type { AppAccount } from "../../shared/apps";
 import type { Library, LibraryMcpServer, LibrarySkill } from "../../shared/bot";
 import { mcpServerLabel } from "../../shared/browser";
 import { matchesQuery, mcpTarget } from "../../shared/library";
-import { nativeTokens, useHover } from "../native";
+import { errorText, nativeTokens, useHover } from "../native";
 import type { LibraryTarget } from "../navigation";
 import { SearchField } from "../panel/controls";
 import { ui } from "../typography";
@@ -14,7 +14,7 @@ import { measureAnchor } from "../ui/Menu";
 import { tooltip } from "../ui/Tooltip";
 import { connectedApps, useAppsAccounts, useAppsCatalog, useAppsStatus } from "./apps";
 import { AppLogo } from "./parts";
-import { type ListNote, mcpServerNote } from "./status";
+import { type AppsLoad, appsLoad, type ListNote, mcpServerNote } from "./status";
 
 type Colors = PluginTheme["colors"];
 
@@ -222,6 +222,12 @@ function appsEmptyText(searching: boolean, configured: boolean): string {
   return configured ? "No apps connected yet" : "Not set up yet";
 }
 
+function appsGroupNote(load: AppsLoad, searching: boolean, empty: boolean): ListNote | null {
+  if (load.kind === "loading") return { text: "Loading apps...", tone: "busy" };
+  if (load.kind === "failed") return { text: `${load.label}: ${errorText(load.error)}`, tone: "danger" };
+  return empty ? { text: appsEmptyText(searching, load.kind === "ready") } : null;
+}
+
 function AppsGroup({ colors, query, searching, touch, selected, onSelect }: GroupRowsProps) {
   const appsStatus = useAppsStatus();
   const configured = appsStatus.data?.configured ?? false;
@@ -230,6 +236,7 @@ function AppsGroup({ colors, query, searching, touch, selected, onSelect }: Grou
   const apps = connectedApps(accounts.data?.accounts ?? [], catalog.data?.apps ?? []).filter((app) =>
     matchesQuery(query, app.name, app.slug),
   );
+  const note = appsGroupNote(appsLoad(appsStatus, accounts, catalog), searching, apps.length === 0);
   return (
     <Group
       colors={colors}
@@ -250,7 +257,7 @@ function AppsGroup({ colors, query, searching, touch, selected, onSelect }: Grou
           onPress={() => onSelect({ kind: "app", id: app.slug })}
         />
       ))}
-      {apps.length === 0 ? <GroupNote colors={colors} text={appsEmptyText(searching, configured)} /> : null}
+      {note ? <GroupNote colors={colors} {...note} /> : null}
     </Group>
   );
 }
@@ -286,13 +293,23 @@ function Divider({ colors }: { colors: Colors }) {
   return <View style={{ height: 1, backgroundColor: colors.border }} />;
 }
 
-function GroupNote({ colors, text }: { colors: Colors; text: string }) {
+function GroupNote({ colors, text, tone }: { colors: Colors } & ListNote) {
   return (
-    <Text
-      style={{ fontSize: ui(14), color: colors.foregroundMuted, paddingHorizontal: 8, paddingVertical: 4 }}
+    <View
+      style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 4 }}
     >
-      {text}
-    </Text>
+      {tone === "busy" ? <ActivityIndicator size="small" color={colors.foregroundMuted} /> : null}
+      <Text
+        accessibilityRole={tone === "danger" ? "alert" : undefined}
+        style={{
+          flexShrink: 1,
+          fontSize: ui(14),
+          color: tone === "danger" ? colors.statusDanger : colors.foregroundMuted,
+        }}
+      >
+        {text}
+      </Text>
+    </View>
   );
 }
 

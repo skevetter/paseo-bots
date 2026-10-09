@@ -1,11 +1,13 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
+import { SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { type AppAccount, type AppCard, accountLabel, withAppRule } from "../../shared/apps";
 import type { AppRule } from "../../shared/bot";
 import { useBotHost } from "../data";
 import { connectedApps, useAppsAccounts, useAppsCatalog, useAppsStatus } from "../library/apps";
 import { AppLogo } from "../library/parts";
+import { type AppsLoad, appsLoad } from "../library/status";
+import { errorText } from "../native";
 import { openLibrary } from "../navigation";
 import { AppAccessSheet } from "./AppAccessSheet";
 import type { PanelProps } from "./BotPanel";
@@ -70,12 +72,11 @@ export function AppsPicker({
       }
     >
       <SettingsCard>
-        {appsStatusNotes({
+        {appsStatusNote({
           colors,
           isLocal: host.isLocal,
-          notSetUp: Boolean(status.data) && !configured,
-          loading: configured && accounts.isLoading,
-          empty: configured && !accounts.isLoading && apps.length === 0,
+          load: appsLoad(status, accounts, catalog),
+          empty: apps.length === 0,
         })}
         {host.isLocal && configured
           ? apps.map((app) => (
@@ -110,26 +111,28 @@ export function AppsPicker({
   );
 }
 
-function appsStatusNotes({
+function appsStatusNote({
   colors,
   isLocal,
-  notSetUp,
-  loading,
+  load,
   empty,
 }: {
   colors: PanelProps["colors"];
   isLocal: boolean;
-  notSetUp: boolean;
-  loading: boolean;
+  load: AppsLoad;
   empty: boolean;
 }) {
-  if (!isLocal)
-    return [<CardNote key="remote" colors={colors} text="Only bots on this host can use connected apps" />];
-  return [
-    notSetUp ? <CardNote key="setup" colors={colors} text="Not set up yet" /> : null,
-    loading ? <CardNote key="loading" colors={colors} loading text="Loading..." /> : null,
-    empty ? <CardNote key="empty" colors={colors} text="No apps connected yet" /> : null,
-  ];
+  if (!isLocal) return <CardNote colors={colors} text="Only bots on this host can use connected apps" />;
+  switch (load.kind) {
+    case "loading":
+      return <CardNote colors={colors} loading text="Loading..." />;
+    case "failed":
+      return <SettingsRow label={load.label} error={errorText(load.error)} />;
+    case "not-set-up":
+      return <CardNote colors={colors} text="Not set up yet" />;
+    default:
+      return empty ? <CardNote colors={colors} text="No apps connected yet" /> : null;
+  }
 }
 
 function AppRow({
