@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Bot, Routine } from "../shared/bot";
 import { toolGrants } from "../shared/bot-agent";
 import { pushHistory } from "../shared/bot-history";
-import { migrateV1 } from "../shared/bot-migrations";
 
 import { decide, describeSchedule, latestDue, nextRun } from "../shared/routines";
 
@@ -112,15 +111,7 @@ describe("nextRun and describeSchedule", () => {
   });
 });
 
-describe("migration, history and grants", () => {
-  it("moves v1 fields into v2", () => {
-    const migrated = migrateV1({
-      bots: [{ id: "b", name: "B", instructions: "be nice", avatarSeed: "s" }],
-    }) as { bots: Record<string, unknown>[] };
-    expect(migrated.bots[0]).toMatchObject({ soul: "be nice", avatar: { seed: "s" } });
-    expect(migrated.bots[0]).not.toHaveProperty("instructions");
-  });
-
+describe("history and grants", () => {
   it("coalesces rapid edits into one undo step", () => {
     const bot = { id: "b" } as Bot;
     const one = pushHistory([], bot, at("2026-09-26T10:00:00Z"));

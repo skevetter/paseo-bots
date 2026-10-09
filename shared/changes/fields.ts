@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { canonicalSlug } from "../apps";
 import { randomSeed } from "../avatar";
-import type { Bot, BotAvatar, BotSettingsValues, Library } from "../bot";
+import type { Bot, BotAvatar, BotState, Library } from "../bot";
 import { pushHistory } from "../bot-history";
 import { newPlaybookId } from "../bot-ids";
 
@@ -161,7 +161,7 @@ export function withPlaybooks(
   return { ...bot, playbooks };
 }
 
-export function withBot(values: BotSettingsValues, bot: Bot, context: ApplyContext): BotSettingsValues {
+export function withBot(values: BotState, bot: Bot, context: ApplyContext): BotState {
   const previous = values.bots.find((entry) => entry.id === bot.id);
   const updated = { ...bot, updatedAt: context.now };
   return {
@@ -174,7 +174,7 @@ export function withBot(values: BotSettingsValues, bot: Bot, context: ApplyConte
   };
 }
 
-export function uniqueBotName(values: BotSettingsValues, name: string, except?: string): string {
+export function uniqueBotName(values: BotState, name: string, except?: string): string {
   const trimmed = oneLine(name);
   if (values.bots.some((bot) => bot.id !== except && bot.name.trim().toLowerCase() === trimmed.toLowerCase()))
     throw new Error(`There's already a bot called "${trimmed}".`);

@@ -1,5 +1,5 @@
 import { canonicalSlug } from "../apps";
-import { type BotDefaults, type BotSettingsValues, DEFAULT_BOT_DEFAULTS } from "../bot";
+import { type BotDefaults, type BotState, DEFAULT_BOT_DEFAULTS } from "../bot";
 import { presetFromBot } from "../presets";
 
 import { addRoutine, createBot, deleteBot, deleteRoutine, updateBot, updateRoutine } from "./bots";
@@ -9,11 +9,7 @@ import { byRef, findBot, findTeam } from "./refs";
 import type { AppInputValue, Change, ChangeOf } from "./schema";
 import { createTeam, updateTeam } from "./teams";
 
-function setDefaults(
-  values: BotSettingsValues,
-  change: ChangeOf<"set_defaults">,
-  context: ApplyContext,
-): BotSettingsValues {
+function setDefaults(values: BotState, change: ChangeOf<"set_defaults">, context: ApplyContext): BotState {
   const current = values.defaults ?? DEFAULT_BOT_DEFAULTS;
   const provider = change.provider !== undefined ? change.provider.trim() : current.provider;
   const carried =
@@ -35,7 +31,7 @@ function setDefaults(
   return { ...values, defaults };
 }
 
-function deletePreset(values: BotSettingsValues, change: ChangeOf<"delete_preset">): BotSettingsValues {
+function deletePreset(values: BotState, change: ChangeOf<"delete_preset">): BotState {
   const presets = values.presets ?? [];
   const preset = byRef(presets, change.preset, {
     what: "preset",
@@ -45,7 +41,7 @@ function deletePreset(values: BotSettingsValues, change: ChangeOf<"delete_preset
   return { ...values, presets: presets.filter((entry) => entry.id !== preset.id) };
 }
 
-function applyChange(values: BotSettingsValues, change: Change, context: ApplyContext): BotSettingsValues {
+function applyChange(values: BotState, change: Change, context: ApplyContext): BotState {
   switch (change.type) {
     case "create_bot":
       return createBot(values, change, context);
@@ -87,11 +83,7 @@ function applyChange(values: BotSettingsValues, change: Change, context: ApplyCo
 }
 
 /** Throws naming the first change that doesn't fit. */
-export function applyChanges(
-  values: BotSettingsValues,
-  changes: readonly Change[],
-  context: ApplyContext,
-): BotSettingsValues {
+export function applyChanges(values: BotState, changes: readonly Change[], context: ApplyContext): BotState {
   return changes.reduce((current, change, index) => {
     try {
       return applyChange(current, change, context);

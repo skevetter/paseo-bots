@@ -9,7 +9,7 @@ import {
   type Bot,
   type BotGroup,
   type BotListUi,
-  type BotSettingsValues,
+  type BotState,
   DEFAULT_BOT_LIST_UI,
   type TeamFileTeam,
 } from "../shared/bot";
@@ -32,14 +32,14 @@ import type { SectionId } from "./panel/BotPanel";
 import type { Selection } from "./sidebar/types";
 import { useTypeScale } from "./typography";
 import { type MenuApi, useMenu } from "./ui/Menu";
-import { type BotSettingsState, type CommitBotSettings, useBotSettings } from "./useBotSettings";
+import { type BotStoreState, type CommitBotState, useBotState } from "./useBotState";
 
 const SAVE_DELAY_MS = 600;
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
 interface LatestSettings {
-  readonly current: BotSettingsState;
+  readonly current: BotStoreState;
 }
 
 export interface PanelState {
@@ -57,8 +57,8 @@ export interface DragWidths {
 }
 
 export interface SurfaceServices {
-  settings: BotSettingsState;
-  commit: CommitBotSettings;
+  settings: BotStoreState;
+  commit: CommitBotState;
   toast: ToastApi;
   menu: MenuApi;
   queryClient: QueryClient;
@@ -137,7 +137,7 @@ interface BackState {
 
 type BackSetters = Pick<ScreenState, "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView">;
 
-function applyDrafts(values: BotSettingsValues, pending: Record<string, Bot>): BotSettingsValues {
+function applyDrafts(values: BotState, pending: Record<string, Bot>): BotState {
   let history = values.history;
   const bots = values.bots.map((bot) => {
     const draft = pending[bot.id];
@@ -155,11 +155,11 @@ function withoutSaved(current: Record<string, Bot>, saved: Record<string, Bot>):
 }
 
 function patchSavedBot(
-  values: BotSettingsValues,
+  values: BotState,
   botId: string,
   patch: Partial<Bot>,
   recordHistory: boolean,
-): BotSettingsValues {
+): BotState {
   const previous = values.bots.find((entry) => entry.id === botId);
   if (!previous) return values;
   return {
@@ -172,7 +172,7 @@ function patchSavedBot(
 }
 
 function useServices(host: PluginScreenProps["host"]): SurfaceServices & { latest: LatestSettings } {
-  const { settings, latest, commit } = useBotSettings();
+  const { settings, latest, commit } = useBotState();
   const toast = useToast();
   const menu = useMenu();
   const queryClient = useQueryClient();
@@ -240,7 +240,7 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
   };
 }
 
-function useListUi(latest: LatestSettings, commit: CommitBotSettings): ListUiState {
+function useListUi(latest: LatestSettings, commit: CommitBotState): ListUiState {
   // List state (collapsed groups, pins, order, display options) applies at once and saves behind.
   const [uiOverride, setUiOverride] = useState<BotListUi | null>(null);
   const uiRef = useRef<BotListUi | null>(null);
@@ -280,7 +280,7 @@ function useSurfaceLayout(): SurfaceLayoutState {
   };
 }
 
-function useDrafts(latest: LatestSettings, commit: CommitBotSettings): DraftState {
+function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
   const [drafts, setDrafts] = useState<Record<string, Bot>>({});
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;

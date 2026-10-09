@@ -1,7 +1,7 @@
 import {
   type Bot,
   type BotMcpServer,
-  type BotSettingsValues,
+  type BotState,
   EMPTY_LIBRARY,
   type Library,
   type LibraryMcpServer,
@@ -189,11 +189,11 @@ export interface ImportedBot {
 }
 
 export function addImportedBots(
-  values: BotSettingsValues,
+  values: BotState,
   imported: readonly ImportedBot[],
   teams: readonly TeamFileTeam[] = [],
   now: string = new Date().toISOString(),
-): BotSettingsValues {
+): BotState {
   let library = values.library ?? EMPTY_LIBRARY;
   const bots = [...values.bots];
   for (const entry of imported) {

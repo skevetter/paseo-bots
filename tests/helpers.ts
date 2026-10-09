@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll } from "vitest";
 import { BotsHost } from "../server/host";
-import { type Bot, type BotSettingsValues, EMPTY_LIBRARY, type Library } from "../shared/bot";
+import { type Bot, type BotState, EMPTY_LIBRARY, type Library } from "../shared/bot";
 
 export const NOW = "2026-09-27T00:00:00.000Z";
 
@@ -55,11 +55,11 @@ export function makeBot(patch: Partial<Bot> = {}): Bot {
   };
 }
 
-export type FakeHost = BotsHost & { values(): Promise<BotSettingsValues> };
+export type FakeHost = BotsHost & { values(): Promise<BotState> };
 
 /** `values` can be mutated between calls. */
 export function fakeHost(bots: Bot[], library: Library = EMPTY_LIBRARY): FakeHost {
-  const values: BotSettingsValues = { bots, history: [], library };
-  const settings = { read: async () => ({ status: "ready" as const, values, revision: "1" }) };
-  return new BotsHost(settings as never) as FakeHost;
+  const values: BotState = { bots, history: [], library };
+  const store = { read: async () => ({ values, revision: "1" }) };
+  return new BotsHost(store as never) as FakeHost;
 }

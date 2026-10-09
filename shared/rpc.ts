@@ -4,6 +4,7 @@ import {
   BotGroupSchema,
   BotMcpServerSchema,
   BotSchema,
+  BotStateSchema,
   McpServerConfigSchema,
   McpToolSchema,
   TeamFileTeamSchema,
@@ -29,6 +30,22 @@ export const helloRpc = defineRpc({
   name: "bots.hello",
   input: z.object({}),
   output: z.object({ scheduler: z.boolean() }),
+});
+
+export const stateReadRpc = defineRpc({
+  name: "bots.state.read",
+  input: z.object({}),
+  output: z.object({ revision: z.string(), values: BotStateSchema }),
+});
+
+/** Saves only over `revision`; a newer one answers "conflict". */
+export const stateWriteRpc = defineRpc({
+  name: "bots.state.write",
+  input: z.object({ revision: z.string(), values: BotStateSchema }),
+  output: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("saved"), revision: z.string(), values: BotStateSchema }),
+    z.object({ status: z.literal("conflict"), error: z.string() }),
+  ]),
 });
 
 const PromptSectionSchema = z.object({ title: z.string(), text: z.string() });

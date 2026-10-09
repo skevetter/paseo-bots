@@ -25,9 +25,9 @@ import { acceptProposal, dismissProposal, getProposal } from "./server/proposals
 import { Relay } from "./server/relay";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
+import { BotStore } from "./server/state";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
-import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import {
   appsAccountsRpc,
@@ -73,6 +73,8 @@ import {
   skillImportRpc,
   skillReadRpc,
   skillWriteRpc,
+  stateReadRpc,
+  stateWriteRpc,
   systemPromptRpc,
   uploadRpc,
 } from "./shared/rpc";
@@ -176,13 +178,8 @@ function handleChatEvents(
 
 export default function contribute(server: PluginServerContext) {
   prepareData();
-  const settings = server.registerSettings(botSettings);
-  const library = async () => {
-    const state = await settings.read();
-    return state.status === "ready" ? (state.values.library ?? EMPTY_LIBRARY) : EMPTY_LIBRARY;
-  };
-  const host = new BotsHost(settings);
-  // The relay reads the saved settings on every call.
+  const store = new BotStore();
+  const host = new BotsHost(store);
   const relay = new Relay(host, BOT_TOOLS);
   void relay.start().catch((error: unknown) => console.error("paseo-bots: couldn't start the relay", error));
   const scheduler = new RoutineScheduler(host, relay);
@@ -194,12 +191,17 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     return { scheduler: scheduler.running };
   });
+  server.handle(stateReadRpc, (_input, context) => {
+    attach(context);
+    return store.read();
+  });
+  server.handle(stateWriteRpc, ({ revision, values }) => store.write(revision, values));
   server.handle(ensureBotHomeRpc, (input, context) => {
     attach(context);
     return ensureBotHome(input);
   });
   server.handle(systemPromptRpc, async (input, context) =>
-    systemPrompt(input, await library(), context.paseo, await host.values()),
+    systemPrompt(input, await host.library(), context.paseo, await host.values()),
   );
   handleMemory(server, journal);
   handleSkillsAndApps(server);
@@ -227,9 +229,9 @@ export default function contribute(server: PluginServerContext) {
     rule: await commands.add(botId, command, cwd),
   }));
   server.handle(commandRemoveRpc, async ({ botId, id }) => ({ ok: await commands.remove(botId, id) }));
-  server.handle(exportBotRpc, async (input) => exportBot(input, await library()));
+  server.handle(exportBotRpc, async (input) => exportBot(input, await host.library()));
   server.handle(importBotRpc, importBot);
-  server.handle(exportTeamRpc, async (input) => exportTeam(input, await library()));
+  server.handle(exportTeamRpc, async (input) => exportTeam(input, await host.library()));
   server.handle(importTeamRpc, importTeam);
   server.handle(uploadRpc, saveUpload);
   handleChatEvents(server, { host, journal, scheduler, commands });

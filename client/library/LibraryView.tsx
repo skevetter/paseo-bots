@@ -2,7 +2,7 @@ import type { PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useMemo, useState } from "react";
 import { View } from "react-native";
-import { type BotSettingsValues, EMPTY_LIBRARY } from "../../shared/bot";
+import { type BotState, EMPTY_LIBRARY } from "../../shared/bot";
 import { withBrowserServer } from "../../shared/browser";
 import { nativeTokens } from "../native";
 import type { LibraryTarget } from "../navigation";
@@ -23,7 +23,7 @@ type Colors = PluginSurfaceProps["theme"]["colors"];
 interface LibraryViewProps {
   colors: Colors;
   layout: PluginSurfaceProps["layout"];
-  values: BotSettingsValues;
+  values: BotState;
   commit: CommitSettings;
   /** Page shown; null is the list screen on compact. */
   target: LibraryTarget | null;

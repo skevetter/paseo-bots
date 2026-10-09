@@ -1,15 +1,11 @@
-import { type BotSettingsValues, EMPTY_LIBRARY, type McpServerConfig } from "../bot";
+import { type BotState, EMPTY_LIBRARY, type McpServerConfig } from "../bot";
 import { addMcpServers, mcpServerTested, withoutMcpServer } from "../library";
 import { RESERVED_MCP_NAMES } from "../mcp-servers";
 import type { ApplyContext } from "./context";
 import { findServer, findSkill } from "./refs";
 import type { ChangeOf } from "./schema";
 
-export function setSkill(
-  values: BotSettingsValues,
-  change: ChangeOf<"set_skill">,
-  context: ApplyContext,
-): BotSettingsValues {
+export function setSkill(values: BotState, change: ChangeOf<"set_skill">, context: ApplyContext): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const skill = findSkill(library, change.skill);
   if (change.enabled && skill.reviewedSha === null)
@@ -34,10 +30,10 @@ function mcpConfigFrom(change: ChangeOf<"add_mcp_server">): McpServerConfig {
 }
 
 export function addMcpServer(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"add_mcp_server">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const name = change.name.trim();
   if (RESERVED_MCP_NAMES.includes(name))
@@ -59,10 +55,10 @@ export function addMcpServer(
 }
 
 export function setMcpServer(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"set_mcp_server">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const server = findServer(library, change.server);
   if (change.enabled && !mcpServerTested(server))
@@ -80,10 +76,7 @@ export function setMcpServer(
   };
 }
 
-export function removeMcpServer(
-  values: BotSettingsValues,
-  change: ChangeOf<"remove_mcp_server">,
-): BotSettingsValues {
+export function removeMcpServer(values: BotState, change: ChangeOf<"remove_mcp_server">): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const server = findServer(library, change.server);
   return { ...values, ...withoutMcpServer(library, values.bots, server.id) };

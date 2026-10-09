@@ -1,4 +1,4 @@
-import { type Bot, type BotSettingsValues, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "../bot";
+import { type Bot, type BotState, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "../bot";
 import { newRoutineId } from "../bot-ids";
 
 import { withoutBot } from "../groups";
@@ -17,11 +17,7 @@ import {
 import { byRef, findBot, ROUTINE_REF } from "./refs";
 import type { ChangeOf } from "./schema";
 
-export function createBot(
-  values: BotSettingsValues,
-  change: ChangeOf<"create_bot">,
-  context: ApplyContext,
-): BotSettingsValues {
+export function createBot(values: BotState, change: ChangeOf<"create_bot">, context: ApplyContext): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
   const template = BOT_TEMPLATES.find((entry) => entry.id === change.role);
@@ -44,11 +40,7 @@ export function createBot(
   return withBot(values, bot, context);
 }
 
-export function updateBot(
-  values: BotSettingsValues,
-  change: ChangeOf<"update_bot">,
-  context: ApplyContext,
-): BotSettingsValues {
+export function updateBot(values: BotState, change: ChangeOf<"update_bot">, context: ApplyContext): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   let bot = findBot(values, change.bot);
   if (change.name !== undefined) bot = { ...bot, name: uniqueBotName(values, change.name, bot.id) };
@@ -65,11 +57,7 @@ export function updateBot(
   return withBot(values, bot, context);
 }
 
-export function deleteBot(
-  values: BotSettingsValues,
-  change: ChangeOf<"delete_bot">,
-  context: ApplyContext,
-): BotSettingsValues {
+export function deleteBot(values: BotState, change: ChangeOf<"delete_bot">, context: ApplyContext): BotState {
   const bot = findBot(values, change.bot);
   const ui = values.ui;
   const { [bot.id]: _order, ...chatOrder } = ui?.chatOrder ?? {};
@@ -88,10 +76,10 @@ export function deleteBot(
 }
 
 export function addRoutine(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"add_routine">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const bot = findBot(values, change.bot);
   const routine = {
     id: newRoutineId(),
@@ -106,10 +94,10 @@ export function addRoutine(
 }
 
 export function updateRoutine(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"update_routine">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const bot = findBot(values, change.bot);
   const routine = byRef(bot.routines, change.routine, ROUTINE_REF);
   const updated = {
@@ -127,10 +115,10 @@ export function updateRoutine(
 }
 
 export function deleteRoutine(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"delete_routine">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const bot = findBot(values, change.bot);
   const routine = byRef(bot.routines, change.routine, ROUTINE_REF);
   return withBot(

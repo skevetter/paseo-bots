@@ -4,7 +4,7 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
-import { type Bot, type BotSettingsValues, EMPTY_LIBRARY } from "../../../shared/bot";
+import { type Bot, type BotState, EMPTY_LIBRARY } from "../../../shared/bot";
 import { newRoutineId } from "../../../shared/bot-ids";
 
 import { applyChanges } from "../../../shared/changes/apply";
@@ -18,13 +18,13 @@ import { skillQueryKey } from "../../library/SkillPage";
 import { errorText } from "../../native";
 import { Alert } from "../../panel/status";
 import { ui } from "../../typography";
-import { useBotSettings } from "../../useBotSettings";
+import { useBotState } from "../../useBotState";
 import { CardButton } from "./buttons";
 import { PlanCard } from "./PlanCard";
 
 type Colors = PluginTheme["colors"];
 type Busy = "save" | "dismiss" | null;
-type Commit = (mutate: (values: BotSettingsValues) => BotSettingsValues) => Promise<boolean>;
+type Commit = (mutate: (values: BotState) => BotState) => Promise<boolean>;
 type AcceptedSkill = { id: string; description: string; sha: string };
 
 const proposalQueryKey = (id: string) => ["paseo-bots", "proposal", id];
@@ -76,7 +76,7 @@ function ProposalBody({
   proposal: Proposal;
   refetch: () => void;
 }) {
-  const { settings, commit } = useBotSettings();
+  const { settings, commit } = useBotState();
   const { busy, save, drop } = useProposalActions({ proposal, commit, refetch });
   const view = proposalView(proposal, settings.status === "ready" ? settings.values : null);
 
@@ -217,10 +217,10 @@ function useProposalActions({
 }
 
 function addRoutine(
-  current: BotSettingsValues,
+  current: BotState,
   botId: string,
   data: Extract<Proposal, { kind: "routine" }>["data"],
-): BotSettingsValues {
+): BotState {
   const routine = {
     id: newRoutineId(),
     ...data,
@@ -235,7 +235,7 @@ function addRoutine(
   };
 }
 
-function addSkill(current: BotSettingsValues, botId: string, skill: AcceptedSkill): BotSettingsValues {
+function addSkill(current: BotState, botId: string, skill: AcceptedSkill): BotState {
   return {
     ...current,
     library: updateSkill(
@@ -251,7 +251,7 @@ function addSkill(current: BotSettingsValues, botId: string, skill: AcceptedSkil
   };
 }
 
-function proposalView(proposal: Proposal, values: BotSettingsValues | null): ProposalView {
+function proposalView(proposal: Proposal, values: BotState | null): ProposalView {
   const bot = values?.bots.find((entry) => entry.id === proposal.botId);
   if (proposal.kind === "skill") {
     const exists = !!values?.library?.skills.some((skill) => skill.id === proposal.data.name);

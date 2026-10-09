@@ -1,4 +1,4 @@
-import type { Bot, BotSettingsValues, Library } from "../bot";
+import type { Bot, BotState, Library } from "../bot";
 
 interface RefKind<T> {
   what: string;
@@ -27,9 +27,9 @@ export const ROUTINE_REF: RefKind<Bot["routines"][number]> = {
   name: (routine) => routine.name,
 };
 
-export const findBot = (values: BotSettingsValues, ref: string) =>
+export const findBot = (values: BotState, ref: string) =>
   byRef(values.bots, ref, { what: "bot", id: (bot) => bot.id, name: (bot) => bot.name });
-export const findTeam = (values: BotSettingsValues, ref: string) =>
+export const findTeam = (values: BotState, ref: string) =>
   byRef(values.groups ?? [], ref, { what: "team", id: (group) => group.id, name: (group) => group.name });
 export const findSkill = (library: Library, ref: string) =>
   byRef(library.skills, ref, { what: "skill", id: (skill) => skill.id, name: (skill) => skill.id });

@@ -4,13 +4,13 @@ import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useState } from "react";
 import { Text, View } from "react-native";
 import type { AppAccount, AppSignIn } from "../../../shared/apps";
-import { BOT_LABEL, type BotSettingsValues } from "../../../shared/bot";
+import { BOT_LABEL, type BotState } from "../../../shared/bot";
 import { useAppsAccounts, useAppsCatalog } from "../../library/apps";
 import { AppLogo } from "../../library/parts";
 import { errorText } from "../../native";
 import { StatusBadge } from "../../panel/status";
 import { ui } from "../../typography";
-import { useBotSettings } from "../../useBotSettings";
+import { useBotState } from "../../useBotState";
 import { CardButton } from "./buttons";
 
 type Colors = PluginTheme["colors"];
@@ -20,7 +20,7 @@ type ConnectApp = { name: string; logo: string | null; domain: string | null };
 type Badge = { label: string; variant: "success" | "muted" };
 
 interface ConnectState {
-  commit: (mutate: (values: BotSettingsValues) => BotSettingsValues) => Promise<boolean>;
+  commit: (mutate: (values: BotState) => BotState) => Promise<boolean>;
   phase: Phase;
   setPhase: (phase: Phase) => void;
   app: ConnectApp;
@@ -71,7 +71,7 @@ function connectNote({
 }
 
 function useConnectState(signIn: AppSignIn, since: number, botId: string | null): ConnectState {
-  const { settings, commit } = useBotSettings();
+  const { settings, commit } = useBotState();
   const [phase, setPhase] = useState<Phase>("idle");
   const accounts = useAppsAccounts(true, phase === "waiting");
   const catalog = useAppsCatalog(true);

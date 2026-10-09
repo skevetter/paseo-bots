@@ -18,13 +18,13 @@ import { confirmDialog, errorText } from "../native";
 import { Button, SheetActions } from "../panel/controls";
 import { FormTextArea } from "../panel/fields";
 import { CardNote } from "../panel/rows";
-import { useBotSettings } from "../useBotSettings";
+import { useBotState } from "../useBotState";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 
 export function BotsSettings({ theme, host }: PluginSurfaceProps) {
   const colors = theme.colors;
-  const { settings, commit } = useBotSettings();
+  const { settings, commit } = useBotState();
   if (settings.status !== "ready")
     return (
       <CardNote
@@ -177,7 +177,7 @@ function TeamSection({
   colors: Colors;
   bots: Bot[];
   groups: BotGroup[];
-  commit: ReturnType<typeof useBotSettings>["commit"];
+  commit: ReturnType<typeof useBotState>["commit"];
 }) {
   const exportTeam = useRpc(exportTeamRpc);
   const importTeam = useRpc(importTeamRpc);

@@ -2,7 +2,6 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { SettingsAction, SettingsCard } from "@getpaseo/plugin/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
@@ -46,7 +45,7 @@ import { ui } from "./typography";
 import { ResizeHandle, SlideOver } from "./ui/Columns";
 import { MenuProvider } from "./ui/Menu";
 import { useTooltipTheme } from "./ui/Tooltip";
-import type { BotSettingsState } from "./useBotSettings";
+import type { BotStoreState } from "./useBotState";
 import { useBotsSurface } from "./useBotsSurface";
 import { useChat } from "./useChat";
 
@@ -80,7 +79,7 @@ function SettingsUnavailable({
   settings,
 }: {
   colors: Colors;
-  settings: Exclude<BotSettingsState, { status: "ready" }>;
+  settings: Exclude<BotStoreState, { status: "ready" }>;
 }) {
   const loading = settings.status === "loading";
   return (
@@ -101,16 +100,6 @@ function SettingsUnavailable({
           Couldn't read bots: {settings.error}
         </Text>
       )}
-      {settings.status === "invalid" ? (
-        <SettingsCard>
-          <SettingsAction
-            label="Reset bots"
-            hint="Replaces the unreadable bot list with an empty one."
-            actionLabel="Reset"
-            onPress={() => void settings.reset()}
-          />
-        </SettingsCard>
-      ) : null}
     </View>
   );
 }

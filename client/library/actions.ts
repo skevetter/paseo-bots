@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type Bot,
   type BotMcpServer,
-  type BotSettingsValues,
+  type BotState,
   EMPTY_LIBRARY,
   type Library,
   type LibraryMcpServer,
@@ -32,7 +32,7 @@ import type { SavedSkill } from "./SkillSheets";
 
 export type SetTarget = (target: LibraryTarget | null) => void;
 
-export type CommitSettings = (mutate: (values: BotSettingsValues) => BotSettingsValues) => Promise<boolean>;
+export type CommitSettings = (mutate: (values: BotState) => BotState) => Promise<boolean>;
 
 type SaveLibrary = (
   mutate: (library: Library, bots: Bot[]) => { library?: Library; bots?: Bot[] },

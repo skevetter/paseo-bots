@@ -36,12 +36,6 @@ async function hostContext(host: BotsHost): Promise<ApplyContext> {
   };
 }
 
-async function readValues(host: BotsHost) {
-  const values = await host.values();
-  if (!values) throw new Error("The bot settings can't be read right now. Try again in a moment.");
-  return values;
-}
-
 export const getSetup = defineTool({
   name: "get_setup",
   description:
@@ -50,7 +44,7 @@ export const getSetup = defineTool({
     bot: z.string().max(100).optional().describe("A bot's name or id, for its full details."),
   }),
   async run({ bot }, { host }) {
-    const values = await readValues(host);
+    const values = await host.values();
     if (bot) return botDetails(values, bot);
     const context = await hostContext(host);
     return setupOverview(values, context.providers ?? null, context.accounts ?? null);
@@ -66,7 +60,7 @@ export const proposeChanges = defineTool({
     changes: ChangesSchema,
   }),
   async run({ summary, changes }, { bot, agentId, host }) {
-    const values = await readValues(host);
+    const values = await host.values();
     const context = await hostContext(host);
     const resolved = resolveChanges(changes, context);
     // A dry run finds mistakes now, while they can still be fixed; the app applies the changes for real.

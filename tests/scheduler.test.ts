@@ -842,7 +842,7 @@ describe("the routine clock", () => {
     expect((await scheduler.status()).scheduler).toBe(true);
   });
 
-  it("waits for settings to load and recovers from a tick that fails", async () => {
+  it("recovers from a tick that fails", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     fakeSchedulerClock();
     const due = routine({
@@ -856,12 +856,11 @@ describe("the routine clock", () => {
       library: EMPTY_LIBRARY,
     };
     const reads = [
-      async () => ({ status: "loading" }),
       async () => {
-        throw new Error("Settings are locked.");
+        throw new Error("state.json is locked.");
       },
     ];
-    const ready = async () => ({ status: "ready", values, revision: "1" });
+    const ready = async () => ({ values, revision: "1" });
     const host = new BotsHost({ read: () => (reads.shift() ?? ready)() } as never);
     const launched: string[] = [];
     track(host, async (_host, _relay, _bot, { title }) => {

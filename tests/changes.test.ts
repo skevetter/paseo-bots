@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Bot, type BotGroup, type BotSettingsValues, DEFAULT_BOT_LIST_UI } from "../shared/bot";
+import { type Bot, type BotGroup, type BotState, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { applyChanges, resolveChanges } from "../shared/changes/apply";
 import { type ApplyContext, type ProviderInfo, providerInfo, readyProvider } from "../shared/changes/context";
 import { changeWarnings, describeChange } from "../shared/changes/describe";
@@ -41,7 +41,7 @@ const team = (patch: Partial<BotGroup> = {}): BotGroup => ({
   ...patch,
 });
 
-function setup(patch: Partial<BotSettingsValues> = {}): BotSettingsValues {
+function setup(patch: Partial<BotState> = {}): BotState {
   return {
     bots: [
       makeBot({ id: "chief", name: "Chief" }),
@@ -460,7 +460,7 @@ const rich = (): Bot =>
     cwd: "/work",
   });
 
-const withRich = (): BotSettingsValues => {
+const withRich = (): BotState => {
   const values = setup();
   return { ...values, bots: [...values.bots, rich()] };
 };
@@ -470,14 +470,14 @@ const at = (minutes: number): ApplyContext => ({
   now: new Date(Date.parse(NOW) + minutes * 60_000).toISOString(),
 });
 
-const botIn = (values: BotSettingsValues, id: string) =>
+const botIn = (values: BotState, id: string) =>
   defined(
     values.bots.find((bot) => bot.id === id),
     id,
   );
 
 /** What History's Restore puts back: the newest snapshot of the bot. */
-function undo(values: BotSettingsValues, id: string): Bot {
+function undo(values: BotState, id: string): Bot {
   const entries = values.history.filter((entry) => entry.botId === id);
   return defined(entries.at(-1), `${id} history`).snapshot;
 }
@@ -1311,7 +1311,7 @@ describe("describing every kind of change", () => {
 
 const SKILL = { source: "", enabled: true, reviewedSha: "abc", createdAt: NOW, updatedAt: NOW };
 
-function overviewValues(): BotSettingsValues {
+function overviewValues(): BotState {
   const values = setup();
   const library = defined(values.library);
   const paused = {

@@ -5,7 +5,7 @@ import {
   type Bot,
   type BotGroup,
   type BotListUi,
-  type BotSettingsValues,
+  type BotState,
   DEFAULT_BOT_DEFAULTS,
   DEFAULT_BOT_LIST_UI,
   EMPTY_LIBRARY,
@@ -32,7 +32,7 @@ import type { BotsSurfaceModel } from "./useBotsSurface";
 import { fullTimeline } from "./useChat";
 
 export interface SurfaceView {
-  values: BotSettingsValues;
+  values: BotState;
   listUi: BotListUi;
   columns: { list: number; panel: number | null };
   allBots: Bot[];
@@ -52,7 +52,7 @@ export interface NewBotStart {
   preset?: Preset;
 }
 
-export function surfaceContext(model: BotsSurfaceModel, values: BotSettingsValues): SurfaceContext {
+export function surfaceContext(model: BotsSurfaceModel, values: BotState): SurfaceContext {
   const { dragWidths, panel, selection, drafts } = model;
   const listUi = model.uiOverride ?? values.ui ?? DEFAULT_BOT_LIST_UI;
   const panelWidth = panel.open && selection ? (dragWidths.panel ?? listUi.panelWidth) : null;

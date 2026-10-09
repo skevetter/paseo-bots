@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { recentWork } from "../shared/activity";
 import type { AppAccount, PromptApp } from "../shared/apps";
-import type { Bot, BotGroup, BotSettingsValues, Library } from "../shared/bot";
+import type { Bot, BotGroup, BotState, Library } from "../shared/bot";
 import { botSkills } from "../shared/bot-agent";
 import { composeSystemPrompt, type PromptContext, promptSections } from "../shared/bot-prompt";
 
@@ -111,7 +111,7 @@ export async function systemPrompt(
   { bot, local, message }: { bot: Bot; local: boolean; message?: string },
   library: Library,
   paseo: PaseoApi | null,
-  settings?: BotSettingsValues | null,
+  settings?: BotState | null,
 ) {
   const group = teamOf(bot.id, settings?.groups ?? []);
   const start: ChatStart = {

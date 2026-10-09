@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { newBotScreen, takeNewBotRequest } from "../client/intent";
 import { pixelAvatar } from "../shared/avatar";
-import { BotListUiSchema, botSettings, DEFAULT_BOT_LIST_UI } from "../shared/bot";
+import { BotListUiSchema, BotStateSchema, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { darkBackground } from "../shared/pixel";
 import { aggregateBuckets, applyStoredOrdering, chatBucket, moveKey, orderChats } from "../shared/sidebar";
 import { defined } from "./helpers";
@@ -75,9 +75,9 @@ describe("moveKey", () => {
 });
 
 describe("bot list UI state", () => {
-  it("is optional in the settings document and fills its defaults", () => {
-    expect(botSettings.schema.parse({}).ui).toBeUndefined();
-    expect(botSettings.schema.parse({ ui: {} }).ui).toEqual(DEFAULT_BOT_LIST_UI);
+  it("is optional in the state document and fills its defaults", () => {
+    expect(BotStateSchema.parse({}).ui).toBeUndefined();
+    expect(BotStateSchema.parse({ ui: {} }).ui).toEqual(DEFAULT_BOT_LIST_UI);
   });
 
   it("rejects an unknown sort", () => {

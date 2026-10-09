@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import { randomSeed } from "../avatar";
-import type { BotGroup, BotSettingsValues, TeamLogo } from "../bot";
+import type { BotGroup, BotState, TeamLogo } from "../bot";
 import { newGroupId } from "../bot-ids";
 import { saveTeam, teamLogoOf, teamMembers } from "../groups";
 import type { ApplyContext } from "./context";
@@ -19,10 +19,10 @@ function withLogo(logo: TeamLogo, input: z.infer<typeof LogoInput> | undefined):
 }
 
 export function createTeam(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"create_team">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const lead = change.lead ? findBot(values, change.lead) : null;
   const members = [
     ...new Set([...(lead ? [lead.id] : []), ...(change.members ?? []).map((ref) => findBot(values, ref).id)]),
@@ -41,20 +41,16 @@ export function createTeam(
   };
 }
 
-function updatedLead(
-  values: BotSettingsValues,
-  group: BotGroup,
-  lead: string | null | undefined,
-): string | null {
+function updatedLead(values: BotState, group: BotGroup, lead: string | null | undefined): string | null {
   if (lead === undefined) return group.leadId;
   return lead === null ? null : findBot(values, lead).id;
 }
 
 export function updateTeam(
-  values: BotSettingsValues,
+  values: BotState,
   change: ChangeOf<"update_team">,
   context: ApplyContext,
-): BotSettingsValues {
+): BotState {
   const group = findTeam(values, change.team);
   const removed = new Set((change.remove_members ?? []).map((ref) => findBot(values, ref).id));
   const lead = updatedLead(values, group, change.lead);

@@ -1,6 +1,4 @@
-import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
-import { migrateV1, migrateV2 } from "./bot-migrations";
 
 /** Chats are found by filtering agents on this label. */
 export const BOT_LABEL = "paseo-bots.bot";
@@ -260,25 +258,18 @@ const PresetSchema = z.object({
 });
 export type Preset = z.infer<typeof PresetSchema>;
 
-export const botSettings = defineSettings({
-  id: "bots",
-  scope: "host",
-  version: 3,
-  schema: z.object({
-    bots: z.array(BotSchema).default([]),
-    history: z.array(HistoryEntrySchema).default([]),
-    /** Optional so documents from before it existed, and from older clients, stay valid. */
-    ui: BotListUiSchema.optional(),
-    library: LibrarySchema.optional(),
-    defaults: BotDefaultsSchema.optional(),
-    presets: z.array(PresetSchema).optional(),
-    groups: z.array(BotGroupSchema).optional(),
-  }),
-  migrate: (values, fromVersion) => {
-    let migrated = values;
-    if (fromVersion < 2) migrated = migrateV1(migrated);
-    if (fromVersion < 3) migrated = migrateV2(migrated);
-    return migrated;
-  },
+export const BotStateSchema = z.object({
+  bots: z.array(BotSchema).default([]),
+  history: z.array(HistoryEntrySchema).default([]),
+  ui: BotListUiSchema.optional(),
+  library: LibrarySchema.optional(),
+  defaults: BotDefaultsSchema.optional(),
+  presets: z.array(PresetSchema).optional(),
+  groups: z.array(BotGroupSchema).optional(),
 });
-export type BotSettingsValues = z.infer<typeof botSettings.schema>;
+export type BotState = z.infer<typeof BotStateSchema>;
+
+export interface StateSnapshot {
+  revision: string;
+  values: BotState;
+}

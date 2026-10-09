@@ -412,7 +412,6 @@ export class RoutineScheduler {
 
   private async tickBots(): Promise<void> {
     const values = await this.host.values();
-    if (!values) return;
     const { routines } = await this.status();
     const now = new Date();
     for (const bot of values.bots) {
@@ -502,7 +501,7 @@ export class RoutineScheduler {
     const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
     if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
     const values = await this.host.values();
-    const bot = values?.bots.find(
+    const bot = values.bots.find(
       (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),
     );
     const routine = bot?.routines.find((entry) => entry.id === routineId);

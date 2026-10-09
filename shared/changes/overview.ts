@@ -1,7 +1,7 @@
 import {
   type Bot,
   type BotGroup,
-  type BotSettingsValues,
+  type BotState,
   DEFAULT_BOT_DEFAULTS,
   EMPTY_LIBRARY,
   type Library,
@@ -33,7 +33,7 @@ function usesParts(bot: Bot, library: Library): (string | null)[] {
   ];
 }
 
-function botLine(bot: Bot, values: BotSettingsValues): string {
+function botLine(bot: Bot, values: BotState): string {
   const parts = [
     [bot.provider || "no provider", bot.model ?? "default model", bot.modeId ? `mode ${bot.modeId}` : null]
       .filter(Boolean)
@@ -100,7 +100,7 @@ function providersSection(providers: readonly ProviderInfo[] | null): string {
 }
 
 export function setupOverview(
-  values: BotSettingsValues,
+  values: BotState,
   providers: readonly ProviderInfo[] | null,
   apps: readonly AppAccountInfo[] | null,
 ): string {
@@ -121,7 +121,7 @@ export function setupOverview(
   return sections.join("\n\n");
 }
 
-export function botDetails(values: BotSettingsValues, ref: string): string {
+export function botDetails(values: BotState, ref: string): string {
   const bot = findBot(values, ref);
   const library = values.library ?? EMPTY_LIBRARY;
   const block = (title: string, text: string) => `${title}:\n${text.trim() || "(none)"}`;

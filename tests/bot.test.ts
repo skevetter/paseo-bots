@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { pixelAvatar, SPRITE_SIZE } from "../shared/avatar";
-import { type Bot, botSettings, EMPTY_LIBRARY, type Library, type LibraryMcpServer } from "../shared/bot";
+import { type Bot, BotStateSchema, EMPTY_LIBRARY, type Library, type LibraryMcpServer } from "../shared/bot";
 import { buildAgentConfig, defaultModelId } from "../shared/bot-agent";
 import { botProblems } from "../shared/bot-checks";
-import { migrateV2 } from "../shared/bot-migrations";
 import { promptSections } from "../shared/bot-prompt";
 import { formatPairs, joinArgs, parseMcpJson, parsePairs, splitArgs } from "../shared/mcp-servers";
 import { BOT_TEMPLATES } from "../shared/templates";
 import { relativeTime } from "../shared/time";
-import { defined } from "./helpers";
 
 function bot(patch: Partial<Bot> = {}): Bot {
   return {
@@ -241,102 +239,13 @@ describe("pairs", () => {
   });
 });
 
-describe("settings schema", () => {
+describe("state schema", () => {
   it("defaults to no bots and accepts every template as a bot", () => {
-    expect(botSettings.schema.parse({})).toEqual({ bots: [], history: [] });
+    expect(BotStateSchema.parse({})).toEqual({ bots: [], history: [] });
     const bots = BOT_TEMPLATES.map((template) =>
       bot({ id: template.id, name: template.name, title: template.title, soul: template.soul }),
     );
-    expect(botSettings.schema.parse({ bots }).bots).toHaveLength(BOT_TEMPLATES.length);
-  });
-});
-
-describe("migrateV2", () => {
-  const legacy = (id: string, extra: Record<string, unknown>) => {
-    const { mcpServerIds: _servers, skillIds: _skills, ...rest } = bot({ id });
-    return { ...rest, ...extra };
-  };
-  const fetchServer = {
-    name: "fetch",
-    enabled: true,
-    config: { type: "stdio", command: "uvx", args: ["mcp-server-fetch"], env: {} },
-  };
-
-  it("moves each bot's MCP servers and skills into one library", () => {
-    const migrated = botSettings.schema.parse(
-      migrateV2({
-        bots: [
-          legacy("a", {
-            mcpServers: [
-              fetchServer,
-              { name: "gh", enabled: false, config: { type: "http", url: "https://x", headers: {} } },
-            ],
-            skills: [{ name: "pdf", description: "PDFs", source: "github.com/o/r/pdf", enabled: true }],
-          }),
-          legacy("b", {
-            mcpServers: [fetchServer],
-            skills: [{ name: "pdf", description: "PDFs", source: "", enabled: false }],
-          }),
-        ],
-        history: [],
-      }),
-    );
-    expect(migrated.library?.mcpServers.map((entry) => [entry.id, entry.name])).toEqual([
-      ["mcp-fetch", "fetch"],
-      ["mcp-gh", "gh"],
-    ]);
-    expect(migrated.library?.skills.map((entry) => [entry.id, entry.source])).toEqual([
-      ["pdf", "github.com/o/r/pdf"],
-    ]);
-    // Switched-off servers and skills stay in the library but not on the bot.
-    expect(migrated.bots.map((entry) => [entry.mcpServerIds, entry.skillIds])).toEqual([
-      [["mcp-fetch"], ["pdf"]],
-      [["mcp-fetch"], []],
-    ]);
-  });
-
-  it("renames clashing servers and keeps their always-allowed tools pointing at them", () => {
-    const migrated = botSettings.schema.parse(
-      migrateV2({
-        bots: [
-          legacy("a", { mcpServers: [fetchServer] }),
-          legacy("b", {
-            mcpServers: [{ ...fetchServer, config: { ...fetchServer.config, args: ["other"] } }],
-            alwaysAllow: ["fetch/get", "gmail/send"],
-          }),
-        ],
-      }),
-    );
-    expect(migrated.library?.mcpServers.map((entry) => entry.name)).toEqual(["fetch", "fetch-2"]);
-    expect(migrated.bots[1]?.mcpServerIds).toEqual(["mcp-fetch-2"]);
-    expect(migrated.bots[1]?.alwaysAllow).toEqual(["fetch-2/get", "gmail/send"]);
-  });
-
-  it("converts history snapshots and runs after the v1 migration", () => {
-    const parsed = botSettings.schema.parse(
-      defined(botSettings.migrate, "botSettings.migrate")(
-        {
-          bots: [
-            {
-              ...legacy("a", { mcpServers: [fetchServer] }),
-              soul: undefined,
-              instructions: "Hi",
-              avatarSeed: "s",
-            },
-          ],
-        },
-        1,
-      ),
-    );
-    expect(parsed.bots[0]?.soul).toBe("Hi");
-    expect(parsed.bots[0]?.mcpServerIds).toEqual(["mcp-fetch"]);
-    const withHistory = botSettings.schema.parse(
-      migrateV2({
-        bots: [],
-        history: [{ botId: "a", at: NOW, snapshot: legacy("a", { mcpServers: [fetchServer] }) }],
-      }),
-    );
-    expect(withHistory.history[0]?.snapshot.mcpServerIds).toEqual(["mcp-fetch"]);
+    expect(BotStateSchema.parse({ bots }).bots).toHaveLength(BOT_TEMPLATES.length);
   });
 });
 
@@ -399,22 +308,6 @@ describe("paseoToolsState", () => {
     expect(paseoToolsState({ providers: { codex: { paseoTools: { enabled: false } } } }, "claude").on).toBe(
       true,
     );
-  });
-
-  it("keeps a migrated server called paseo from replacing Paseo's", () => {
-    const migrated = botSettings.schema.parse(
-      migrateV2({
-        bots: [
-          {
-            ...bot({ id: "a" }),
-            mcpServers: [
-              { name: "paseo", enabled: true, config: { type: "http", url: "https://x", headers: {} } },
-            ],
-          },
-        ],
-      }),
-    );
-    expect(migrated.library?.mcpServers.map((entry) => entry.name)).toEqual(["paseo-2"]);
   });
 });
 

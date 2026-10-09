@@ -1,14 +1,7 @@
-import type { PluginSettings } from "@getpaseo/plugin/server";
-import {
-  BOT_LABEL,
-  type Bot,
-  type BotSettingsValues,
-  type botSettings,
-  EMPTY_LIBRARY,
-  type Library,
-} from "../shared/bot";
+import { BOT_LABEL, type Bot, type BotState, EMPTY_LIBRARY, type Library } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import type { PaseoApi } from "./paseo";
+import type { BotStore } from "./state";
 
 // The SDK only hands out the Paseo API inside RPC handlers and lifecycle hooks, so it's captured
 // the first time one runs (the app calls `bots.hello` on start) and features wait for it.
@@ -19,7 +12,7 @@ export class BotsHost {
   private api: PaseoApi | null = null;
   private readonly listeners = new Set<Listener>();
 
-  constructor(readonly settings: PluginSettings<typeof botSettings.schema>) {}
+  constructor(readonly store: Pick<BotStore, "read" | "update">) {}
 
   attach(paseo: PaseoApi): void {
     if (this.api === paseo) return;
@@ -42,17 +35,16 @@ export class BotsHost {
     return this.api;
   }
 
-  async values(): Promise<BotSettingsValues | null> {
-    const state = await this.settings.read();
-    return state.status === "ready" ? state.values : null;
+  async values(): Promise<BotState> {
+    return (await this.store.read()).values;
   }
 
   async library(): Promise<Library> {
-    return (await this.values())?.library ?? EMPTY_LIBRARY;
+    return (await this.values()).library ?? EMPTY_LIBRARY;
   }
 
   async bots(): Promise<Bot[]> {
-    return (await this.values())?.bots ?? [];
+    return (await this.values()).bots;
   }
 
   async bot(botId: string): Promise<Bot | null> {
