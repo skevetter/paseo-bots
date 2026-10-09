@@ -812,13 +812,14 @@ function updateTeam(
   const group = findTeam(values, change.team);
   const removed = new Set((change.remove_members ?? []).map((ref) => findBot(values, ref).id));
   const lead = updatedLead(values, group, change.lead);
+  const kept = change.lead ? lead : null;
   const members = [
     ...new Set([
       ...teamMembers(group),
       ...(change.add_members ?? []).map((ref) => findBot(values, ref).id),
       ...(lead ? [lead] : []),
     ]),
-  ].filter((id) => !removed.has(id) || id === lead);
+  ].filter((id) => !removed.has(id) || id === kept);
   const draft = {
     name: change.name !== undefined ? oneLine(change.name) : group.name,
     logo: withLogo(teamLogoOf(group), change.logo),

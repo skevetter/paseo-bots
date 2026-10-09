@@ -296,6 +296,13 @@ describe("setup changes to teams, routines and presets", () => {
   });
 });
 
+describe("team membership edits", () => {
+  it("takes the Chief of Staff off the team when the change removes them", () => {
+    const [ops] = apply([{ type: "update_team", team: "Ops", remove_members: ["Chief"] }]).groups ?? [];
+    expect(ops).toMatchObject({ leadId: null, memberIds: ["scout"] });
+  });
+});
+
 describe("setup changes on the host", () => {
   it("resolves app accounts by name on the host", () => {
     const accounts = [{ id: "ca_1", slug: "gmail", names: ["work"] }];
