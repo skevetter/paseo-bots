@@ -13,7 +13,7 @@ import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
 import { ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
-import { BotSidebar, type Selection } from "./BotSidebar";
+import { BotSidebar } from "./BotSidebar";
 import {
   commitWidth,
   createBot,
@@ -37,6 +37,7 @@ import { errorText, nativeTokens } from "./native";
 import { BotPanel } from "./panel/BotPanel";
 import { Splash } from "./Splash";
 import { newMessageId } from "./sent-attachments";
+import type { Selection } from "./sidebar/types";
 import { TeamMap } from "./teams/TeamMap";
 import { TeamSheet } from "./teams/TeamSheet";
 import { TeamTabSwitcher, TeamTabsRow } from "./teams/TeamTabs";

@@ -16,7 +16,6 @@ import {
 } from "../shared/bot";
 import type { ImportedBot } from "../shared/library";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
-import type { Selection } from "./BotSidebar";
 import {
   type BotHost,
   type LocalHost,
@@ -29,6 +28,7 @@ import { takeNewBotRequest } from "./intent";
 import { homeIndicatorInset, useKeyboardHeight } from "./keyboard";
 import { type LibraryTarget, onLibraryTarget } from "./navigation";
 import type { SectionId } from "./panel/BotPanel";
+import type { Selection } from "./sidebar/types";
 import { useTypeScale } from "./typography";
 import { type MenuApi, useMenu } from "./ui/Menu";
 import { type BotSettingsState, type CommitBotSettings, useBotSettings } from "./useBotSettings";
