@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import type { Bot, BotState } from "../../../shared/bot";
 import { changeWarnings, describeChange } from "../../../shared/changes/describe";
+import { proposalElevations } from "../../../shared/elevated";
 import type { Proposal } from "../../../shared/proposals";
 import { describeSchedule, upcomingRuns } from "../../../shared/routines";
 import { proposalAcceptRpc, proposalDismissRpc, proposalGetRpc } from "../../../shared/rpc";
@@ -196,7 +197,7 @@ function useProposalActions({
   return { busy, save, drop };
 }
 
-function proposalView(proposal: Proposal, values: BotState | null): ProposalView {
+function kindView(proposal: Proposal, values: BotState | null): ProposalView {
   const bot = values?.bots.find((entry) => entry.id === proposal.botId);
   switch (proposal.kind) {
     case "skill":
@@ -214,6 +215,14 @@ function proposalView(proposal: Proposal, values: BotState | null): ProposalView
     case "import":
       return importView(proposal);
   }
+}
+
+/** Imports and setup changes also list what they'd allow that needs approval, as a duplicated bot's mode. */
+function proposalView(proposal: Proposal, values: BotState | null): ProposalView {
+  const view = kindView(proposal, values);
+  if (!values || proposal.status !== "pending" || (proposal.kind !== "changes" && proposal.kind !== "import"))
+    return view;
+  return { ...view, warnings: [...new Set([...proposalElevations(proposal, values), ...view.warnings])] };
 }
 
 interface ProposalView {
