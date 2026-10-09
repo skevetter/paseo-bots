@@ -258,6 +258,41 @@ describe("routine runs", () => {
     expect(run).toMatchObject({ status: "running", agentId: "lost-run-chat" });
     expect(errors).toHaveBeenCalledWith("paseo-bots: couldn't post a routine result", expect.any(Error));
   });
+});
+
+describe("routine chats that take a while to start", () => {
+  useTempPaseoHome("paseo-bots-scheduler-starts-");
+
+  it("records other runs while a routine's chat is still starting, and skips it while it starts", async () => {
+    let started: () => void = () => {};
+    const slow = new Promise<string>((resolve) => {
+      started = () => resolve("slow-chat");
+    });
+    const fresh = { createdAt: new Date().toISOString() };
+    const { scheduler } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-q",
+          routines: [
+            routine({ ...fresh, id: "rt-slow", name: "Slow" }),
+            routine({ ...fresh, id: "rt-quick", name: "Quick" }),
+          ],
+        }),
+      ],
+      (_host, _relay, _bot, { title }) => (title === "Slow" ? slow : Promise.resolve("quick-chat")),
+    );
+    const slowRun = scheduler.runNow("bot-q", "rt-slow");
+    // Before the fix this waits on the slow chat, which only starts below.
+    expect((await scheduler.runNow("bot-q", "rt-quick")).run.agentId).toBe("quick-chat");
+    expect((await scheduler.runNow("bot-q", "rt-slow")).run.status).toBe("skipped-busy");
+    started();
+    expect((await slowRun).run).toMatchObject({ status: "running", agentId: "slow-chat" });
+    const { routines } = await scheduler.status();
+    expect(routines["rt-slow"]?.runs.map((run) => [run.status, run.agentId])).toEqual([
+      ["running", "slow-chat"],
+      ["skipped-busy", null],
+    ]);
+  });
 
   it("finishes a run whose turn ends before the run is recorded", async () => {
     let finishing: Promise<void> = Promise.resolve();

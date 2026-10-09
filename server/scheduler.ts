@@ -131,6 +131,7 @@ export class RoutineScheduler {
   private readonly records = serial();
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
+  private readonly launches = new Map<string, Set<Promise<void>>>();
 
   constructor(
     private readonly host: BotsHost,
@@ -216,7 +217,8 @@ export class RoutineScheduler {
       [...(record?.runs ?? [])]
         .reverse()
         .find((entry) => entry.agentId === agentId && entry.status === "running");
-    // Only the run's own turn counts; queued behind `run()` so a turn ending before it's recorded still matches.
+    // A run whose chat is still starting is recorded once its launch settles, so a turn that ended early still matches.
+    await Promise.all(this.launches.get(routineId) ?? []);
     const run = await this.update((records) => {
       const found = waiting(records[routineId]);
       if (!found) return null;
@@ -261,48 +263,89 @@ export class RoutineScheduler {
 
   /** The results chat gets a card even when the run doesn't start. */
   private async run(request: RunRequest): Promise<RoutineRun> {
-    const { routine, trigger, due } = request;
-    const run = await this.update(async (records) => {
-      const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
-      records[routine.id] = record;
-      const now = new Date().toISOString();
-      const run: RoutineRun = {
-        id: `run-${randomBytes(4).toString("hex")}`,
-        trigger,
-        scheduledFor: due.toISOString(),
-        startedAt: now,
-        endedAt: null,
-        status: "running",
-        agentId: null,
-        output: null,
-        error: null,
-      };
-      if (trigger === "schedule") record.lastRunAt = now;
-      await this.start(request, record, run);
-      record.runs = [...record.runs, run].slice(-KEEP_RUNS);
-      return run;
-    });
-    await this.postCard(routine, run);
+    const { run, release } = await this.update((records) => this.reserve(request, records));
+    try {
+      if (release) await this.startChat(request, run);
+      await this.postCard(request.routine, run);
+    } finally {
+      release?.();
+    }
     return run;
   }
 
-  private async start(request: RunRequest, record: RoutineRecord, run: RoutineRun): Promise<void> {
-    const { bot, routine, trigger, event } = request;
+  private async reserve(
+    request: RunRequest,
+    records: Records,
+  ): Promise<{ run: RoutineRun; release: (() => void) | null }> {
+    const { routine, trigger, due } = request;
+    const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
+    records[routine.id] = record;
+    const now = new Date().toISOString();
+    const run: RoutineRun = {
+      id: `run-${randomBytes(4).toString("hex")}`,
+      trigger,
+      scheduledFor: due.toISOString(),
+      startedAt: now,
+      endedAt: null,
+      status: "running",
+      agentId: null,
+      output: null,
+      error: null,
+    };
+    if (trigger === "schedule") record.lastRunAt = now;
+    const blocked = await this.blocked(request, record);
+    record.runs = [...record.runs, run].slice(-KEEP_RUNS);
+    if (!blocked) return { run, release: this.track(routine.id) };
+    Object.assign(run, { endedAt: now, ...blocked });
+    return { run, release: null };
+  }
+
+  private async blocked(
+    { bot, routine, trigger }: RunRequest,
+    record: RoutineRecord,
+  ): Promise<Partial<RoutineRun> | null> {
+    if (bot.hostId)
+      return {
+        status: "failed",
+        error: "Routines run on the host that stores the bot; this bot runs on another host.",
+      };
+    // Skip while the previous run is still working (webhooks allow a few at once).
+    const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
+    const starting = this.launches.get(routine.id)?.size ?? 0;
+    return starting + (await this.busyRuns(record, limit)) >= limit ? { status: "skipped-busy" } : null;
+  }
+
+  private track(routineId: string): () => void {
+    let settle = () => {};
+    const launch = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    const launches = this.launches.get(routineId) ?? new Set();
+    this.launches.set(routineId, launches.add(launch));
+    return () => {
+      launches.delete(launch);
+      if (launches.size === 0) this.launches.delete(routineId);
+      settle();
+    };
+  }
+
+  private async startChat(request: RunRequest, run: RoutineRun): Promise<void> {
+    const { bot, routine, event } = request;
+    let patch: Partial<RoutineRun>;
     try {
-      if (bot.hostId)
-        throw new Error("Routines run on the host that stores the bot; this bot runs on another host.");
-      // Skip while the previous run is still working (webhooks allow a few at once).
-      const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
-      if ((await this.busyRuns(record, limit)) >= limit)
-        Object.assign(run, { status: "skipped-busy", endedAt: run.startedAt });
-      else run.agentId = await this.newChat(bot, routine, runPrompt(routine, event));
+      patch = { agentId: await this.newChat(bot, routine, runPrompt(routine, event)) };
     } catch (error) {
-      Object.assign(run, {
+      patch = {
         status: "failed",
         endedAt: run.startedAt,
         error: error instanceof Error ? error.message : String(error),
-      });
+      };
     }
+    Object.assign(run, patch);
+    await this.update((records) => {
+      const saved = records[routine.id]?.runs.find((entry) => entry.id === run.id);
+      if (saved) Object.assign(saved, patch);
+    });
   }
 
   private async busyRuns(record: RoutineRecord, limit: number): Promise<number> {
