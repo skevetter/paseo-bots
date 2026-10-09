@@ -108,3 +108,15 @@ The key stays on the Paseo host and never reaches the agents: bots reach Composi
 ### Paseo tools
 
 Bots get Paseo's own tools, so you can ask one in a chat to start other agents, open workspaces and terminals, set up schedules or use the browser. A bot's **Access** settings show whether they're on, and **Turn on** there switches them on for every agent on the host.
+
+## Development
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run coverage
+```
+
+The plugin's client code runs on React, React Native and React Query supplied by the Paseo host, so `react`, `react-native`, `@types/react` and `typescript` follow the versions Paseo ships. Paseo 0.11.1 ships React 19.1.0, React Native 0.81.5, TypeScript 5.9.3 and `@tanstack/react-query` 5.90.21 (`@getpaseo/plugin` 0.11.1 declares peers `react ~19.1.0` and `react-native >=0.81.5`). The plugin's newer React Query dev dependency is only for types, so it must not use APIs the host's 5.90 lacks. Dependabot leaves `react`, `react-native` and `@types/react` alone and keeps `typescript` on 5.x.
