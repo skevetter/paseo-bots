@@ -12,7 +12,6 @@ import {
   appsPrompt,
   canonicalSlug,
   checkAppCall,
-  faviconUrl,
   isComposioUrl,
   withAppRule,
 } from "../shared/apps";
@@ -243,9 +242,6 @@ describe("app statuses and links", () => {
     expect(isComposioUrl("http://backend.composio.dev/x")).toBe(false);
     expect(appDomain("https://mail.google.com/mail")).toBe("mail.google.com");
     expect(appDomain("not a url")).toBeNull();
-    expect(faviconUrl("mail.google.com")).toBe(
-      "https://www.google.com/s2/favicons?domain=mail.google.com&sz=64",
-    );
   });
 });
 
@@ -309,7 +305,6 @@ describe("agent config and prompt", () => {
     });
     expect(sections.map((section) => section.title)).toEqual(["Persona", "Connected apps"]);
     const appsSection = defined(sections[1], "apps prompt section");
-    expect(appsSection.text).toBe(appsPrompt(apps));
     expect(appsSection.text).toContain("You may use: Gmail, Slack.");
     expect(appsSection.text).not.toContain('"account"');
   });

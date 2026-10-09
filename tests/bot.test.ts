@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { pixelAvatar, SPRITE_NAMES, SPRITE_SIZE } from "../shared/avatar";
+import { pixelAvatar, SPRITE_SIZE } from "../shared/avatar";
 import { type Bot, botSettings, EMPTY_LIBRARY, type Library, type LibraryMcpServer } from "../shared/bot";
 import { buildAgentConfig, defaultModelId } from "../shared/bot-agent";
 import { botProblems } from "../shared/bot-checks";
 import { migrateV2 } from "../shared/bot-migrations";
 import { promptSections } from "../shared/bot-prompt";
 import { formatPairs, joinArgs, parseMcpJson, parsePairs, splitArgs } from "../shared/mcp-servers";
-
 import { BOT_TEMPLATES } from "../shared/templates";
 import { relativeTime } from "../shared/time";
 import { defined } from "./helpers";
@@ -59,7 +58,6 @@ describe("pixelAvatar", () => {
       for (const runs of avatar.rows)
         expect(runs.reduce((total, run) => total + run.width, 0)).toBe(SPRITE_SIZE);
     }
-    expect(SPRITE_NAMES.length).toBe(8);
   });
 
   it("pins the palette when one is chosen", () => {

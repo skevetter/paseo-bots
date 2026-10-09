@@ -290,7 +290,7 @@ const BODIES = {
 } satisfies Record<string, BodyDef>;
 
 export type SpriteName = keyof typeof BODIES;
-export const SPRITE_NAMES = Object.keys(BODIES) as SpriteName[];
+const SPRITE_NAMES = Object.keys(BODIES) as SpriteName[];
 
 /** Legend: e eye, w shine, W soft glint. Both eyes use the same drawing so the shine sits top-left on each. */
 const EYES = {

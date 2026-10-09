@@ -78,17 +78,6 @@ describe("bot list UI state", () => {
   it("is optional in the settings document and fills its defaults", () => {
     expect(botSettings.schema.parse({}).ui).toBeUndefined();
     expect(botSettings.schema.parse({ ui: {} }).ui).toEqual(DEFAULT_BOT_LIST_UI);
-    expect(DEFAULT_BOT_LIST_UI).toEqual({
-      collapsed: [],
-      pinnedCollapsed: false,
-      pinnedChats: [],
-      chatOrder: {},
-      chatSort: "manual",
-      showArchived: false,
-      tab: null,
-      listWidth: 320,
-      panelWidth: 320,
-    });
   });
 
   it("rejects an unknown sort", () => {

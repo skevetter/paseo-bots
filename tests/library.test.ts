@@ -18,7 +18,6 @@ import {
   updateSkill,
   upsertSkills,
 } from "../shared/library";
-import { parseMcpJson } from "../shared/mcp-servers";
 import { defined, useTempPaseoHome } from "./helpers";
 
 const NOW = "2026-09-27T00:00:00.000Z";
@@ -482,37 +481,6 @@ describe("probeMcpServer", () => {
     } finally {
       http.closeAllConnections();
       http.close();
-    }
-  });
-});
-
-describe("MCP servers on this computer", () => {
-  it("reads Claude Code's and Cursor's servers and skips what isn't there", async () => {
-    const { mkdtemp, mkdir, rm, writeFile } = await import("node:fs/promises");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const home = await mkdtemp(join(tmpdir(), "paseo-bots-home-"));
-    const previous = process.env.HOME;
-    process.env.HOME = home;
-    try {
-      await writeFile(
-        join(home, ".claude.json"),
-        JSON.stringify({
-          projects: { "/x": { mcpServers: { local: { command: "a" } } } },
-          mcpServers: { fetch: { command: "uvx", args: ["mcp-server-fetch"] } },
-        }),
-      );
-      await mkdir(join(home, ".cursor"));
-      await writeFile(join(home, ".cursor", "mcp.json"), "{ not json");
-      const { mcpSources } = await import("../server/mcp-sources");
-      const { sources } = await mcpSources();
-      expect(sources.map((source) => [source.label, source.count])).toEqual([["Claude Code", 1]]);
-      expect(
-        parseMcpJson(defined(sources[0], "Claude Code source").json).map((server) => server.name),
-      ).toEqual(["fetch"]);
-    } finally {
-      process.env.HOME = previous;
-      await rm(home, { recursive: true, force: true });
     }
   });
 });

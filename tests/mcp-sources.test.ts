@@ -47,7 +47,14 @@ describe("mcpSources", () => {
       "Claude",
       "claude_desktop_config.json",
     );
-    await place(join(machine.home, ".claude.json"), JSON.stringify({ mcpServers: { fetch: servers.fetch } }));
+    // Servers scoped to one project stay out; only the user-wide list is offered.
+    await place(
+      join(machine.home, ".claude.json"),
+      JSON.stringify({
+        projects: { "/x": { mcpServers: { local: { command: "a" } } } },
+        mcpServers: { fetch: servers.fetch },
+      }),
+    );
     await place(desktop, JSON.stringify({ mcpServers: servers }));
     await place(
       join(machine.home, ".cursor", "mcp.json"),
