@@ -702,4 +702,21 @@ describe("the relay's app limits", () => {
     expect((await send(await mount("bot-open"), WORKBENCH)).status).toBe(200);
     expect(forwardedBody()).toMatchObject({ params: { name: "COMPOSIO_REMOTE_WORKBENCH" } });
   });
+
+  it("forwards only the one message it checked, never a batch or keys another parser reads differently", async () => {
+    const target = await mount("bot-list");
+    const forwarded = composio().forwarded.length;
+    const batch = await send(target, [execute({ tool_slug: "GMAIL_SEND_EMAIL" })]);
+    expect(batch.status).toBe(400);
+    expect(composio().forwarded).toHaveLength(forwarded);
+
+    const sendFirst = `{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"COMPOSIO_MULTI_EXECUTE_TOOL","arguments":{"tools":[{"tool_slug":"GMAIL_SEND_EMAIL"}]},"arguments":{"tools":[{"tool_slug":"GMAIL_FETCH_EMAILS"}]}}}`;
+    const answer = await fetch(target.url, {
+      method: "POST",
+      headers: { authorization: target.authorization, "content-type": "application/json" },
+      body: sendFirst,
+    });
+    expect(answer.status).toBe(200);
+    expect(defined(composio().forwarded.at(-1)).body).not.toContain("GMAIL_SEND_EMAIL");
+  });
 });

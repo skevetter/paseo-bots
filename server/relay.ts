@@ -247,10 +247,11 @@ export class Relay {
     return true;
   }
 
+  /** One message per request, as in MCP 2025-06-18: a batch would carry tool calls past the app checks. */
   private async parse(
     request: IncomingMessage,
     response: ServerResponse,
-  ): Promise<{ body: string; message: Record<string, unknown> } | null> {
+  ): Promise<Record<string, unknown> | null> {
     const body = await readBody(request).catch((error: unknown) => {
       if (error instanceof BodyTooLargeError) return null;
       throw error;
@@ -270,11 +271,11 @@ export class Relay {
       json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
       return null;
     }
-    if (!message || typeof message !== "object") {
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
       json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
       return null;
     }
-    return { body, message: message as Record<string, unknown> };
+    return message as Record<string, unknown>;
   }
 
   private async handleTools(
@@ -292,17 +293,17 @@ export class Relay {
       return json(response, 401, { error: "unauthorized" });
     }
     if (this.refuseNonPost(request, response)) return;
-    const parsed = await this.parse(request, response);
-    if (!parsed) return;
+    const message = await this.parse(request, response);
+    if (!message) return;
     const bot = await this.host.bot(botId);
-    const id = (parsed.message.id as string | number | undefined) ?? null;
+    const id = (message.id as string | number | undefined) ?? null;
     if (!bot || bot.archived)
       return json(response, 403, {
         jsonrpc: "2.0",
         id,
         error: { code: -32001, message: "This bot no longer exists." },
       });
-    const answer = await answerMcp(parsed.message, this.tools, {
+    const answer = await answerMcp(message, this.tools, {
       bot,
       agentId,
       host: this.host,
@@ -318,10 +319,10 @@ export class Relay {
       return json(response, 401, { error: "unauthorized" });
     }
     if (this.refuseNonPost(request, response)) return;
-    const parsed = await this.parse(request, response);
-    if (!parsed) return;
+    const message = await this.parse(request, response);
+    if (!message) return;
     const bot = await this.host.bot(botId);
-    const id = (parsed.message.id as string | number | undefined) ?? null;
+    const id = (message.id as string | number | undefined) ?? null;
     if (!bot || bot.archived || bot.hostId || bot.apps.length === 0) {
       return json(response, 403, {
         jsonrpc: "2.0",
@@ -333,9 +334,8 @@ export class Relay {
       });
     }
     // Limits need Composio's tool lists, so they're looked up for tool calls only.
-    const limits =
-      parsed.message.method === "tools/call" ? await appLimits(bot) : new Map<string, AppLimit>();
-    const verdict = checkAppCall(parsed.message, {
+    const limits = message.method === "tools/call" ? await appLimits(bot) : new Map<string, AppLimit>();
+    const verdict = checkAppCall(message, {
       allowed: bot.apps,
       connected: await connectedSlugs(),
       limits,
@@ -346,11 +346,8 @@ export class Relay {
         id,
         result: { content: [{ type: "text", text: verdict.refusal }], isError: true },
       });
-    await this.forward(
-      request,
-      response,
-      verdict.message === parsed.message ? parsed.body : JSON.stringify(verdict.message),
-    );
+    // Re-encoded so Composio parses exactly what was checked (no duplicate keys read another way).
+    await this.forward(request, response, JSON.stringify(verdict.message));
   }
 
   private async forward(request: IncomingMessage, response: ServerResponse, body: string) {
