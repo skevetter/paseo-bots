@@ -31,7 +31,17 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 3. Chat with the bot. The panel button at the top right of a chat opens its settings.
 4. Press **Skills & Tools** below the bot list to add skills, MCP servers and apps. Give them to a bot under its **Skills** and **Access** settings.
 
-An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts on its provider's default approval mode, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
+An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
+
+## Approval for new bots
+
+**Settings > Bots > Defaults for new bots** sets the approval mode a new bot starts in, on any provider:
+
+- **Provider default**: the provider's own default mode.
+- **Ask first**: the provider's strictest mode that asks before acting, such as Claude's Always Ask.
+- **Run without asking**: the provider's mode that acts without asking, such as Claude's Bypass, omp's Full Access or Hermes's Don't Ask.
+
+A mode picked for one provider in the list below **Approval** wins over it. When a provider has no matching mode, the bot starts in the provider's default mode and the app says so. A bot that runs without asking acts as you with no prompts.
 
 ## The Browser preset and its risk
 
@@ -62,7 +72,7 @@ The command runs with bun or node and reads the endpoint and token from plugin d
 
 - Chats get no token. A bot that runs commands without asking can read any of your files, this token included.
 - No tool reads or sets API keys or webhook secrets.
-- The Browser server, modes that don't ask, always-allowed commands and new MCP servers wait for you to accept them there, unless **Allow elevated changes without approval** is on.
+- The Browser server, modes that don't ask, new-bot defaults that start bots in one, always-allowed commands and new MCP servers wait for you to accept them there, unless **Allow elevated changes without approval** is on.
 - Delete and archive tools need `confirm: true`.
 - Chat and Run now tools need the app to connect once after the daemon starts.
 

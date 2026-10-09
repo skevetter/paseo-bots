@@ -35,4 +35,4 @@ The built-in Browser MCP server controls a Chromium browser you use, such as Chr
 
 ## Your data
 
-Bots, teams and the library live in `plugin-data/paseo-bots/state.json` under your Paseo home folder, next to memory, skills and routine history. A bot or team file you export holds the bot's setup and, if you choose, its memory. An imported bot starts on its provider's default approval mode, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
+Bots, teams and the library live in `plugin-data/paseo-bots/state.json` under your Paseo home folder, next to memory, skills and routine history. A bot or team file you export holds the bot's setup and, if you choose, its memory. An imported bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
