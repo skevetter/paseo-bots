@@ -345,7 +345,10 @@ export class Relay {
     };
     let upstream = await send(false);
     // A Tool Router session Composio no longer knows: open a new one and let the client start over.
-    if (upstream.status === 404 && !transport) upstream = await send(true);
+    if (upstream.status === 404 && !transport) {
+      await upstream.body?.cancel();
+      upstream = await send(true);
+    }
     const bytes = await readCapped(upstream, MAX_RESPONSE);
     const next = upstream.headers.get("mcp-session-id");
     response.writeHead(upstream.status, {

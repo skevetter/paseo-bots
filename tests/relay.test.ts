@@ -201,11 +201,29 @@ function pour(response: ServerResponse, sent: { bytes: number }): void {
 describe("the relay's answers from connected apps", () => {
   useTempPaseoHome("paseo-bots-relay-apps-");
   const sent = { bytes: 0 };
-  const upstream = createServer((request, response) => {
-    if (request.url === "/mcp/declared") {
+  let forgottenClosed = false;
+  const answers: Record<string, (response: ServerResponse) => void> = {
+    "/mcp/declared": (response) => {
       response.writeHead(200, { "content-type": "application/json", "content-length": String(30 * MB) });
       response.write("{");
-    } else if (request.url === "/mcp/endless") pour(response, sent);
+    },
+    "/mcp/endless": (response) => pour(response, sent),
+    "/mcp/forgotten": (response) => {
+      response.on("close", () => {
+        forgottenClosed = true;
+      });
+      response.writeHead(404, { "content-type": "application/json" }).write('{"error": "no such session"');
+    },
+    "/api/v3.1/tool_router/session": (response) =>
+      response
+        .writeHead(200, { "content-type": "application/json" })
+        .end(JSON.stringify({ session_id: "trs_2", mcp: { type: "http", url: `${origin}/mcp/fresh` } })),
+    "/mcp/fresh": (response) =>
+      response.writeHead(200, { "content-type": "application/json" }).end('{"jsonrpc": "2.0", "id": 1}'),
+  };
+  const upstream = createServer((request, response) => {
+    const answer = answers[request.url ?? ""];
+    if (answer) answer(response);
     else response.writeHead(404).end();
   });
   let origin = "";
@@ -254,5 +272,11 @@ describe("the relay's answers from connected apps", () => {
     expect(answer.status).toBe(502);
     expect(answer.body).toContain("over 20 MB");
     expect(sent.bytes).toBeLessThan(40 * MB);
+  });
+
+  it("lets go of the first answer when it retries with a new Composio session", async () => {
+    const answer = await ask("/mcp/forgotten");
+    expect(answer).toMatchObject({ status: 200, body: '{"jsonrpc": "2.0", "id": 1}' });
+    await vi.waitFor(() => expect(forgottenClosed).toBe(true));
   });
 });
