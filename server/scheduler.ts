@@ -34,12 +34,16 @@ interface LegacyState {
   lastAgentId?: string | null;
 }
 
+type SavedRecord = RoutineRecord | LegacyState | null;
+
 const recordsPath = () => join(pluginDataPath(), "routines.json");
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
-/** Older routines.json entries kept only the last run. */
-function upgrade(entry: RoutineRecord | LegacyState): RoutineRecord {
-  if ("runs" in entry && Array.isArray(entry.runs)) return entry;
+/** Older routines.json entries kept only the last run; hand-edited ones may hold nulls. */
+function upgrade(entry: SavedRecord): RoutineRecord {
+  if (!entry || typeof entry !== "object") return { ...EMPTY_RECORD, runs: [] };
+  if ("runs" in entry && Array.isArray(entry.runs))
+    return { ...entry, runs: entry.runs.filter((run) => !!run && typeof run === "object") };
   const legacy = entry as LegacyState;
   if (!legacy.lastRunAt) return { ...EMPTY_RECORD, runs: [] };
   const status =
@@ -165,7 +169,7 @@ export class RoutineScheduler {
   /** One change to routines.json at a time. */
   private update<T>(change: (records: Records) => T | Promise<T>): Promise<T> {
     return this.records(async () => {
-      const raw = await readJson<Record<string, RoutineRecord | LegacyState>>(recordsPath(), {});
+      const raw = await readJson<Record<string, SavedRecord>>(recordsPath(), {});
       const records: Records = Object.fromEntries(
         Object.entries(raw).map(([id, entry]) => [id, upgrade(entry)]),
       );
@@ -176,7 +180,7 @@ export class RoutineScheduler {
   }
 
   async status() {
-    const raw = await readJson<Record<string, RoutineRecord | LegacyState>>(recordsPath(), {});
+    const raw = await readJson<Record<string, SavedRecord>>(recordsPath(), {});
     const now = Date.now();
     const routines = Object.fromEntries(
       Object.entries(raw).map(([id, entry]) => {

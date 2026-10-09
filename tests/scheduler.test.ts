@@ -639,6 +639,19 @@ describe("routine history saved earlier", () => {
       ["recent", "running", null],
     ]);
   });
+
+  it("reads null entries and runs as empty and records the next run over them", async () => {
+    const saved = { "rt-null": null, "rt-holes": { lastRunAt: null, runs: [null, savedRun("kept")] } };
+    await writeState("routines.json", JSON.stringify(saved));
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "bot-null", routines: [routine({ id: "rt-null", createdAt: fresh() })] })],
+      async () => "null-chat",
+    );
+    expect((await runsOf(scheduler, "rt-holes")).map((run) => run.id)).toEqual(["kept"]);
+    expect(await runsOf(scheduler, "rt-null")).toEqual([]);
+    await scheduler.runNow("bot-null", "rt-null");
+    expect((await runsOf(scheduler, "rt-null")).map((run) => run.agentId)).toEqual(["null-chat"]);
+  });
 });
 
 describe("routine webhook calls", () => {
