@@ -66,6 +66,7 @@ export interface BotSidebarProps {
 export type GroupProps = BotSidebarProps & {
   bot: Bot;
   tokens: NativeTokens;
-  pinnedIds: ReadonlySet<string> /** The team's Chief of Staff. */;
+  pinnedIds: ReadonlySet<string>;
+  /** The team's Chief of Staff. */
   lead?: boolean;
 };

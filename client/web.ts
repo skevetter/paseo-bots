@@ -100,14 +100,6 @@ declare class FileReader {
 
 const web = Platform.OS === "web";
 
-export interface PickedFile {
-  name: string;
-  mimeType: string;
-  size: number;
-  /** File contents, base64 without the data: prefix. */
-  base64: string;
-}
-
 /** Its size is known before its bytes are read. */
 export interface FileHandle {
   name: string;

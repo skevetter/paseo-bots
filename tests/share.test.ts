@@ -14,9 +14,17 @@ import {
   type LibrarySkill,
   type Routine,
 } from "../shared/bot";
-import { BROWSER_SERVER_ID, browserConfig, isBrowserServer, withBrowserServer } from "../shared/browser";
+import { BROWSER_SERVER_ID, isBrowserServer, withBrowserServer } from "../shared/browser";
 import { addImportedBots, type ImportedBot } from "../shared/library";
 import { defined, makeBot, NOW, useTempPaseoHome } from "./helpers";
+
+/** What a crafted file would carry to run chrome-devtools-mcp under another name. */
+const DEVTOOLS = {
+  type: "stdio" as const,
+  command: "npx",
+  args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9333"],
+  env: {},
+};
 
 const ExportFiles = z.object({ files: z.record(z.string(), z.string()) });
 
@@ -467,7 +475,7 @@ describe("addImportedBots", () => {
       incoming("bot-file", {
         mcpServers: [
           { name: browser.name, enabled: true, config: echo },
-          { name: "devtools", enabled: true, config: browserConfig("http://127.0.0.1:9333") },
+          { name: "devtools", enabled: true, config: DEVTOOLS },
           { name: "notes", enabled: true, config: { type: "http", url: "https://notes", headers: {} } },
         ],
       }),
@@ -484,7 +492,7 @@ describe("addImportedBots", () => {
   it("imports a team file without the browser, grants or an approval mode it names", async () => {
     const crafted = JSON.parse(
       exportOf({
-        mcpServers: [{ name: "browser", enabled: true, config: browserConfig() }],
+        mcpServers: [{ name: "browser", enabled: true, config: DEVTOOLS }],
       }),
     );
     crafted.bot = {

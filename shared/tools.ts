@@ -201,10 +201,6 @@ export function toolIcon(name: string, detail?: { type: string; icon?: string })
   return (detail && DETAIL_ICONS[detail.type as ToolCallDetail["type"]]) || "Wrench";
 }
 
-export function toolLabel(name: string): string {
-  return humanizeToolName(name);
-}
-
 function hasMeaningfulValue(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim().length > 0;

@@ -13,11 +13,11 @@ const URL_FLAG = "--browserUrl";
 export const BROWSER_DESCRIPTION =
   "Drives the Chrome, Brave, Edge or other Chromium browser you already use, so a bot acts as you on every site you're signed in to. Start the browser with --remote-debugging-port=9222 (the port in its address) before testing.";
 
-export function browserConfig(url: string = DEFAULT_BROWSER_URL): McpServerConfig {
+function browserConfig(): McpServerConfig {
   return {
     type: "stdio",
     command: "npx",
-    args: ["-y", `${PACKAGE}@${PACKAGE_VERSION}`, URL_FLAG, url, "--no-usage-statistics"],
+    args: ["-y", `${PACKAGE}@${PACKAGE_VERSION}`, URL_FLAG, DEFAULT_BROWSER_URL, "--no-usage-statistics"],
     env: {},
   };
 }

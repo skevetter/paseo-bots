@@ -28,7 +28,6 @@ import {
   type ToolCallDetail,
   type ToolCallDisplayInput,
   toolIcon,
-  toolLabel,
 } from "../shared/tools";
 import { defined } from "./helpers";
 
@@ -423,10 +422,7 @@ describe("tool display model", () => {
 });
 
 describe("tool presentation", () => {
-  it("keeps the old label and icon helpers", () => {
-    expect(toolLabel("mcp__paseo__list_workspaces")).toBe("List workspaces");
-    expect(toolLabel("ToolSearch")).toBe("Toolsearch");
-    expect(toolLabel("mcp__gmail__search_threads")).toBe("mcp__gmail__search_threads");
+  it("picks an icon for each kind of tool", () => {
     expect(toolIcon("Bash", { type: "shell" })).toBe("SquareTerminal");
     expect(toolIcon("anything", { type: "plain_text", icon: "square_terminal" })).toBe("SquareTerminal");
     expect(toolIcon("Task")).toBe("Bot");
