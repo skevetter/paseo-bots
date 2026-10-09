@@ -1,7 +1,9 @@
-import { readFile, readlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, readlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { botDataPath } from "../server/bot-home";
+import { librarySkillPath, migrateBotSkills, readSkill } from "../server/library";
 import { probeMcpServer } from "../server/mcp-probe";
 import { type Bot, type BotMcpServer, EMPTY_LIBRARY, type Library, parseMcpJson } from "../shared/bot";
 import {
@@ -266,17 +268,15 @@ describe("server library", () => {
 describe("server library migration and sharing", () => {
   useTempPaseoHome("paseo-bots-lib-");
 
-  it("moves skills that lived in a bot's folder into the library", async () => {
-    const { migrateBotSkills, readSkill } = await import("../server/library");
-    const { botDataPath } = await import("../server/bot-home");
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(join(botDataPath("bot-old"), "skills", "legacy"), { recursive: true });
-    await writeFile(
-      join(botDataPath("bot-old"), "skills", "legacy", "SKILL.md"),
-      "---\nname: legacy\ndescription: Old\n---\n",
-    );
+  it("moves skills that lived in a bot's folder into the library, leaving hidden folders behind", async () => {
+    const skills = join(botDataPath("bot-old"), "skills");
+    await mkdir(join(skills, "legacy"), { recursive: true });
+    await mkdir(join(skills, ".git"), { recursive: true });
+    await writeFile(join(skills, "legacy", "SKILL.md"), "---\nname: legacy\ndescription: Old\n---\n");
     await migrateBotSkills();
     expect((await readSkill({ id: "legacy" })).text).toContain("Old");
+    await expect(readdir(librarySkillPath(".git"))).rejects.toThrow("ENOENT");
+    expect(await readdir(skills)).toEqual([".git"]);
   });
 
   it("exports a bot with its skills and redacted servers, and imports it back", async () => {

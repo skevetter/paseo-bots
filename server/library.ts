@@ -213,7 +213,7 @@ export async function migrateBotSkills(): Promise<void> {
 async function migrateSkillsFolder(skillsDir: string): Promise<void> {
   const skills = await readdir(skillsDir, { withFileTypes: true }).catch(() => []);
   for (const skill of skills) {
-    if (!skill.isDirectory()) continue;
+    if (!skill.isDirectory() || skill.name.startsWith(".")) continue;
     const target = librarySkillPath(skill.name);
     if (await lstat(target).catch(() => null)) continue;
     await mkdir(librarySkillsPath(), { recursive: true });
