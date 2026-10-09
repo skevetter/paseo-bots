@@ -1,6 +1,6 @@
 {
   "name": "@skevetter/paseo-bots",
-  "version": "0.4.1",
+  "version": "1.0.0",
   "files": [
     "paseo-plugin.json",
     "index.client.ts",
