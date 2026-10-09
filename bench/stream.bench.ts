@@ -29,8 +29,18 @@ process.stdout.write(
 );
 
 test("chat stream, 2,000 rows", async ({ bench }) => {
+  let fresh = entries;
   await report("chat stream, 2,000 rows", [
-    bench("buildRows", () => buildRows(entries, true)),
+    bench(
+      "buildRows (a chat's first build)",
+      {
+        beforeEach: () => {
+          fresh = entries.map((entry) => ({ ...entry }));
+        },
+      },
+      () => buildRows(fresh, true),
+    ),
+    bench("buildRows (entries seen before)", () => buildRows(entries, true)),
     bench("layoutStream", () => layoutStream(rows, true)),
     bench("retainLayout (fresh layout vs previous)", () => retainLayout(layout, layoutStream(rows, true))),
     bench("findRows", () => findRows(layout.items, "scheduler")),
