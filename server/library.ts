@@ -20,6 +20,7 @@ import {
   sanitizeSkillName,
 } from "../shared/skills";
 import { botDataPath, botsHomePath, pluginDataPath } from "./bot-home";
+import { readCapped } from "./http";
 
 // Bots get a link to each of their skills in <bot>/skills, so the agent reads them inside its own
 // working folder.
@@ -28,6 +29,9 @@ const MAX_SKILLS = 30;
 const MAX_FILES_PER_SKILL = 40;
 const MAX_FILE_BYTES = 512 * 1024;
 const MAX_LISTED_FILES = 100;
+const MAX_SKILL_BYTES = 4 * 1024 * 1024;
+/** GitHub's repository and tree listings; a big monorepo's recursive tree runs to a few MB. */
+const MAX_LISTING_BYTES = 32 * 1024 * 1024;
 
 export type ImportedSkill = Pick<LibrarySkill, "id" | "description" | "source">;
 
@@ -39,12 +43,13 @@ export function librarySkillPath(id: string): string {
   return join(librarySkillsPath(), id);
 }
 
-async function fetchText(url: string): Promise<string> {
+async function fetchText(url: string, limit = MAX_LISTING_BYTES): Promise<string> {
   const response = await fetch(url, {
     headers: { "User-Agent": "paseo-bots", Accept: "application/vnd.github+json" },
   });
   if (!response.ok) throw new Error(`${url} answered ${response.status}.`);
-  return response.text();
+  const tooLarge = new Error(`${url} is over ${limit / 1024} KB.`);
+  return (await readCapped(response, limit, tooLarge)).toString("utf8");
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -97,7 +102,7 @@ export async function importSkills({
 }): Promise<{ skills: ImportedSkill[] }> {
   const source = parseSkillSource(input);
   if (source.kind === "github") return { skills: await importGitHubSkills(source) };
-  const text = await fetchText(source.url);
+  const text = await fetchText(source.url, MAX_FILE_BYTES);
   const fallback = posix.basename(posix.dirname(new URL(source.url).pathname)) || "skill";
   return { skills: [await saveSkill(new Map([["SKILL.md", text]]), source.url, fallback)] };
 }
@@ -158,30 +163,42 @@ function findSkillDirs(entries: TreeEntry[], path: string): string[] {
     .slice(0, MAX_SKILLS);
 }
 
-async function importSkillDir(tree: RepoTree, dir: string): Promise<ImportedSkill> {
-  const { owner, repo, ref, skillDirs } = tree;
+/** SKILL.md first, then as many files as fit; nested skills are imported on their own. */
+function skillBlobs(tree: RepoTree, dir: string): TreeEntry[] {
   const base = dir === "." ? "" : `${dir}/`;
-  const blobs = tree.entries
+  let room = MAX_SKILL_BYTES;
+  return tree.entries
     .filter(
       (entry) => entry.type === "blob" && entry.path.startsWith(base) && (entry.size ?? 0) <= MAX_FILE_BYTES,
     )
-    // Nested skills are imported on their own.
     .filter(
       (entry) =>
-        !skillDirs.some(
+        !tree.skillDirs.some(
           (other) => other !== dir && other.startsWith(base) && entry.path.startsWith(`${other}/`),
         ),
     )
-    // The cap must not drop the one file a skill needs.
     .sort((a, b) => Number(b.path === `${base}SKILL.md`) - Number(a.path === `${base}SKILL.md`))
-    .slice(0, MAX_FILES_PER_SKILL);
+    .slice(0, MAX_FILES_PER_SKILL)
+    .filter((entry) => {
+      const size = entry.size ?? 0;
+      if (size > room) return false;
+      room -= size;
+      return true;
+    });
+}
+
+async function importSkillDir(tree: RepoTree, dir: string): Promise<ImportedSkill> {
+  const { owner, repo, ref } = tree;
+  const base = dir === "." ? "" : `${dir}/`;
   const files = new Map<string, string>();
   const encoded = (path: string) => path.split("/").map(encodeURIComponent).join("/");
-  for (const blob of blobs) {
+  for (const blob of skillBlobs(tree, dir)) {
+    // The listed size can be stale or wrong, so the download is capped too.
     files.set(
       blob.path.slice(base.length),
       await fetchText(
         `https://raw.githubusercontent.com/${owner}/${repo}/${encoded(ref)}/${encoded(blob.path)}`,
+        MAX_FILE_BYTES,
       ),
     );
   }

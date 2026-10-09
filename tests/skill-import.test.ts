@@ -240,6 +240,29 @@ describe("importSkills replacing and refusing", () => {
     expect((await readSkill({ id: "huge" })).files).toEqual(["SKILL.md", "small.md"]);
   });
 
+  it("keeps a skill to 4 MB and refuses a file that turns out larger than its listing says", async () => {
+    const chunks = Object.fromEntries(
+      Array.from({ length: 10 }, (_, n) => [`bulk/part-${n}.md`, String(n).repeat(500 * 1024)]),
+    );
+    serveRepo("acme/kit", {
+      main: {
+        ...chunks,
+        "bulk/SKILL.md": skillMd("bulk"),
+        "lying/SKILL.md": skillMd("lying"),
+        "lying/note.md": "tiny",
+      },
+    });
+
+    await importSkills({ source: "acme/kit/bulk" });
+    expect((await readSkill({ id: "bulk" })).files).toHaveLength(9);
+
+    const served = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: string | URL) =>
+      String(input).endsWith("/note.md") ? new Response("x".repeat(1024 * 1024)) : served(input),
+    );
+    await expect(importSkills({ source: "acme/kit/lying" })).rejects.toThrow("note.md is over 512 KB.");
+  });
+
   it("reports a repository with no skills, a missing repository and a source it can't read", async () => {
     serveRepo("acme/kit", { main: { "docs/README.md": "no skills" } });
 
@@ -286,5 +309,27 @@ describe("importSkills from a SKILL.md link", () => {
     await expect(importSkills({ source: "https://example.com/x/SKILL.md" })).rejects.toThrow(
       "https://example.com/x/SKILL.md answered 404.",
     );
+  });
+
+  it("refuses a linked SKILL.md over 512 KB, and stops reading one that never ends", async () => {
+    serveLinks({ "https://example.com/big/SKILL.md": "x".repeat(600 * 1024) });
+    await expect(importSkills({ source: "https://example.com/big/SKILL.md" })).rejects.toThrow(
+      "is over 512 KB.",
+    );
+    expect((await readSkill({ id: "big" })).missing).toBe(true);
+
+    let pulled = 0;
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 64 * 1024;
+        controller.enqueue(new Uint8Array(64 * 1024));
+      },
+    });
+    // React Native's BodyInit types shadow the DOM's; Node's Response takes a stream.
+    vi.stubGlobal("fetch", async () => new Response(endless as never));
+    await expect(importSkills({ source: "https://example.com/endless/SKILL.md" })).rejects.toThrow(
+      "is over 512 KB.",
+    );
+    expect(pulled).toBeLessThan(2 * 1024 * 1024);
   });
 });

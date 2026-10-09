@@ -5,6 +5,7 @@ import { type AppLimit, checkAppCall } from "../shared/apps";
 import type { AppRule, Bot, McpServerConfig } from "../shared/bot";
 import { accounts, appTools, connectedSlugs, deadline, readState, session, writeState } from "./composio";
 import type { BotsHost } from "./host";
+import { readCapped } from "./http";
 import { answerMcp, type BotTool } from "./tools/mcp";
 
 // Loopback MCP servers on 127.0.0.1; each chat gets a bearer token in its config, signed with a secret
@@ -101,22 +102,6 @@ async function accountLimit(accountId: string | null): Promise<AppLimit["account
   if (!accountId) return null;
   const alias = (await accounts()).accounts.find((account) => account.id === accountId)?.alias ?? null;
   return { id: accountId, alias };
-}
-
-async function readCapped(upstream: Response, limit: number): Promise<Buffer> {
-  const tooLarge = new Error(`The connected app's answer is over ${limit / 1024 / 1024} MB.`);
-  if (Number(upstream.headers.get("content-length")) > limit) {
-    await upstream.body?.cancel();
-    throw tooLarge;
-  }
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for await (const chunk of upstream.body ?? []) {
-    size += chunk.length;
-    if (size > limit) throw tooLarge;
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
 }
 
 export class Relay {
@@ -375,7 +360,8 @@ export class Relay {
       await upstream.body?.cancel();
       upstream = await send(true);
     }
-    const bytes = await readCapped(upstream, MAX_RESPONSE);
+    const tooLarge = new Error(`The connected app's answer is over ${MAX_RESPONSE / 1024 / 1024} MB.`);
+    const bytes = await readCapped(upstream, MAX_RESPONSE, tooLarge);
     const next = upstream.headers.get("mcp-session-id");
     response.writeHead(upstream.status, {
       "content-type": upstream.headers.get("content-type") ?? "application/json",
