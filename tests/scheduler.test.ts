@@ -1,12 +1,15 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import type { startChat } from "../server/chats";
+import { BotsHost } from "../server/host";
 import { Relay } from "../server/relay";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
-import type { Bot, Routine } from "../shared/bot";
+import { type Bot, EMPTY_LIBRARY, type Routine } from "../shared/bot";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
+import type { RoutineRun } from "../shared/rpc";
 import { defined, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
@@ -79,6 +82,7 @@ async function setAside(name: string): Promise<string[]> {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -388,11 +392,345 @@ describe("the routine scheduler's saved state", () => {
   });
 });
 
+const fresh = () => new Date().toISOString();
 const webhook = (patch: Partial<Routine> = {}) => routine({ schedule: { kind: "webhook" }, ...patch });
+
+function savedRun(id: string, patch: Partial<RoutineRun> = {}): RoutineRun {
+  const at = hoursAgo(1);
+  return {
+    id,
+    trigger: "manual",
+    scheduledFor: at,
+    startedAt: at,
+    endedAt: at,
+    status: "succeeded",
+    agentId: null,
+    output: null,
+    error: null,
+    ...patch,
+  };
+}
+
+async function runsOf(scheduler: RoutineScheduler, routineId: string) {
+  return (await scheduler.status()).routines[routineId]?.runs ?? [];
+}
+
 async function hook(url: string, body?: string): Promise<[number, unknown]> {
   const answer = await fetch(url, { method: "POST", body });
   return [answer.status, await answer.json()];
 }
+
+/** Declares a body without sending it. */
+function declareBody(url: string, bytes: number): Promise<[number, string]> {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(url, {
+      method: "POST",
+      headers: { "content-length": String(bytes) },
+      agent: false,
+    });
+    request.on("error", reject);
+    request.on("response", (response) => {
+      request.off("error", reject).on("error", () => undefined);
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => {
+        body += chunk;
+      });
+      response.on("close", () => resolve([response.statusCode ?? 0, body]));
+    });
+    request.flushHeaders();
+  });
+}
+
+describe("webhook event prompts", () => {
+  it("cuts a long body and marks an empty one", () => {
+    const event = { contentType: null, receivedAt: "2026-09-27T10:00:00.000Z" };
+    const long = runPrompt(routine(), { ...event, body: "x".repeat(50_000) });
+    expect(long).toContain(`\n${"x".repeat(48_000)}\n[cut at 48000 characters]\n[END WEBHOOK EVENT DATA]`);
+    expect(long).not.toContain("x".repeat(48_001));
+    expect(runPrompt(routine(), { ...event, body: "  \n " })).toContain(
+      "Content type: unknown\n\n(empty body)\n[END WEBHOOK EVENT DATA]",
+    );
+  });
+});
+
+describe("routine runs that can't start", () => {
+  useTempPaseoHome("paseo-bots-scheduler-fails-");
+
+  it("fails a run whose chat can't start, says why, and still starts the next one", async () => {
+    const failures: unknown[] = [new Error("No model is set up."), "quota exhausted"];
+    const { scheduler, appended } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-x",
+          routines: [routine({ id: "rt-x", resultsChatId: "x-results", createdAt: fresh() })],
+        }),
+      ],
+      () => Promise.reject(failures.shift()),
+    );
+    const first = (await scheduler.runNow("bot-x", "rt-x")).run;
+    expect(first).toMatchObject({ status: "failed", agentId: null, error: "No model is set up." });
+    expect(first.endedAt).toBe(first.startedAt);
+    expect((await scheduler.runNow("bot-x", "rt-x")).run).toMatchObject({
+      status: "failed",
+      error: "quota exhausted",
+    });
+    const outcomes = [
+      ["failed", "No model is set up."],
+      ["failed", "quota exhausted"],
+    ];
+    expect(appended.map((card) => [card.item.data.status, card.item.data.error])).toEqual(outcomes);
+    expect((await runsOf(scheduler, "rt-x")).map((run) => [run.status, run.error])).toEqual(outcomes);
+  });
+
+  it("fails runs of bots stored on another host and leaves them and archived bots off the schedule", async () => {
+    const due = { schedule: { kind: "interval", minutes: 30 } as const, createdAt: hoursAgo(1) };
+    const { scheduler, appended } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-away",
+          hostId: "laptop",
+          routines: [routine({ ...due, id: "rt-away", resultsChatId: "away-results" })],
+        }),
+        makeBot({ id: "bot-old", archived: true, routines: [routine({ ...due, id: "rt-old" })] }),
+        makeBot({ id: "bot-here", routines: [routine({ ...due, id: "rt-here" })] }),
+      ],
+      async (_host, _relay, bot) => `chat-${bot.id}`,
+    );
+    await vi.waitFor(async () => expect(await runsOf(scheduler, "rt-here")).toHaveLength(1));
+    const { routines } = await scheduler.status();
+    expect([routines["rt-away"], routines["rt-old"]]).toEqual([undefined, undefined]);
+    const { run } = await scheduler.runNow("bot-away", "rt-away");
+    expect(run).toMatchObject({
+      status: "failed",
+      agentId: null,
+      error: expect.stringContaining("another host"),
+    });
+    expect(appended.map((card) => [card.agentId, card.item.data.status])).toEqual([
+      ["away-results", "failed"],
+    ]);
+  });
+
+  it("says when the bot or routine doesn't exist", async () => {
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "bot-n", routines: [routine({ id: "rt-n", createdAt: fresh() })] })],
+      async () => "never-started",
+    );
+    await expect(scheduler.runNow("bot-n", "rt-gone")).rejects.toThrow("Routine not found.");
+    await expect(scheduler.runNow("bot-gone", "rt-n")).rejects.toThrow("Routine not found.");
+  });
+});
+
+describe("routine runs already in progress", () => {
+  useTempPaseoHome("paseo-bots-scheduler-busy-");
+
+  it("starts the next run once the last chat is idle or can't be checked", async () => {
+    let started = 0;
+    const { scheduler, status, unreachable } = await startScheduler(
+      [makeBot({ id: "bot-b", routines: [routine({ id: "rt-b", createdAt: fresh() })] })],
+      async () => `busy-chat-${++started}`,
+    );
+    const next = async () => (await scheduler.runNow("bot-b", "rt-b")).run;
+    expect((await next()).agentId).toBe("busy-chat-1");
+    expect((await next()).agentId).toBe("busy-chat-2");
+    status.set("busy-chat-2", "initializing");
+    expect((await next()).status).toBe("skipped-busy");
+    unreachable.add("busy-chat-2");
+    expect((await next()).agentId).toBe("busy-chat-3");
+  });
+
+  it("finishes a canceled turn once and ignores turns of other chats", async () => {
+    const { scheduler, appended } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-c",
+          routines: [routine({ id: "rt-c", resultsChatId: "c-results", createdAt: fresh() })],
+        }),
+      ],
+      async () => "cancel-chat",
+    );
+    await scheduler.runNow("bot-c", "rt-c");
+    await scheduler.finished("rt-c", "stranger-chat", { kind: "completed" }, "Not mine.");
+    await scheduler.finished("rt-unknown", "cancel-chat", { kind: "completed" }, "No such routine.");
+    await scheduler.finished("rt-c", "cancel-chat", { kind: "canceled", reason: "user" }, "  ");
+    await scheduler.finished("rt-c", "cancel-chat", { kind: "completed" }, "Too late.");
+    expect((await runsOf(scheduler, "rt-c")).map((run) => [run.status, run.output, run.error])).toEqual([
+      ["failed", null, "Stopped before it finished."],
+    ]);
+    expect((await scheduler.status()).routines["rt-unknown"]).toBeUndefined();
+    expect(appended.map((card) => card.item.data.status)).toEqual(["running", "failed"]);
+  });
+
+  it("records a run that ends after its routine was deleted, without a card", async () => {
+    const { scheduler, appended, host } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-d",
+          routines: [routine({ id: "rt-d", resultsChatId: "d-results", createdAt: fresh() })],
+        }),
+      ],
+      async () => "doomed-chat",
+    );
+    await scheduler.runNow("bot-d", "rt-d");
+    defined(defined(await host.values(), "settings").bots[0], "bot").routines = [];
+    await scheduler.finished("rt-d", "doomed-chat", { kind: "completed" }, "Done anyway.");
+    expect((await runsOf(scheduler, "rt-d")).map((run) => [run.status, run.output])).toEqual([
+      ["succeeded", "Done anyway."],
+    ]);
+    expect(appended.map((card) => card.item.data.status)).toEqual(["running"]);
+  });
+
+  it("keeps a routine's last 30 runs", async () => {
+    const old = Array.from({ length: 30 }, (_, index) => savedRun(`old-${index}`));
+    await writeState("routines.json", JSON.stringify({ "rt-k": { lastRunAt: null, runs: old } }));
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "bot-k", routines: [routine({ id: "rt-k", createdAt: fresh() })] })],
+      async () => "kept-chat",
+    );
+    const { run } = await scheduler.runNow("bot-k", "rt-k");
+    const ids = (await runsOf(scheduler, "rt-k")).map((entry) => entry.id);
+    expect(ids).toHaveLength(30);
+    expect([ids[0], ids.at(-1)]).toEqual(["old-1", run.id]);
+  });
+});
+
+describe("routine history saved earlier", () => {
+  useTempPaseoHome("paseo-bots-scheduler-history-");
+
+  it("reads history saved by older versions", async () => {
+    const at = "2026-09-20T09:00:00.000Z";
+    const legacy = {
+      "rt-failed": { lastRunAt: at, lastStatus: "failed", lastError: "Timed out.", lastAgentId: "old-chat" },
+      "rt-missed": { lastRunAt: at, lastStatus: "skipped-missed" },
+      "rt-odd": { lastRunAt: at, lastStatus: "something else" },
+      "rt-never": { lastRunAt: null },
+    };
+    await writeState("routines.json", JSON.stringify(legacy));
+    const { scheduler } = await startScheduler([], async () => "never-started");
+    const { routines } = await scheduler.status();
+    expect(routines["rt-failed"]).toEqual({
+      lastRunAt: at,
+      runs: [
+        savedRun("legacy", {
+          trigger: "schedule",
+          scheduledFor: at,
+          startedAt: at,
+          endedAt: null,
+          status: "failed",
+          agentId: "old-chat",
+          error: "Timed out.",
+        }),
+      ],
+    });
+    const summary = (id: string) => routines[id]?.runs.map((run) => [run.status, run.agentId, run.error]);
+    expect(summary("rt-missed")).toEqual([["skipped-missed", null, null]]);
+    expect(summary("rt-odd")).toEqual([["succeeded", null, null]]);
+    expect(routines["rt-never"]).toEqual({ lastRunAt: null, runs: [] });
+  });
+
+  it("shows a run that never finished as failed after 12 hours", async () => {
+    const runs = [
+      savedRun("lost", { status: "running", startedAt: hoursAgo(13), endedAt: null }),
+      savedRun("recent", { status: "running", startedAt: hoursAgo(11), endedAt: null }),
+    ];
+    await writeState("routines.json", JSON.stringify({ "rt-s": { lastRunAt: null, runs } }));
+    const { scheduler } = await startScheduler([], async () => "never-started");
+    expect((await runsOf(scheduler, "rt-s")).map((run) => [run.id, run.status, run.error])).toEqual([
+      ["lost", "failed", "It never finished."],
+      ["recent", "running", null],
+    ]);
+  });
+});
+
+describe("routine webhook calls", () => {
+  useTempPaseoHome("paseo-bots-scheduler-hooks-");
+
+  it("turns away calls for paused, archived and scheduled routines, and malformed links", async () => {
+    const { scheduler, relay } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-h",
+          routines: [
+            webhook({ id: "rt-paused", enabled: false }),
+            routine({ id: "rt-timed", createdAt: fresh() }),
+          ],
+        }),
+        makeBot({ id: "bot-shelved", archived: true, routines: [webhook({ id: "rt-shelved" })] }),
+      ],
+      async () => "never-started",
+    );
+    try {
+      const notFound = [404, { error: "not found" }];
+      const call = async (routineId: string) => hook((await scheduler.webhookUrl(routineId)).url);
+      expect(await call("rt-paused")).toEqual([409, { error: "The routine is paused." }]);
+      expect(await call("rt-shelved")).toEqual(notFound);
+      expect(await call("rt-timed")).toEqual(notFound);
+      expect(await hook((await scheduler.webhookUrl("rt-paused")).url.slice(0, -1))).toEqual(notFound);
+      expect(await runsOf(scheduler, "rt-paused")).toEqual([]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  it("takes ten calls a minute", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-t", routines: [webhook({ id: "rt-many" })] })],
+      async () => "many-chat",
+    );
+    try {
+      const { url } = await scheduler.webhookUrl("rt-many");
+      const answers: number[] = [];
+      for (let call = 0; call < 10; call++) answers.push((await hook(url, `event ${call}`))[0]);
+      expect(answers).toEqual(Array(10).fill(202));
+      expect(await hook(url, "one more")).toEqual([429, { error: "Too many calls this minute." }]);
+      vi.setSystemTime(Date.now() + 60_000);
+      expect((await hook(url, "next minute"))[0]).toBe(202);
+      expect(await runsOf(scheduler, "rt-many")).toHaveLength(11);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  it("answers 413 to a body over 256 KB and hands an empty one over as marked", async () => {
+    const prompts: string[] = [];
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-e", routines: [webhook({ id: "rt-empty" })] })],
+      async (_host, _relay, _bot, { prompt }) => {
+        prompts.push(prompt);
+        return "empty-chat";
+      },
+    );
+    try {
+      const { url } = await scheduler.webhookUrl("rt-empty");
+      expect(await declareBody(url, 300 * 1024)).toEqual([
+        413,
+        JSON.stringify({ error: "Send at most 256 KB." }),
+      ]);
+      expect(await hook(url)).toEqual([202, { status: "running", chat: "empty-chat" }]);
+      expect(prompts).toEqual([expect.stringContaining("Content type: unknown\n\n(empty body)\n")]);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  it("answers 500 with the reason when a webhook's chat can't start", async () => {
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-500", routines: [webhook({ id: "rt-500" })] })],
+      () => Promise.reject(new Error("The bot has no provider.")),
+    );
+    try {
+      const { url } = await scheduler.webhookUrl("rt-500");
+      expect(await hook(url, "event")).toEqual([
+        500,
+        { status: "failed", error: "The bot has no provider." },
+      ]);
+    } finally {
+      relay.stop();
+    }
+  });
+});
+
 describe("overlapping routine webhook calls", () => {
   useTempPaseoHome("paseo-bots-scheduler-overlap-");
 
@@ -425,5 +763,100 @@ describe("overlapping routine webhook calls", () => {
     } finally {
       relay.stop();
     }
+  });
+});
+
+/** Settings reads, fs and HTTP keep real timers; only the scheduler's clock is faked. */
+function fakeSchedulerClock() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+}
+
+function catchUpThenTick() {
+  fakeSchedulerClock();
+  // 2026-09-28 is a Monday.
+  vi.setSystemTime(local(28, 12));
+  const daily = routine({
+    id: "rt-daily",
+    name: "Daily",
+    schedule: { kind: "daily", time: "09:00", weekdays: [1, 2, 3, 4, 5] },
+    createdAt: local(27, 0).toISOString(),
+  });
+  const minutely = routine({
+    id: "rt-minutely",
+    name: "Minutely",
+    schedule: { kind: "interval", minutes: 1 },
+    createdAt: local(28, 12).toISOString(),
+  });
+  const host = fakeHost([makeBot({ id: "bot-clock", routines: [daily, minutely] })]);
+  const launched: string[] = [];
+  const scheduler = new RoutineScheduler(
+    host,
+    new Relay(host, []),
+    async (_host, _relay, _bot, { title }) => {
+      launched.push(title);
+      return `clock-chat-${launched.length}`;
+    },
+  );
+  return { host, scheduler, launched };
+}
+
+describe("the routine clock", () => {
+  useTempPaseoHome("paseo-bots-scheduler-clock-");
+
+  it("catches up a run missed while Paseo was closed, then ticks every 30 seconds until stopped", async () => {
+    const { host, scheduler, launched } = catchUpThenTick();
+    expect((await scheduler.status()).scheduler).toBe(false);
+    host.attach(fakePaseo().api);
+    await vi.waitFor(() => expect(launched).toEqual(["Daily"]));
+    expect((await runsOf(scheduler, "rt-daily")).map((run) => [run.trigger, run.scheduledFor])).toEqual([
+      ["schedule", local(28, 9).toISOString()],
+    ]);
+    vi.advanceTimersByTime(60_000);
+    await vi.waitFor(() => expect(launched).toEqual(["Daily", "Minutely"]));
+    host.attach(fakePaseo().api);
+    expect(vi.getTimerCount()).toBe(1);
+    scheduler.stop();
+    scheduler.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    expect((await scheduler.status()).scheduler).toBe(true);
+  });
+
+  it("waits for settings to load and recovers from a tick that fails", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    fakeSchedulerClock();
+    const due = routine({
+      id: "rt-flaky",
+      schedule: { kind: "interval", minutes: 30 },
+      createdAt: hoursAgo(1),
+    });
+    const values = {
+      bots: [makeBot({ id: "bot-flaky", routines: [due] })],
+      history: [],
+      library: EMPTY_LIBRARY,
+    };
+    const reads = [
+      async () => ({ status: "loading" }),
+      async () => {
+        throw new Error("Settings are locked.");
+      },
+    ];
+    const ready = async () => ({ status: "ready", values, revision: "1" });
+    const host = new BotsHost({ read: () => (reads.shift() ?? ready)() } as never);
+    const launched: string[] = [];
+    const scheduler = new RoutineScheduler(
+      host,
+      new Relay(host, []),
+      async (_host, _relay, _bot, { title }) => {
+        launched.push(title);
+        return "flaky-chat";
+      },
+    );
+    host.attach(fakePaseo().api);
+    await vi.waitFor(() => {
+      vi.advanceTimersByTime(30_000);
+      expect(launched).toEqual(["Inbox check"]);
+    });
+    expect(errors).toHaveBeenCalledWith("paseo-bots: routine tick failed", expect.any(Error));
+    scheduler.stop();
   });
 });

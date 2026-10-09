@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Bot, migrateV1, pushHistory, type Routine, toolGrants } from "../shared/bot";
 import { decide, describeSchedule, latestDue, nextRun } from "../shared/routines";
 
@@ -65,6 +65,35 @@ describe("decide", () => {
     expect(decide(hourly, "2026-09-26T09:00:00", at("2026-09-26T10:01:00")).action).toBe("run");
     expect(decide(hourly, "2026-09-25T09:00:00", at("2026-09-26T10:01:00")).action).toBe("skip-missed");
     expect(decide(routine({ enabled: false }), null, at("2026-09-26T10:01:00")).action).toBe("wait");
+  });
+});
+
+describe("daily routines across daylight saving changes", () => {
+  const zone = process.env.TZ;
+  const allWeek = [0, 1, 2, 3, 4, 5, 6];
+  beforeAll(() => {
+    process.env.TZ = "America/New_York";
+  });
+  afterAll(() => {
+    if (zone === undefined) delete process.env.TZ;
+    else process.env.TZ = zone;
+  });
+
+  it("runs a time the clocks skip an hour late, once", () => {
+    // 2026-03-08: 02:00 jumps to 03:00.
+    const daily = { kind: "daily" as const, time: "02:30", weekdays: allWeek };
+    const since = at("2026-03-07T12:00:00-05:00");
+    expect(latestDue(daily, since, at("2026-03-08T03:29:00-04:00"))).toBeNull();
+    expect(latestDue(daily, since, at("2026-03-08T03:31:00-04:00"))).toEqual(at("2026-03-08T03:30:00-04:00"));
+    expect(latestDue(daily, at("2026-03-08T03:31:00-04:00"), at("2026-03-08T23:00:00-04:00"))).toBeNull();
+  });
+
+  it("runs a time the clocks repeat once", () => {
+    // 2026-11-01: 02:00 falls back to 01:00.
+    const daily = { kind: "daily" as const, time: "01:30", weekdays: allWeek };
+    const ranAt = at("2026-11-01T01:31:00-04:00");
+    expect(latestDue(daily, at("2026-10-31T12:00:00-04:00"), ranAt)).toEqual(at("2026-11-01T01:30:00-04:00"));
+    expect(latestDue(daily, ranAt, at("2026-11-01T01:45:00-05:00"))).toBeNull();
   });
 });
 
