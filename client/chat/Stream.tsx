@@ -34,6 +34,7 @@ import { tooltip } from "../ui/Tooltip";
 import type { ChatState } from "../useChat";
 import { FindBar } from "./FindBar";
 import { PermissionCard } from "./Permission";
+import { SecondaryButton } from "./stream/buttons";
 import {
   buildRows,
   findRows,
@@ -46,7 +47,6 @@ import {
 } from "./stream/model";
 import { RowContent, type RowContext, RowFrame } from "./stream/rows";
 import { CompletedTurnFooter, WorkingIndicator } from "./stream/TurnFooter";
-import { SecondaryButton } from "./stream/ui";
 
 type Colors = PluginTheme["colors"];
 

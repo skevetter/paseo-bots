@@ -11,7 +11,7 @@ import { errorText } from "../../native";
 import { StatusBadge } from "../../panel/controls";
 import { ui } from "../../typography";
 import { useBotSettings } from "../../useBotSettings";
-import { CardButton } from "./ui";
+import { CardButton } from "./buttons";
 
 type Colors = PluginTheme["colors"];
 type Phase = "idle" | "waiting" | "connected" | "continued";

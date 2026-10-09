@@ -19,8 +19,8 @@ import { errorText } from "../../native";
 import { Alert } from "../../panel/controls";
 import { ui } from "../../typography";
 import { useBotSettings } from "../../useBotSettings";
+import { CardButton } from "./buttons";
 import { PlanCard } from "./PlanCard";
-import { CardButton } from "./ui";
 
 type Colors = PluginTheme["colors"];
 type Busy = "save" | "dismiss" | null;

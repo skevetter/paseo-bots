@@ -11,10 +11,10 @@ import { humanizeToolName, type ToolCallDetail } from "../../shared/tools";
 import { errorText } from "../native";
 import type { PaseoAgent, PaseoAgentPermissionResponse, PaseoApi } from "../paseo";
 import { ui } from "../typography";
+import { CardButton } from "./stream/buttons";
 import { ToolCallDetailsContent } from "./stream/details";
 import { PlanCard } from "./stream/PlanCard";
 import { QuestionFormCard } from "./stream/QuestionForm";
-import { CardButton } from "./stream/ui";
 
 type Colors = PluginTheme["colors"];
 type Permission = PaseoAgent["pendingPermissions"][number];

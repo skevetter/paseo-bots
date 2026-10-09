@@ -4,8 +4,9 @@ import { Pressable, Text, View } from "react-native";
 import { formatDuration, formatMessageTimestamp } from "../../../shared/markdown/timestamps";
 import { CONTENT_MAX_WIDTH } from "../../native";
 import { canSpeak } from "../../speech";
+import { CopyButton, SpeakButton } from "./buttons";
 import type { TurnFooterInfo } from "./model";
-import { CopyButton, isWeb, METADATA_SIZE, SpeakButton, Spinner } from "./ui";
+import { isWeb, METADATA_SIZE, Spinner } from "./ui";
 
 type Colors = PluginTheme["colors"];
 

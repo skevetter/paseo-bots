@@ -3,8 +3,8 @@ import { Icon, Modal, useRevealedText } from "@getpaseo/plugin/client/react-nati
 import { memo, useCallback, useMemo, useState } from "react";
 import { buildToolCallPresentation, type ToolCallDetail, type ToolCallStatus } from "../../../shared/tools";
 import { ToolCallDetailsContent } from "./details";
+import { ExpandableBadge } from "./ExpandableBadge";
 import { PlanCard } from "./PlanCard";
-import { ExpandableBadge } from "./ui";
 
 type Colors = PluginTheme["colors"];
 

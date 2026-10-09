@@ -7,7 +7,8 @@ import { formatMessageTimestamp } from "../../../shared/markdown/timestamps";
 import { AttachmentPill } from "../../AttachmentPill";
 import { nativeTokens } from "../../native";
 import { content, contentLine } from "../../typography";
-import { CopyButton, isWeb, METADATA_SIZE } from "./ui";
+import { CopyButton } from "./buttons";
+import { isWeb, METADATA_SIZE } from "./ui";
 
 type Colors = PluginTheme["colors"];
 type ImageAttachment = Extract<ComposerAttachment, { kind: "image" }>;

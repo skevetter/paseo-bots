@@ -5,7 +5,7 @@ import type { RoutineRunCard as RunCard } from "../../../shared/rpc";
 import { relativeTime } from "../../../shared/time";
 import { type BadgeVariant, StatusBadge } from "../../panel/controls";
 import { ui } from "../../typography";
-import { CardButton } from "./ui";
+import { CardButton } from "./buttons";
 
 type Colors = PluginTheme["colors"];
 

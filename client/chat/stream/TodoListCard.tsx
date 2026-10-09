@@ -5,7 +5,7 @@ import { Text, View } from "react-native";
 import type { TaskActivity, TaskEntry } from "../../../shared/tools";
 import { nativeTokens } from "../../native";
 import { ui } from "../../typography";
-import { ExpandableBadge } from "./ui";
+import { ExpandableBadge } from "./ExpandableBadge";
 
 type Colors = PluginTheme["colors"];
 
