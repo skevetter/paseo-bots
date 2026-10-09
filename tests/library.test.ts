@@ -1,7 +1,7 @@
 import { mkdir, readdir, readFile, readlink, writeFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { botDataPath } from "../server/bot-home";
 import { librarySkillPath, migrateBotSkills, readSkill } from "../server/library";
 import { probeMcpServer } from "../server/mcp-probe";
@@ -14,6 +14,8 @@ import {
   mcpTarget,
   renameGrants,
   setBotUses,
+  updateMcpServer,
+  updateSkill,
   upsertSkills,
 } from "../shared/library";
 import { defined, useTempPaseoHome } from "./helpers";
@@ -124,6 +126,40 @@ describe("upsertSkills", () => {
       { id: "mine", description: "d", source: "", reviewedSha: "f00" },
     ]);
     expect(next.skills[0]).toMatchObject({ enabled: true, reviewedSha: "f00" });
+  });
+});
+
+describe("library edits", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("patches only the chosen skill or server and stamps when it changed", () => {
+    vi.useFakeTimers({ now: new Date("2026-10-01T00:00:00.000Z") });
+    const skills = upsertSkills(
+      EMPTY_LIBRARY,
+      [
+        { id: "a", description: "", source: "" },
+        { id: "b", description: "", source: "" },
+      ],
+      NOW,
+    );
+    const { library, ids } = addMcpServers(skills, [fetchDraft, { ...fetchDraft, name: "other" }], {
+      now: NOW,
+    });
+
+    const next = updateMcpServer(updateSkill(library, "b", { enabled: true }), defined(ids[1]), {
+      enabled: true,
+    });
+
+    expect(next.skills.map((skill) => [skill.id, skill.enabled, skill.updatedAt])).toEqual([
+      ["a", false, NOW],
+      ["b", true, "2026-10-01T00:00:00.000Z"],
+    ]);
+    expect(next.mcpServers.map((server) => [server.name, server.enabled, server.updatedAt])).toEqual([
+      ["fetch", false, NOW],
+      ["other", true, "2026-10-01T00:00:00.000Z"],
+    ]);
   });
 });
 
