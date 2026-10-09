@@ -67,7 +67,10 @@ describe("defaults and presets", () => {
     ]);
     expect(next.bots.map((bot) => bot.name)).toEqual(["Inbox", "Inbox 2", "Inbox 3"]);
     expect(next.library?.skills).toMatchObject([{ id: "triage", enabled: false, reviewedSha: null }]);
-    expect(next.bots[1]?.mcpServerIds).toEqual([defined(next.library?.mcpServers[0], "imported server").id]);
+    expect(next.library?.mcpServers.map(({ name, enabled }) => ({ name, enabled }))).toEqual([
+      { name: "fetch", enabled: false },
+    ]);
+    expect(next.bots[1]?.mcpServerIds).toEqual([]);
   });
 });
 

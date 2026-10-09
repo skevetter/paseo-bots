@@ -9,6 +9,7 @@ import {
   type TeamFileTeam,
 } from "./bot";
 import { newGroupId, numberedName, uniqueName } from "./bot-ids";
+import { isBrowserServer } from "./browser";
 import { saveTeam } from "./groups";
 import { joinArgs, RESERVED_MCP_NAMES } from "./mcp-servers";
 
@@ -34,7 +35,7 @@ function libraryServer(draft: BotMcpServer, name: string, now: string): LibraryM
   };
 }
 
-/** `reuseByName` serves templates: the user may have filled in keys since. */
+/** `reuseByName` serves imports: a file's redacted copy of a server the user already set up adds nothing. */
 export function addMcpServers(
   library: Library,
   drafts: readonly BotMcpServer[],
@@ -201,9 +202,10 @@ export function addImportedBots(
       library,
       entry.skills.filter((skill) => !known.has(skill.id)),
     );
-    const added = addMcpServers(library, entry.mcpServers, { reuseByName: true });
-    library = added.library;
-    bots.push({ ...entry.bot, name, mcpServerIds: [...new Set([...entry.bot.mcpServerIds, ...added.ids])] });
+    // A file's servers wait in the library, off, for the user to attach; it never brings in a browser.
+    const drafts = entry.mcpServers.filter((draft) => !isBrowserServer({ id: "", config: draft.config }));
+    library = addMcpServers(library, drafts, { reuseByName: true }).library;
+    bots.push({ ...entry.bot, name });
   }
   const idAt = (position: number) => imported[position]?.bot.id;
   const groups = teams.reduce((current, team) => {

@@ -14,6 +14,7 @@ import {
   type LibrarySkill,
   type Routine,
 } from "../shared/bot";
+import { BROWSER_SERVER_ID, browserConfig, isBrowserServer, withBrowserServer } from "../shared/browser";
 import { addImportedBots, type ImportedBot } from "../shared/library";
 import { defined, makeBot, NOW, useTempPaseoHome } from "./helpers";
 
@@ -419,7 +420,64 @@ describe("addImportedBots", () => {
       { id: "fresh", enabled: false, reviewedSha: null },
     ]);
     expect(next.library?.mcpServers).toEqual([filled]);
-    expect(next.bots[0]?.mcpServerIds).toEqual(["gh"]);
+    expect(next.bots[0]?.mcpServerIds).toEqual([]);
+  });
+
+  it("leaves a file's servers off and unattached, and never brings in or attaches the browser", () => {
+    const browser = {
+      ...defined(withBrowserServer(EMPTY_LIBRARY, NOW).mcpServers[0], "browser"),
+      enabled: true,
+    };
+    const values = { bots: [], history: [], library: { skills: [], mcpServers: [browser] } };
+    const echo = { type: "stdio" as const, command: "echo", args: [], env: {} };
+
+    const next = addImportedBots(values, [
+      incoming("bot-file", {
+        mcpServers: [
+          { name: browser.name, enabled: true, config: echo },
+          { name: "devtools", enabled: true, config: browserConfig("http://127.0.0.1:9333") },
+          { name: "notes", enabled: true, config: { type: "http", url: "https://notes", headers: {} } },
+        ],
+      }),
+    ]);
+
+    expect(next.bots[0]).toMatchObject({ mcpServerIds: [], alwaysAllow: [] });
+    expect(next.library?.mcpServers.filter(isBrowserServer)).toEqual([browser]);
+    expect(next.library?.mcpServers.map(({ name, enabled }) => ({ name, enabled }))).toEqual([
+      { name: browser.name, enabled: true },
+      { name: "notes", enabled: false },
+    ]);
+  });
+
+  it("imports a team file without the browser, grants or an approval mode it names", async () => {
+    const crafted = JSON.parse(
+      exportOf({
+        mcpServers: [{ name: "browser", enabled: true, config: browserConfig() }],
+      }),
+    );
+    crafted.bot = {
+      ...crafted.bot,
+      modeId: "bypassPermissions",
+      mcpServerIds: [BROWSER_SERVER_ID],
+      alwaysAllow: ["browser/navigate_page"],
+      apps: ["gmail"],
+      contactBots: "allow",
+    };
+    const json = JSON.stringify({ format: "paseo-bots-team", version: 1, bots: [crafted, crafted] });
+    const library = withBrowserServer(EMPTY_LIBRARY, NOW);
+
+    const imported = await importTeam({ json });
+    const next = addImportedBots({ bots: [], history: [], library }, imported.bots);
+
+    for (const bot of next.bots)
+      expect(bot).toMatchObject({
+        modeId: null,
+        mcpServerIds: [],
+        alwaysAllow: [],
+        apps: [],
+        contactBots: "ask",
+      });
+    expect(next.library?.mcpServers).toEqual(library.mcpServers);
   });
 
   it("starts from an empty library and no teams", () => {

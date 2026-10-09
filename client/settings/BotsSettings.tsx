@@ -168,7 +168,7 @@ function teamFileHint(bots: readonly Bot[], groups: readonly BotGroup[]): string
 
 function importedMessage(imported: { bots: readonly unknown[]; teams: readonly unknown[] }): string {
   const teams = imported.teams.length ? ` and ${counted(imported.teams.length, "team", "teams")}` : "";
-  return `Added ${counted(imported.bots.length, "bot", "bots")}${teams}. Routines arrive paused and skills need a review.`;
+  return `Added ${counted(imported.bots.length, "bot", "bots")}${teams}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`;
 }
 
 function TeamSection({

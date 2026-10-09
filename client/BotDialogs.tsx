@@ -76,7 +76,7 @@ export function NewBotDialog({
         ) : null}
         <SettingsSection
           title="Import"
-          info="Paste a bot or team file from paseo-bots. Routines arrive paused, skills need a review and secrets must be filled in again."
+          info="Paste a bot or team file from paseo-bots. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools for you to add to the bot."
         >
           <FormTextArea
             colors={colors}
