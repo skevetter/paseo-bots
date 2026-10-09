@@ -13,7 +13,7 @@ import {
   DEFAULT_BOT_LIST_UI,
   type TeamFileTeam,
 } from "../shared/bot";
-import { pushHistory } from "../shared/bot-history";
+import { patchSavedBot, pushHistory } from "../shared/bot-history";
 
 import type { ImportedBot } from "../shared/library";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
@@ -152,23 +152,6 @@ function withoutSaved(current: Record<string, Bot>, saved: Record<string, Bot>):
   const next = { ...current };
   for (const [id, bot] of Object.entries(saved)) if (next[id] === bot) delete next[id];
   return next;
-}
-
-function patchSavedBot(
-  values: BotState,
-  botId: string,
-  patch: Partial<Bot>,
-  recordHistory: boolean,
-): BotState {
-  const previous = values.bots.find((entry) => entry.id === botId);
-  if (!previous) return values;
-  return {
-    ...values,
-    bots: values.bots.map((entry) =>
-      entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry,
-    ),
-    history: recordHistory ? pushHistory(values.history, previous) : values.history,
-  };
 }
 
 function useServices(host: PluginScreenProps["host"]): SurfaceServices & { latest: LatestSettings } {

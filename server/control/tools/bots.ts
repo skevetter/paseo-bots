@@ -9,7 +9,7 @@ import {
   type Preset,
 } from "../../../shared/bot";
 import { duplicateOf } from "../../../shared/bot-copy";
-import { pushHistory } from "../../../shared/bot-history";
+import { patchSavedBot } from "../../../shared/bot-history";
 import { newBotId, numberedName } from "../../../shared/bot-ids";
 import { isBrowserServer } from "../../../shared/browser";
 import { startingBot } from "../../../shared/changes/bots";
@@ -261,12 +261,7 @@ const botsHistory = defineControlTool({
 function withRestored(values: BotState, botId: string, snapshot: Bot): BotState {
   const current = values.bots.find((bot) => bot.id === botId);
   if (!current) throw new Error("That bot was deleted.");
-  const now = new Date();
-  return {
-    ...values,
-    bots: values.bots.map((bot) => (bot.id === botId ? { ...snapshot, updatedAt: now.toISOString() } : bot)),
-    history: pushHistory(values.history, current, now),
-  };
+  return patchSavedBot(values, current.id, snapshot, true);
 }
 
 /** The parts of a version that can need approval: its agent and any Browser server it adds back. */

@@ -1,4 +1,4 @@
-import type { Bot, HistoryEntry } from "./bot";
+import type { Bot, BotState, HistoryEntry } from "./bot";
 
 const HISTORY_PER_BOT = 20;
 /** Edits closer together than this undo as one step. */
@@ -15,4 +15,22 @@ export function pushHistory(
   const mine = next.filter((entry) => entry.botId === previous.id);
   const drop = new Set(mine.slice(0, Math.max(0, mine.length - HISTORY_PER_BOT)));
   return next.filter((entry) => !drop.has(entry));
+}
+
+/** A saved bot edit; `recordHistory` keeps the version before it under History, where Restore uses it too. */
+export function patchSavedBot(
+  values: BotState,
+  botId: string,
+  patch: Partial<Bot>,
+  recordHistory: boolean,
+): BotState {
+  const previous = values.bots.find((entry) => entry.id === botId);
+  if (!previous) return values;
+  return {
+    ...values,
+    bots: values.bots.map((entry) =>
+      entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry,
+    ),
+    history: recordHistory ? pushHistory(values.history, previous) : values.history,
+  };
 }
