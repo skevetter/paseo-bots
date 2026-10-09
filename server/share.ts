@@ -24,52 +24,81 @@ const FORMAT = "paseo-bots";
 const FORMATS = z.enum([FORMAT, "paseo-bot"]);
 const MAX_FILES = 400;
 
-const BotFields = BotSchema.pick({
-  name: true,
-  title: true,
-  description: true,
-  avatar: true,
-  soul: true,
-  provider: true,
-  model: true,
-  modeId: true,
-  thinkingOptionId: true,
-  routines: true,
-  playbooks: true,
+// Imports are bounded well past what this plugin exports, so only a crafted file trips them.
+const MAX_IMPORT_FILES = 1_000;
+const MAX_FILE_CHARS = 1_000_000;
+const MAX_TEXT = 100_000;
+const Line = z.string().max(4_000);
+const Text = z.string().max(MAX_TEXT);
+
+const routine = BotSchema.shape.routines.unwrap().element;
+const playbook = BotSchema.shape.playbooks.unwrap().element;
+const BotFields = z.object({
+  name: z.string().max(200),
+  title: Line.default(""),
+  description: Line.default(""),
+  avatar: BotSchema.shape.avatar.extend({
+    seed: Line,
+    imageUrl: z.string().max(500_000).nullable().default(null),
+  }),
+  soul: Text.default(""),
+  provider: z.string().max(200),
+  model: Line.nullable().default(null),
+  modeId: Line.nullable().default(null),
+  thinkingOptionId: Line.nullable().default(null),
+  routines: z
+    .array(routine.extend({ id: Line, name: Line, prompt: Text, createdAt: Line }))
+    .max(100)
+    .default([]),
+  playbooks: z
+    .array(
+      playbook.extend({
+        id: Line,
+        name: Line,
+        triggers: z.array(Line).max(50).default([]),
+        instructions: Text,
+      }),
+    )
+    .max(100)
+    .default([]),
 });
 
 const SharedSkillSchema = z.object({
-  id: z.string(),
-  description: z.string().default(""),
-  source: z.string().default(""),
+  id: Line,
+  description: Line.default(""),
+  source: Line.default(""),
 });
+
+const SharedServers = z.array(BotMcpServerSchema).max(50).default([]);
+const SharedFiles = z.record(z.string().max(1_000), z.string().max(MAX_FILE_CHARS));
 
 const ExportV2Schema = z.object({
   format: FORMATS,
   version: z.literal(2),
   bot: BotFields,
-  skills: z.array(SharedSkillSchema).default([]),
-  mcpServers: z.array(BotMcpServerSchema).default([]),
-  files: z.record(z.string(), z.string()),
+  skills: z.array(SharedSkillSchema).max(200).default([]),
+  mcpServers: SharedServers,
+  files: SharedFiles,
 });
 
 const ExportV1Schema = z.object({
   format: FORMATS,
   version: z.literal(1),
   bot: BotFields.extend({
-    mcpServers: z.array(BotMcpServerSchema).default([]),
+    mcpServers: SharedServers,
     skills: z
       .array(
         z.object({
-          name: z.string(),
-          description: z.string().default(""),
-          source: z.string().default(""),
+          name: Line,
+          description: Line.default(""),
+          source: Line.default(""),
           enabled: z.boolean().default(true),
         }),
       )
+      .max(200)
       .default([]),
   }),
-  files: z.record(z.string(), z.string()),
+  files: SharedFiles,
 });
 
 /** Env values and headers can hold keys, so exports keep the names and drop the values. */
@@ -154,17 +183,31 @@ export async function exportBot(
   return { json: JSON.stringify(payload, null, 2) };
 }
 
+const NOT_AN_EXPORT = "That isn't a paseo-bots export.";
+const TOO_BIG = "That export holds more than paseo-bots imports.";
+
 function parseExport(json: string): z.infer<typeof ExportV2Schema> {
   let raw: unknown;
   try {
     raw = JSON.parse(json);
   } catch {
-    throw new Error("That isn't a paseo-bots export.");
+    throw new Error(NOT_AN_EXPORT);
   }
+  const parsed = parseVersions(raw);
+  if (Object.keys(parsed.files).length > MAX_IMPORT_FILES) throw new Error(TOO_BIG);
+  return parsed;
+}
+
+function parseVersions(raw: unknown): z.infer<typeof ExportV2Schema> {
   const v2 = ExportV2Schema.safeParse(raw);
   if (v2.success) return v2.data;
   const v1 = ExportV1Schema.safeParse(raw);
-  if (!v1.success) throw new Error("That isn't a paseo-bots export.");
+  if (!v1.success) {
+    const tooBig = [v2.error, v1.error].some((error) =>
+      error.issues.some((issue) => issue.code === "too_big"),
+    );
+    throw new Error(tooBig ? TOO_BIG : NOT_AN_EXPORT);
+  }
   const { mcpServers, skills, ...bot } = v1.data.bot;
   return {
     format: FORMAT,
@@ -183,7 +226,8 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function importTarget(path: string, root: string, fresh: Set<string>): string | null {
-  if (path.includes("..")) return null;
+  // A backslash is a folder break on Windows, and no file system takes a NUL.
+  if (path.includes("..") || /[\\\0]/.test(path)) return null;
   if (path === "MEMORY.md" || path.startsWith("memory/")) return join(root, ...path.split("/"));
   if (!path.startsWith("skills/")) return null;
   const [, id, ...rest] = path.split("/");

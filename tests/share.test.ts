@@ -1,4 +1,4 @@
-import { lstat, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -260,6 +260,38 @@ describe("importing crafted and damaged files", () => {
     expect(await missing(join(botDataPath("bot-crafted"), "scratch.txt"))).toBe(true);
     expect(await missing(join(botDataPath("bot-crafted"), "..", "escape.md"))).toBe(true);
     expect(await missing(join(librarySkillPath("my-skill"), "..", "..", "escape.md"))).toBe(true);
+  });
+
+  it("skips names a file system can't take or would split, and imports the rest", async () => {
+    const json = exportOf({
+      files: { "memory/a\u0000b.md": "nul", "memory/win\\dows.md": "split", "memory/ok.md": "kept" },
+    });
+
+    await importBot({ botId: "bot-odd", json });
+
+    expect(await readdir(join(botDataPath("bot-odd"), "memory"))).toEqual(["ok.md"]);
+  });
+
+  it("refuses a file with more in it than an export would ever carry, writing nothing", async () => {
+    const bot = { name: "Big", avatar: { seed: "s" }, provider: "claude", routines: [] };
+    const many = Object.fromEntries(Array.from({ length: 1_001 }, (_, n) => [`memory/${n}.md`, "x"]));
+    for (const json of [
+      exportOf({ files: many }),
+      exportOf({ bot: { ...bot, soul: "x".repeat(100_001) } }),
+      exportOf({ files: { "memory/huge.md": "x".repeat(1_000_001) } }),
+      exportOf({ skills: Array.from({ length: 201 }, (_, n) => ({ id: `s${n}` })) }),
+      exportOf({
+        bot: {
+          ...bot,
+          playbooks: Array.from({ length: 101 }, (_, n) => ({ id: `p${n}`, name: "p", instructions: "i" })),
+        },
+      }),
+    ]) {
+      await expect(importBot({ botId: "bot-big", json })).rejects.toThrow(
+        "That export holds more than paseo-bots imports.",
+      );
+    }
+    expect(await missing(botDataPath("bot-big"))).toBe(true);
   });
 
   it("refuses files that are garbled, from another app or from a newer version", async () => {
