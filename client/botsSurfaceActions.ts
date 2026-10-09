@@ -427,15 +427,16 @@ export function saveTeamDraft(ctx: SurfaceContext, editing: BotGroup | "new", dr
 
 export function createBot(ctx: SurfaceContext, start?: NewBotStart) {
   ctx.setCreating(false);
-  const bot = start?.preset
-    ? botFromPreset(ctx.defaultProvider(), start.preset)
-    : newBot(ctx.defaultProvider(), start?.template);
   const defaults = ctx.values.defaults ?? DEFAULT_BOT_DEFAULTS;
-  void addBot(ctx, applyDefaults(bot, defaults, ctx.defaultProvider()), start ? "overview" : "identity");
+  const provider = defaults.provider || ctx.defaultProvider();
+  const base = start?.preset ? botFromPreset(provider, start.preset) : newBot(provider, start?.template);
+  const { bot, note } = applyDefaults(base, defaults, ctx.providerModes());
+  if (note) ctx.toast.show(note, { variant: "warning" });
+  void addBot(ctx, bot, start ? "overview" : "identity");
 }
 
 export async function importBots(ctx: SurfaceContext, json: string) {
-  const { bots, teams } = await ctx.importTeam({ json });
+  const { bots, teams, notes } = await ctx.importTeam({ json });
   ctx.setCreating(false);
   const saved = await ctx.commit((values) => addImportedBots(values, bots, teams));
   const first = bots[0]?.bot;
@@ -443,6 +444,7 @@ export async function importBots(ctx: SurfaceContext, json: string) {
     select(ctx, { botId: first.id, chatId: null });
     ctx.setPanel({ open: true, section: "overview" });
     if (bots.length > 1) ctx.toast.show(`Added ${bots.length} bots`, { variant: "success" });
+    if (notes.length) ctx.toast.show(notes.join(" "), { variant: "warning" });
   }
 }
 

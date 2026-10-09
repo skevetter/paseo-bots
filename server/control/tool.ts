@@ -50,15 +50,25 @@ export async function needsApproval(context: ControlContext, reasons: readonly s
   return reasons.length > 0 && !(await context.settings()).allowElevated;
 }
 
-export function pendingResult(proposal: Proposal, reasons: readonly string[]): ToolResult {
+/** `notes`: what the change can't do as asked, such as a new bot's approval mode. */
+export function pendingResult(
+  proposal: Proposal,
+  reasons: readonly string[],
+  notes: readonly string[] = [],
+): ToolResult {
   return result(
-    `Waiting for approval: proposal ${proposal.id}. ${reasons.join(" ")} Accept it under ${APPROVAL_PLACE}.`,
-    { status: "pending", proposal: proposal.id, reasons },
+    [
+      `Waiting for approval: proposal ${proposal.id}.`,
+      ...reasons,
+      `Accept it under ${APPROVAL_PLACE}.`,
+      ...notes,
+    ].join(" "),
+    { status: "pending", proposal: proposal.id, reasons, notes },
   );
 }
 
 export type ChangeOutcome =
-  | { status: "applied"; values: BotState }
+  | { status: "applied"; values: BotState; notes: string[] }
   | { status: "pending"; result: ToolResult };
 
 /**
@@ -76,20 +86,21 @@ export async function applyOrPropose(
   const resolved = resolveChanges(changes, apply);
   const { allowElevated } = await context.settings();
   let reasons: string[] = [];
+  const notes: string[] = [];
   const saved = await context.host.store.update((values) => {
-    const after = applyChanges(values, resolved, apply);
+    const after = applyChanges(values, resolved, { ...apply, notes });
     reasons = [...extra, ...elevations(values, after, apply.modes)];
     return reasons.length && !allowElevated ? values : after;
   });
-  if (!reasons.length || allowElevated) return { status: "applied", values: saved.values };
+  if (!reasons.length || allowElevated) return { status: "applied", values: saved.values, notes };
   const proposal = await createProposal({
     botId: "",
     agentId: "",
     origin: "control",
     kind: "changes",
-    data: { summary, changes: resolved, provider: apply.provider },
+    data: { summary, changes: resolved, provider: apply.provider, notes },
   });
-  return { status: "pending", result: pendingResult(proposal, reasons) };
+  return { status: "pending", result: pendingResult(proposal, reasons, notes) };
 }
 
 /** Env and header values are usually secrets, so only their names leave the host. */

@@ -7,7 +7,7 @@ export interface ProviderInfo {
     thinking: string[];
     defaultThinking: string | null;
   }[];
-  modes: { id: string; label: string }[];
+  modes: { id: string; label: string; colorTier: string | null }[];
   defaultModeId: string | null;
 }
 
@@ -30,7 +30,7 @@ interface ProviderEntry {
     thinkingOptions?: readonly { id: string }[];
     defaultThinkingOptionId?: string;
   }[];
-  modes?: readonly { id: string; label: string }[];
+  modes?: readonly { id: string; label: string; colorTier?: string | null }[];
   defaultModeId?: string | null;
 }
 
@@ -48,7 +48,11 @@ export function providerInfo(entries: readonly ProviderEntry[]): ProviderInfo[] 
           thinking: (model.thinkingOptions ?? []).map((option) => option.id),
           defaultThinking: model.defaultThinkingOptionId ?? null,
         })),
-      modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
+      modes: (entry.modes ?? []).map((mode) => ({
+        id: mode.id,
+        label: mode.label,
+        colorTier: mode.colorTier ?? null,
+      })),
       defaultModeId: entry.defaultModeId ?? null,
     }));
 }
@@ -66,6 +70,8 @@ export interface ApplyContext {
   providers?: readonly ProviderInfo[] | null;
   /** When known, app account names are resolved against it. */
   accounts?: readonly AppAccountInfo[] | null;
+  /** When given, collects what a change couldn't do as asked, such as a new bot's approval mode. */
+  notes?: string[];
 }
 
 type ProviderModel = ProviderInfo["models"][number];

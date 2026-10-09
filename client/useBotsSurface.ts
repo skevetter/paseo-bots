@@ -13,6 +13,7 @@ import {
   DEFAULT_BOT_LIST_UI,
   type TeamFileTeam,
 } from "../shared/bot";
+import type { ProviderModesById } from "../shared/bot-checks";
 import { patchSavedBot, pushHistory } from "../shared/bot-history";
 
 import type { ImportedBot } from "../shared/library";
@@ -65,9 +66,12 @@ export interface SurfaceServices {
   localHost: LocalHost;
   resolveHost(hostId: string | null): BotHost;
   defaultProvider(): string;
+  providerModes(): ProviderModesById;
   exportBot(input: { bot: Bot; includeMemory: boolean }): Promise<{ json: string }>;
   importBot(input: { botId: string; json: string }): Promise<{ bot: Bot }>;
-  importTeam(input: { json: string }): Promise<{ bots: ImportedBot[]; teams: TeamFileTeam[] }>;
+  importTeam(input: {
+    json: string;
+  }): Promise<{ bots: ImportedBot[]; teams: TeamFileTeam[]; notes: string[] }>;
 }
 
 export interface ScreenState {
@@ -169,6 +173,8 @@ function useServices(host: PluginScreenProps["host"]): SurfaceServices & { lates
     const ready = (localProviders.data ?? []).filter((entry) => entry.status === "ready");
     return (ready.find((entry) => entry.provider === "claude") ?? ready[0])?.provider ?? "";
   };
+  const providerModes = () =>
+    Object.fromEntries((localProviders.data ?? []).map((entry) => [entry.provider, entry]));
   return {
     settings,
     latest,
@@ -179,6 +185,7 @@ function useServices(host: PluginScreenProps["host"]): SurfaceServices & { lates
     localHost,
     resolveHost,
     defaultProvider,
+    providerModes,
     exportBot,
     importBot,
     importTeam,

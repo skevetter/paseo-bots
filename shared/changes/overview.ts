@@ -1,5 +1,6 @@
 import {
   type Bot,
+  type BotDefaults,
   type BotGroup,
   type BotState,
   DEFAULT_BOT_DEFAULTS,
@@ -99,6 +100,17 @@ function providersSection(providers: readonly ProviderInfo[] | null): string {
   return `Providers:\n${lines.join("\n")}`;
 }
 
+export function defaultsText(defaults: BotDefaults): string {
+  const overrides = Object.entries(defaults.modeByProvider).map(([provider, mode]) => `${provider} ${mode}`);
+  return [
+    `provider ${defaults.provider || "any ready one"}`,
+    `model ${defaults.model ?? "default"}`,
+    `thinking ${defaults.thinkingOptionId ?? "default"}`,
+    `approval ${defaults.approval}${overrides.length ? ` (modes: ${list(overrides)})` : ""}`,
+    `contact other bots: ${defaults.contactBots}`,
+  ].join(", ");
+}
+
 export function setupOverview(
   values: BotState,
   providers: readonly ProviderInfo[] | null,
@@ -113,7 +125,7 @@ export function setupOverview(
     skillsSection(library.skills),
     serversSection(library.mcpServers),
     appsSection(apps),
-    `New bots start with: provider ${defaults.provider || "any ready one"}, ${defaults.model ?? "default model"}, contact other bots: ${defaults.contactBots}.`,
+    `New bots start with: ${defaultsText(defaults)}.`,
     `Presets: ${list((values.presets ?? []).map((preset) => preset.name)) || "none"}.`,
     providersSection(providers),
     `Roles for new bots: ${list(BOT_TEMPLATES.map((template) => `${template.id} (${template.title})`))}.`,

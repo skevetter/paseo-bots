@@ -34,17 +34,19 @@ export const proposeChanges = defineTool({
     const values = await host.values();
     const context = await applyContext(host);
     const resolved = resolveChanges(changes, context);
+    const notes: string[] = [];
     // A dry run finds mistakes now, while they can still be fixed; the app applies the changes for real.
-    applyChanges(values, resolved, context);
+    applyChanges(values, resolved, { ...context, notes });
     const proposal = await createProposal({
       botId: bot.id,
       agentId,
       kind: "changes",
-      data: { summary: summary.trim(), changes: resolved, provider: context.provider },
+      data: { summary: summary.trim(), changes: resolved, provider: context.provider, notes },
     });
-    return proposalReply(
+    const reply = proposalReply(
       proposal.id,
       changes.length === 1 ? "the change" : `these ${changes.length} changes`,
     );
+    return [reply, ...notes].join(" ");
   },
 });

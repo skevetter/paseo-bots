@@ -9,25 +9,38 @@ import { byRef, findBot, findTeam } from "./refs";
 import type { AppInputValue, Change, ChangeOf } from "./schema";
 import { createTeam, updateTeam } from "./teams";
 
+function withModeOverrides(
+  current: Readonly<Record<string, string>>,
+  patch: ChangeOf<"set_defaults">["mode_by_provider"],
+  context: ApplyContext,
+): Record<string, string> {
+  const next = { ...current };
+  for (const [provider, modeId] of Object.entries(patch ?? {})) {
+    if (modeId === null) {
+      delete next[provider];
+      continue;
+    }
+    checkAgent(context, { provider, model: null, modeId, thinkingOptionId: null });
+    next[provider] = modeId;
+  }
+  return next;
+}
+
 function setDefaults(values: BotState, change: ChangeOf<"set_defaults">, context: ApplyContext): BotState {
   const current = values.defaults ?? DEFAULT_BOT_DEFAULTS;
   const provider = change.provider !== undefined ? change.provider.trim() : current.provider;
-  const carried =
-    provider === current.provider ? current : { model: null, modeId: null, thinkingOptionId: null };
+  const carried = provider === current.provider ? current : { model: null, thinkingOptionId: null };
   const defaults: BotDefaults = {
     provider,
     model: change.model !== undefined ? change.model : carried.model,
-    modeId: change.mode !== undefined ? change.mode : carried.modeId,
     thinkingOptionId: change.thinking !== undefined ? change.thinking : carried.thinkingOptionId,
+    approval: change.approval ?? current.approval,
+    modeByProvider: withModeOverrides(current.modeByProvider, change.mode_by_provider, context),
     contactBots: change.contact_bots ?? current.contactBots,
   };
-  if (change.thinking === undefined) defaults.thinkingOptionId = carriedThinking(context, defaults);
-  checkAgent(context, {
-    provider: defaults.provider,
-    model: defaults.model,
-    modeId: defaults.modeId,
-    thinkingOptionId: defaults.thinkingOptionId,
-  });
+  const agent = { ...defaults, modeId: null };
+  if (change.thinking === undefined) defaults.thinkingOptionId = carriedThinking(context, agent);
+  checkAgent(context, { ...agent, thinkingOptionId: defaults.thinkingOptionId });
   return { ...values, defaults };
 }
 

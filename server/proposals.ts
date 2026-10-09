@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { newRoutineId } from "../shared/bot-ids";
 import { applyChanges } from "../shared/changes/apply";
+import type { ProviderInfo } from "../shared/changes/context";
 import { addImportedBots, setBotUses, updateSkill, upsertSkills } from "../shared/library";
 import type { Proposal } from "../shared/proposals";
 import { pluginDataPath } from "./bot-home";
@@ -18,6 +19,8 @@ type NewProposal = Pick<Proposal, "botId" | "agentId" | "kind" | "data"> & Parti
 export interface AcceptServices {
   store: Pick<BotStore, "read" | "update">;
   commands: Pick<CommandAllowlist, "add">;
+  /** The host's providers, which pick new bots' approval modes. */
+  providers?: readonly ProviderInfo[] | null;
   /** Runs on the state being written and throws to refuse. */
   guard?: (proposal: Proposal, values: BotState) => void;
 }
@@ -131,7 +134,7 @@ function withSkill(values: BotState, botId: string, skill: AcceptedSkill): BotSt
 }
 
 async function apply(proposal: Proposal, services: AcceptServices): Promise<AcceptedSkill | null> {
-  const { store, commands, guard = () => {} } = services;
+  const { store, commands, providers, guard = () => {} } = services;
   const checked = (change: (values: BotState) => BotState) =>
     store.update((values) => {
       guard(proposal, values);
@@ -149,7 +152,7 @@ async function apply(proposal: Proposal, services: AcceptServices): Promise<Acce
       await checked((values) => withRoutine(values, proposal));
       return null;
     case "changes": {
-      const context = { now: new Date().toISOString(), provider: proposal.data.provider };
+      const context = { now: new Date().toISOString(), provider: proposal.data.provider, providers };
       await checked((values) => applyChanges(values, proposal.data.changes, context));
       return null;
     }

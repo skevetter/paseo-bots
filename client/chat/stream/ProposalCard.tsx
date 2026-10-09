@@ -292,7 +292,10 @@ function changesView(proposal: Extract<Proposal, { kind: "changes" }>): Proposal
     description: summary,
     text: changes.map((change) => `- ${describeChange(change)}`).join("\n"),
     warnings: changeWarnings(changes),
-    notes: [`Apply ${count}? A bot's earlier settings stay under History in its settings.`],
+    notes: [
+      ...(proposal.data.notes ?? []),
+      `Apply ${count}? A bot's earlier settings stay under History in its settings.`,
+    ],
     action: "Apply changes",
   };
 }
@@ -330,7 +333,7 @@ function importView(proposal: Extract<Proposal, { kind: "import" }>): ProposalVi
     warnings: servers.length
       ? [`Adds the MCP servers ${servers.join(", ")} to Skills & Tools, switched off.`]
       : [],
-    notes: ["Routines arrive paused and skills need a review."],
+    notes: [...(proposal.data.notes ?? []), "Routines arrive paused and skills need a review."],
     action: "Import",
   };
 }

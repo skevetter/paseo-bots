@@ -26,11 +26,12 @@ const RoutineProposalSchema = z.object({
   resultsChatId: z.string().nullable(),
 });
 
-/** `provider` is the host's pick for new bots the defaults leave open. */
+/** `provider` is the host's pick for new bots the defaults leave open. `notes`: what the changes can't do as asked. */
 const ChangesProposalSchema = z.object({
   summary: z.string(),
   changes: z.array(ChangeSchema),
   provider: z.string().default(""),
+  notes: z.array(z.string()).optional(),
 });
 
 /** An always-allowed command, matched exactly. */
@@ -41,6 +42,7 @@ const ImportProposalSchema = z.object({
   summary: z.string(),
   bots: z.array(ImportedBotSchema),
   teams: z.array(TeamFileTeamSchema),
+  notes: z.array(z.string()).optional(),
 });
 
 export const ProposalSchema = z.discriminatedUnion("kind", [

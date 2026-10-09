@@ -7,7 +7,18 @@ export interface ProviderModes {
   defaultModeId?: string | null;
 }
 
+/** Provider id to its modes, as Paseo's provider snapshot lists them. */
+export type ProviderModesById = Readonly<Record<string, ProviderModes>>;
+
 const UNATTENDED_MODE_WORDS = /(^|-)(bypass|yolo|dangerous(ly)?|full-access|allow-all|dont-ask)(-|$)/;
+
+/** `bypassPermissions` and `dont_ask` read as `bypass-permissions` and `dont-ask`. */
+export function modeWords(modeId: string): string {
+  return modeId
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-");
+}
 
 /** Whether the bot's mode, or the provider's default when it has none, runs commands without asking. */
 export function runsUnattended(bot: Pick<Bot, "modeId">, provider: ProviderModes | undefined): boolean {
@@ -15,10 +26,7 @@ export function runsUnattended(bot: Pick<Bot, "modeId">, provider: ProviderModes
   if (!modeId) return false;
   const tier = provider?.modes?.find((mode) => mode.id === modeId)?.colorTier;
   if (tier) return tier === "dangerous";
-  const words = modeId
-    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-");
+  const words = modeWords(modeId);
   return words === "full" || UNATTENDED_MODE_WORDS.test(words);
 }
 

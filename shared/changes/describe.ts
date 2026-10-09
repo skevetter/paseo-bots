@@ -147,12 +147,31 @@ function updateTeamText(change: ChangeOf<"update_team">): string {
   return `**Team ${change.team}**: ${parts.join("; ") || "no changes"}`;
 }
 
+const APPROVAL_TEXT = {
+  provider: "each provider's default mode",
+  ask: "a mode that asks first",
+  unattended: "a mode that runs without asking",
+} as const;
+
 function setDefaultsText(change: ChangeOf<"set_defaults">): string {
   const parts = [
     ...agentText(change),
+    ...(change.approval ? [`approval: ${APPROVAL_TEXT[change.approval]}`] : []),
+    ...Object.entries(change.mode_by_provider ?? {}).map(([provider, mode]) =>
+      mode ? `${provider} in approval mode ${mode}` : `${provider} by the approval setting`,
+    ),
     ...(change.contact_bots ? [`contact other bots: ${change.contact_bots}`] : []),
   ];
   return `**New bots start with** ${parts.join("; ") || "the same defaults"}`;
+}
+
+function defaultsWarnings(change: ChangeOf<"set_defaults">): string[] {
+  return [
+    ...(change.approval === "unattended" ? ["New bots start in a mode that runs without asking."] : []),
+    ...Object.entries(change.mode_by_provider ?? {}).flatMap(([provider, mode]) =>
+      mode ? [`New ${provider} bots start in approval mode "${mode}".`] : [],
+    ),
+  ];
 }
 
 export function describeChange(change: Change): string {
@@ -221,6 +240,8 @@ function changeWarning(change: Change): string[] {
       return [`Deletes the team ${change.team}.`];
     case "remove_mcp_server":
       return [`Removes the MCP server ${change.server}.`];
+    case "set_defaults":
+      return defaultsWarnings(change);
     default:
       return [];
   }

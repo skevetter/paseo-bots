@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { APPROVALS } from "../bot";
 import { MCP_NAME } from "../mcp-servers";
 
 import { PALETTE_COUNT } from "../pixel";
@@ -248,8 +249,19 @@ export const SetDefaults = z.object({
   type: z.literal("set_defaults"),
   provider: z.string().max(60).optional().describe("Provider for new bots; empty picks one that's ready."),
   model: BotFields.model,
-  mode: BotFields.mode,
   thinking: BotFields.thinking,
+  approval: z
+    .enum(APPROVALS)
+    .optional()
+    .describe(
+      "The approval mode new bots start in on any provider: provider (its default mode), ask (its strictest mode that asks first) or unattended (its mode that runs without asking).",
+    ),
+  mode_by_provider: z
+    .record(z.string().min(1).max(60), z.string().min(1).max(100).nullable())
+    .optional()
+    .describe(
+      "Provider id to the approval mode id from get_setup its new bots start in, over approval; null removes it.",
+    ),
   contact_bots: BotFields.contact_bots,
 });
 

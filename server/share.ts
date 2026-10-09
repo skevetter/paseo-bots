@@ -2,17 +2,21 @@ import type { Dirent } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
 import { z } from "zod";
+import { startingMode } from "../shared/approval";
 import {
   type Bot,
+  type BotDefaults,
   type BotGroup,
   type BotMcpServer,
   BotMcpServerSchema,
   BotSchema,
+  DEFAULT_BOT_DEFAULTS,
   type Library,
   type TeamFileTeam,
   TeamFileTeamSchema,
 } from "../shared/bot";
 import { botMcpServers, botSkills } from "../shared/bot-agent";
+import type { ProviderModesById } from "../shared/bot-checks";
 import { newBotId, newRoutineId } from "../shared/bot-ids";
 import { teamMembers } from "../shared/groups";
 import { sanitizeSkillName } from "../shared/skills";
@@ -232,14 +236,14 @@ function importTarget(path: string, root: string, fresh: Set<string>): string | 
   return fresh.has(clean) && rest.length > 0 ? join(librarySkillPath(clean), ...rest) : null;
 }
 
+export interface ImportedEntry {
+  bot: Bot;
+  skills: ImportedSkill[];
+  mcpServers: BotMcpServer[];
+}
+
 /** A skill already in the library is kept as is. */
-export async function importBot({
-  botId,
-  json,
-}: {
-  botId: string;
-  json: string;
-}): Promise<{ bot: Bot; skills: ImportedSkill[]; mcpServers: BotMcpServer[] }> {
+export async function importBot({ botId, json }: { botId: string; json: string }): Promise<ImportedEntry> {
   const parsed = parseExport(json);
   const skills = parsed.skills.map((skill) => ({ ...skill, id: sanitizeSkillName(skill.id) }));
   const fresh = new Set<string>();
@@ -328,7 +332,24 @@ export async function exportTeam(
   };
 }
 
-export async function importTeam({ json }: { json: string }) {
+/** What a new bot starts with on this host: the user's defaults and the providers' modes. */
+export interface NewBotStart {
+  defaults: BotDefaults;
+  modes: ProviderModesById;
+}
+
+function started(entries: readonly ImportedEntry[], start: NewBotStart) {
+  const notes: string[] = [];
+  const bots = entries.map((entry) => {
+    const { provider, name } = entry.bot;
+    const mode = startingMode(start.defaults, provider, start.modes[provider]);
+    if (mode.note) notes.push(`${name}: ${mode.note}`);
+    return { ...entry, bot: { ...entry.bot, modeId: mode.modeId } };
+  });
+  return { bots, notes };
+}
+
+async function teamEntries(json: string) {
   if (!isTeamFile(json)) return { bots: [await importBot({ botId: newBotId(), json })], teams: [] };
   const parsed = TeamSchema.safeParse(JSON.parse(json));
   if (!parsed.success) throw new Error("That team file is damaged or from a newer version.");
@@ -342,4 +363,13 @@ export async function importTeam({ json }: { json: string }) {
     members: team.members.filter(inRange),
   }));
   return { bots, teams };
+}
+
+/** `notes` names the bots that fall back to their provider's default mode. */
+export async function importTeam(
+  { json }: { json: string },
+  start: NewBotStart = { defaults: DEFAULT_BOT_DEFAULTS, modes: {} },
+) {
+  const { bots, teams } = await teamEntries(json);
+  return { ...started(bots, start), teams };
 }

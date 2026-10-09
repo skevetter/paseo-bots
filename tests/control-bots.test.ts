@@ -1,10 +1,22 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { BOTS_TOOLS } from "../server/control/tools/bots";
+import type { PaseoApi } from "../server/paseo";
 import { acceptProposal, getProposal } from "../server/proposals";
-import type { BotGroup, BotState, Preset } from "../shared/bot";
+import { type BotGroup, type BotState, DEFAULT_BOT_DEFAULTS, type Preset } from "../shared/bot";
 import { startControl } from "./control-helpers";
 import { defined, makeBot, NOW, useTempPaseoHome } from "./helpers";
+import { LIVE_PROVIDERS } from "./provider-modes";
+
+const PLAIN = {
+  ...LIVE_PROVIDERS[0],
+  provider: "plain",
+  modes: [{ id: "default", label: "Ask", colorTier: "safe" }],
+};
+
+function withProviders(entries: readonly unknown[]): PaseoApi {
+  return { providers: { snapshot: async () => ({ entries }) } } as unknown as PaseoApi;
+}
 
 const running: { stop(): Promise<void> }[] = [];
 
@@ -81,10 +93,9 @@ describe("listing and creating bots", () => {
       createdAt: NOW,
     };
     const defaults = {
+      ...DEFAULT_BOT_DEFAULTS,
       provider: "codex",
       model: "gpt",
-      modeId: null,
-      thinkingOptionId: null,
       contactBots: "off" as const,
     };
     const { call, store } = await control({ presets: [preset], defaults });
@@ -113,6 +124,38 @@ describe("listing and creating bots", () => {
       provider: "codex",
     });
     expect(bots).toHaveLength(6);
+  });
+
+  it("starts created bots in the mode the approval setting picks for their provider", async () => {
+    const defaults = {
+      ...DEFAULT_BOT_DEFAULTS,
+      approval: "unattended" as const,
+      modeByProvider: { omp: "ask" },
+    };
+    const { call, store, context } = await control({ defaults });
+    context.host.attach(withProviders([...LIVE_PROVIDERS, PLAIN]));
+    const created = [];
+    for (const fields of [
+      { name: "Cleo" },
+      { name: "Hera", provider: "hermes" },
+      { name: "Pip", provider: "omp" },
+      { name: "Ova", provider: "omp", mode: "full" },
+      { name: "Ply", provider: "plain" },
+    ])
+      created.push(await call("bots_create", fields));
+    expect(created.map((entry) => entry.data.status)).toEqual([
+      "applied",
+      "applied",
+      "applied",
+      "pending",
+      "applied",
+    ]);
+    expect(created[4]?.text).toContain(
+      "Ply: plain has no mode that runs without asking, so it starts in the default mode.",
+    );
+    const modes = Object.fromEntries((await store.read()).values.bots.map((bot) => [bot.name, bot.modeId]));
+    expect(modes).toMatchObject({ Cleo: "bypassPermissions", Hera: "dont_ask", Pip: "ask", Ply: null });
+    expect(modes).not.toHaveProperty("Ova");
   });
 });
 
@@ -257,14 +300,41 @@ describe("bot history, defaults, presets and pictures", () => {
     });
   });
 
-  it("reads and sets the new-bot defaults, holding an unattended mode for approval", async () => {
-    const { call, store } = await control();
-    expect((await call("defaults_get")).data.defaults).toMatchObject({ provider: "", contactBots: "ask" });
-    const set = await call("defaults_set", { provider: "codex", model: "gpt", contact_bots: "off" });
-    expect(set.data).toMatchObject({ status: "applied", defaults: { provider: "codex", model: "gpt" } });
-    expect((await store.read()).values.defaults).toMatchObject({ provider: "codex", contactBots: "off" });
-    expect((await call("defaults_set", { mode: "bypassPermissions" })).data.status).toBe("pending");
-    expect((await store.read()).values.defaults?.modeId).toBeNull();
+  it("reads and sets the new-bot defaults, holding ones that start bots unattended for approval", async () => {
+    const { call, store, context, toggles } = await control();
+    context.host.attach(withProviders(LIVE_PROVIDERS));
+    expect((await call("defaults_get")).data.defaults).toMatchObject({
+      provider: "",
+      approval: "provider",
+      modeByProvider: {},
+      contactBots: "ask",
+    });
+    const set = await call("defaults_set", {
+      provider: "claude",
+      approval: "ask",
+      mode_by_provider: { omp: "write" },
+      contact_bots: "off",
+    });
+    expect(set.data).toMatchObject({
+      status: "applied",
+      defaults: { provider: "claude", approval: "ask", modeByProvider: { omp: "write" } },
+    });
+    expect(set.text).toContain("approval ask (modes: omp write)");
+    expect((await call("defaults_set", { approval: "unattended" })).data.status).toBe("pending");
+    expect((await call("defaults_set", { mode_by_provider: { hermes: "dont_ask" } })).data.status).toBe(
+      "pending",
+    );
+    expect((await store.read()).values.defaults).toMatchObject({
+      approval: "ask",
+      modeByProvider: { omp: "write" },
+    });
+    expect((await call("defaults_set", { mode_by_provider: { omp: null } })).data.status).toBe("applied");
+    toggles.allowElevated = true;
+    expect((await call("defaults_set", { approval: "unattended" })).data.status).toBe("applied");
+    expect((await store.read()).values.defaults).toMatchObject({
+      approval: "unattended",
+      modeByProvider: {},
+    });
   });
 
   it("saves, lists and deletes presets, deleting only with confirm", async () => {

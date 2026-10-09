@@ -10,8 +10,8 @@ import { defined, makeBot } from "./helpers";
 
 describe("defaults and presets", () => {
   it("starts new bots with the default agent", () => {
-    const bot = makeBot({ provider: "", model: "m", modeId: "x" });
-    expect(applyDefaults(bot, DEFAULT_BOT_DEFAULTS, "claude")).toMatchObject({
+    const bot = makeBot({ provider: "claude", model: "m", modeId: "x" });
+    expect(applyDefaults(bot, DEFAULT_BOT_DEFAULTS, {}).bot).toMatchObject({
       provider: "claude",
       model: null,
       modeId: null,
@@ -21,14 +21,19 @@ describe("defaults and presets", () => {
       ...DEFAULT_BOT_DEFAULTS,
       provider: "codex",
       model: "gpt-5",
-      modeId: "auto",
+      modeByProvider: { codex: "auto" },
       contactBots: "off" as const,
     };
-    expect(applyDefaults(bot, defaults, "claude")).toMatchObject({
+    expect(applyDefaults({ ...bot, provider: "codex" }, defaults, {}).bot).toMatchObject({
       provider: "codex",
       model: "gpt-5",
       modeId: "auto",
       contactBots: "off",
+    });
+    expect(applyDefaults(bot, defaults, {}).bot).toMatchObject({
+      provider: "claude",
+      model: null,
+      modeId: null,
     });
   });
 

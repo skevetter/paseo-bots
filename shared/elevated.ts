@@ -1,17 +1,24 @@
-import { type Bot, type BotState, EMPTY_LIBRARY, type TeamFileTeam } from "./bot";
-import { type ProviderModes, runsUnattended } from "./bot-checks";
+import { startingMode } from "./approval";
+import {
+  type Bot,
+  type BotDefaults,
+  type BotState,
+  DEFAULT_BOT_DEFAULTS,
+  EMPTY_LIBRARY,
+  type TeamFileTeam,
+} from "./bot";
+import { type ProviderModesById, runsUnattended } from "./bot-checks";
 import { isBrowserServer } from "./browser";
 import { applyChanges } from "./changes/apply";
 import { addImportedBots, type ImportedBot } from "./library";
 import type { Proposal } from "./proposals";
 
-/** Provider id to its modes, as Paseo's provider snapshot lists them. */
-export type ProviderModesById = Readonly<Record<string, ProviderModes>>;
-
 interface Facts {
   browserBefore: ReadonlySet<string>;
   browserAfter: ReadonlySet<string>;
   providers: ProviderModesById;
+  /** What the user chose in settings for new bots. */
+  defaults: BotDefaults;
 }
 
 /** Only a mode that's set counts; the provider's default is what the app gives every new bot. */
@@ -24,18 +31,35 @@ function botElevations(bot: Bot, before: Bot | undefined, facts: Facts): string[
   const had = new Set((before?.mcpServerIds ?? []).filter((id) => facts.browserBefore.has(id)));
   if (bot.mcpServerIds.some((id) => facts.browserAfter.has(id) && !had.has(id)))
     reasons.push(`${bot.name} gets the Browser server, which acts as you in your browser.`);
-  if (unattended(bot, facts.providers) && !(before && unattended(before, facts.providers)))
+  const allowed = before
+    ? unattended(before, facts.providers)
+    : bot.modeId === startingMode(facts.defaults, bot.provider, facts.providers[bot.provider]).modeId;
+  if (unattended(bot, facts.providers) && !allowed)
     reasons.push(`${bot.name} runs in approval mode "${bot.modeId}", which acts without asking.`);
   return reasons;
 }
 
+function unattendedStart(
+  defaults: BotDefaults,
+  providerId: string,
+  providers: ProviderModesById,
+): string | null {
+  const { modeId } = startingMode(defaults, providerId, providers[providerId]);
+  return modeId !== null && runsUnattended({ modeId }, providers[providerId]) ? modeId : null;
+}
+
 function defaultsElevation(before: BotState, after: BotState, providers: ProviderModesById): string[] {
-  const starts = (values: BotState) =>
-    !!values.defaults &&
-    unattended({ provider: values.defaults.provider, modeId: values.defaults.modeId }, providers);
-  return starts(after) && !starts(before)
-    ? [`New bots start in approval mode "${after.defaults?.modeId}", which acts without asking.`]
-    : [];
+  const was = before.defaults ?? DEFAULT_BOT_DEFAULTS;
+  const now = after.defaults ?? DEFAULT_BOT_DEFAULTS;
+  if (now.approval === "unattended" && was.approval !== "unattended")
+    return ["New bots start in their provider's mode that acts without asking."];
+  const ids = new Set([...Object.keys(providers), ...Object.keys(now.modeByProvider)]);
+  return [...ids].flatMap((id) => {
+    const mode = unattendedStart(now, id, providers);
+    return mode && !unattendedStart(was, id, providers)
+      ? [`New ${id} bots start in approval mode "${mode}", which acts without asking.`]
+      : [];
+  });
 }
 
 function browserIds(values: BotState): Set<string> {
@@ -45,7 +69,12 @@ function browserIds(values: BotState): Set<string> {
 
 /** What `after` allows that `before` didn't and that needs the user's approval in the app. */
 export function elevations(before: BotState, after: BotState, providers: ProviderModesById = {}): string[] {
-  const facts = { browserBefore: browserIds(before), browserAfter: browserIds(after), providers };
+  const facts = {
+    browserBefore: browserIds(before),
+    browserAfter: browserIds(after),
+    providers,
+    defaults: before.defaults ?? DEFAULT_BOT_DEFAULTS,
+  };
   const previous = new Map(before.bots.map((bot) => [bot.id, bot]));
   return [
     ...after.bots.flatMap((bot) => botElevations(bot, previous.get(bot.id), facts)),

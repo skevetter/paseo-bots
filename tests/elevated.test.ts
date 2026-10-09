@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BotState, LibraryMcpServer } from "../shared/bot";
+import { type BotState, DEFAULT_BOT_DEFAULTS, type LibraryMcpServer } from "../shared/bot";
 import { BROWSER_SERVER_ID } from "../shared/browser";
 import { elevations, importElevations, proposalElevations } from "../shared/elevated";
 import type { Proposal } from "../shared/proposals";
@@ -61,9 +61,9 @@ describe("elevated changes", () => {
       library: { skills: [], mcpServers: [browser, server("mcp-fetch", ["chrome-devtools-mcp"])] },
     };
     expect(elevations(attached, swapped)).toEqual([expect.stringContaining("Browser server")]);
-    const defaults = { provider: "claude", model: null, modeId: "bypassPermissions", thinkingOptionId: null };
-    expect(elevations(state(), state({ defaults: { ...defaults, contactBots: "ask" } }))).toEqual([
-      expect.stringContaining("New bots start"),
+    const defaults = { ...DEFAULT_BOT_DEFAULTS, modeByProvider: { claude: "bypassPermissions" } };
+    expect(elevations(state(), state({ defaults }))).toEqual([
+      expect.stringContaining("New claude bots start"),
     ]);
   });
 

@@ -299,11 +299,15 @@ export const exportTeamRpc = defineRpc({
   output: z.object({ json: z.string() }),
 });
 
-/** Also accepts a single bot file. */
+/** Also accepts a single bot file. `notes` names bots that fall back to their provider's default mode. */
 export const importTeamRpc = defineRpc({
   name: "bots.import-team",
   input: z.object({ json: z.string().max(20_000_000) }),
-  output: z.object({ bots: z.array(ImportedBotSchema), teams: z.array(TeamFileTeamSchema) }),
+  output: z.object({
+    bots: z.array(ImportedBotSchema),
+    teams: z.array(TeamFileTeamSchema),
+    notes: z.array(z.string()),
+  }),
 });
 
 /** Stored on this host so it can be sent as an `uploaded_file` attachment. */

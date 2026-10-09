@@ -249,12 +249,19 @@ export const ImportedBotSchema = z.object({
   mcpServers: z.array(BotMcpServerSchema),
 });
 
-/** An empty provider picks one that's ready. */
+export const APPROVALS = ["provider", "ask", "unattended"] as const;
+export type Approval = (typeof APPROVALS)[number];
+
+/**
+ * An empty provider picks one that's ready. `approval` picks each provider's default mode, its strictest
+ * mode that asks first, or its mode that runs without asking; `modeByProvider` overrides it per provider.
+ */
 const BotDefaultsSchema = z.object({
   provider: z.string().default(""),
   model: z.string().nullable().default(null),
-  modeId: z.string().nullable().default(null),
   thinkingOptionId: z.string().nullable().default(null),
+  approval: z.enum(APPROVALS).default("provider"),
+  modeByProvider: z.record(z.string(), z.string()).default({}),
   contactBots: z.enum(["ask", "allow", "off"]).default("ask"),
 });
 export type BotDefaults = z.infer<typeof BotDefaultsSchema>;

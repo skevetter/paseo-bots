@@ -14,7 +14,7 @@ import { newBotId, numberedName } from "../../../shared/bot-ids";
 import { isBrowserServer } from "../../../shared/browser";
 import { startingBot } from "../../../shared/changes/bots";
 import { describeChange } from "../../../shared/changes/describe";
-import { botDetails } from "../../../shared/changes/overview";
+import { botDetails, defaultsText } from "../../../shared/changes/overview";
 import { findBot } from "../../../shared/changes/refs";
 import { type Change, CreateBot, SetDefaults, UpdateBot } from "../../../shared/changes/schema";
 import { elevations } from "../../../shared/elevated";
@@ -77,20 +77,24 @@ function summaryLine(bot: BotSummary): string {
   return `${bot.name} (id ${bot.id})${bot.title ? `, ${bot.title}` : ""}: ${agentText(bot)}${flags.length ? `; ${flags.join(", ")}` : ""}`;
 }
 
-function savedBot(values: BotState, botId: string, verb: string): ToolResult {
+function savedBot(values: BotState, botId: string, verb: string, notes: readonly string[] = []): ToolResult {
   const bot = values.bots.find((entry) => entry.id === botId);
   if (!bot) throw new Error("The bot was saved, then changed before it could be read back.");
   const summary = botSummary(bot, values.groups);
-  return result(`${verb} ${summaryLine(summary)}`, { status: "applied", bot: summary });
+  return result([`${verb} ${summaryLine(summary)}`, ...notes].join(" "), {
+    status: "applied",
+    bot: summary,
+    notes,
+  });
 }
 
 async function changeBots(
   context: ControlContext,
   change: Change,
-  done: (values: BotState) => ToolResult,
+  done: (values: BotState, notes: string[]) => ToolResult,
 ): Promise<ToolResult> {
   const outcome = await applyOrPropose(context, describeChange(change), [change]);
-  return outcome.status === "pending" ? outcome.result : done(outcome.values);
+  return outcome.status === "pending" ? outcome.result : done(outcome.values, outcome.notes);
 }
 
 const botsList = defineControlTool({
@@ -141,7 +145,7 @@ const CreateInput = CreateBot.omit({ type: true }).extend({
 const botsCreate = defineControlTool({
   name: "bots_create",
   description:
-    "Create a bot, blank or from a role or a saved preset (presets_list), as New bot in the app does. It starts with the defaults' agent (defaults_get); the fields you give override the role or preset. An approval mode that runs without asking waits for approval.",
+    "Create a bot, blank or from a role or a saved preset (presets_list), as New bot in the app does. It starts with the defaults' agent and approval mode (defaults_get); the fields you give override the role or preset. An approval mode that runs without asking waits for approval, unless the defaults give it.",
   input: CreateInput,
   async run({ name, ...fields }, context) {
     const values = await context.host.values();
@@ -149,7 +153,9 @@ const botsCreate = defineControlTool({
     const taken = new Set(values.bots.map((bot) => bot.name));
     const change: Change = { type: "create_bot", ...fields, name: name ?? numberedName(start.name, taken) };
     // A new bot is saved last.
-    return changeBots(context, change, (saved) => savedBot(saved, saved.bots.at(-1)?.id ?? "", "Created"));
+    return changeBots(context, change, (saved, notes) =>
+      savedBot(saved, saved.bots.at(-1)?.id ?? "", "Created", notes),
+    );
   },
 });
 
@@ -331,23 +337,24 @@ const botsRestore = defineControlTool({
 });
 
 function defaultsResult(values: BotState, status?: "applied"): ToolResult {
-  const saved = values.defaults ?? DEFAULT_BOT_DEFAULTS;
-  const defaults = {
-    provider: saved.provider,
-    model: saved.model,
-    mode: saved.modeId,
-    thinking: saved.thinkingOptionId,
-    contactBots: saved.contactBots,
-  };
-  return result(
-    `New bots start with ${agentText(defaults)}, thinking ${defaults.thinking ?? "default"}, contact with other bots: ${defaults.contactBots}.`,
-    { ...(status ? { status } : {}), defaults },
-  );
+  const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
+  return result(`New bots start with ${defaultsText(defaults)}.`, {
+    ...(status ? { status } : {}),
+    defaults: {
+      provider: defaults.provider,
+      model: defaults.model,
+      thinking: defaults.thinkingOptionId,
+      approval: defaults.approval,
+      modeByProvider: defaults.modeByProvider,
+      contactBots: defaults.contactBots,
+    },
+  });
 }
 
 const defaultsGet = defineControlTool({
   name: "defaults_get",
-  description: "The agent and contact setting new bots start with (Settings > Bots > New bots).",
+  description:
+    "What new bots start with (Settings > Bots > Defaults for new bots): the agent, the approval setting and per-provider approval modes, and contact with other bots.",
   input: z.object({}),
   annotations: { readOnlyHint: true },
   async run(_input, context) {
@@ -358,7 +365,7 @@ const defaultsGet = defineControlTool({
 const defaultsSet = defineControlTool({
   name: "defaults_set",
   description:
-    "Change what new bots start with. A model, mode or thinking level belongs to its provider. A mode that runs without asking waits for approval.",
+    "Change what new bots start with. A model or thinking level belongs to its provider. approval applies to every provider; mode_by_provider overrides it for one. Starting new bots in a mode that runs without asking waits for approval.",
   input: SetDefaults.omit({ type: true }),
   async run(fields, context) {
     return changeBots(context, { type: "set_defaults", ...fields }, (values) =>

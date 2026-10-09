@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type Bot, type BotGroup, type BotState, DEFAULT_BOT_LIST_UI } from "../shared/bot";
+import {
+  type Bot,
+  type BotGroup,
+  type BotState,
+  DEFAULT_BOT_DEFAULTS,
+  DEFAULT_BOT_LIST_UI,
+} from "../shared/bot";
 import { applyChanges, resolveChanges } from "../shared/changes/apply";
 import { type ApplyContext, type ProviderInfo, providerInfo, readyProvider } from "../shared/changes/context";
 import { changeWarnings, describeChange } from "../shared/changes/describe";
@@ -16,15 +22,15 @@ const PROVIDERS: ProviderInfo[] = [
       { id: "haiku", label: "Haiku", isDefault: false, thinking: [], defaultThinking: null },
     ],
     modes: [
-      { id: "default", label: "Default" },
-      { id: "plan", label: "Plan" },
+      { id: "default", label: "Default", colorTier: "safe" },
+      { id: "plan", label: "Plan", colorTier: "planning" },
     ],
     defaultModeId: "default",
   },
   {
     id: "codex",
     models: [{ id: "gpt", label: "GPT", isDefault: true, thinking: [], defaultThinking: null }],
-    modes: [{ id: "auto", label: "Auto" }],
+    modes: [{ id: "auto", label: "Auto", colorTier: null }],
     defaultModeId: "auto",
   },
 ];
@@ -276,13 +282,7 @@ describe("setup changes to teams, routines and presets", () => {
       { type: "set_defaults", provider: "codex", contact_bots: "off" },
       { type: "save_preset", bot: "Scout" },
     ]);
-    expect(next.defaults).toEqual({
-      provider: "codex",
-      model: null,
-      modeId: null,
-      thinkingOptionId: null,
-      contactBots: "off",
-    });
+    expect(next.defaults).toEqual({ ...DEFAULT_BOT_DEFAULTS, provider: "codex", contactBots: "off" });
     expect(next.presets?.map((preset) => preset.name)).toEqual(["Scout"]);
     expect(apply([{ type: "delete_preset", preset: "scout" }], next).presets).toEqual([]);
   });
@@ -299,7 +299,7 @@ describe("setup changes to teams, routines and presets", () => {
     });
     const values = setup({
       presets: [{ ...presetFromBot(scout, NOW), id: "pr-1" }],
-      defaults: { provider: "codex", model: "gpt", modeId: null, thinkingOptionId: null, contactBots: "off" },
+      defaults: { ...DEFAULT_BOT_DEFAULTS, provider: "codex", model: "gpt", contactBots: "off" },
     });
     const juno = apply([{ type: "create_bot", name: "Juno", preset: "scout", title: "Analyst" }], values)
       .bots[3];
@@ -369,7 +369,7 @@ describe("setup changes on the host", () => {
   it("gives new bots the defaults' provider, else the host's pick", () => {
     expect(apply([{ type: "create_bot", name: "Juno" }]).bots[3]?.provider).toBe("claude");
     const withDefaults = setup({
-      defaults: { provider: "codex", model: "gpt", modeId: null, thinkingOptionId: null, contactBots: "off" },
+      defaults: { ...DEFAULT_BOT_DEFAULTS, provider: "codex", model: "gpt", contactBots: "off" },
     });
     expect(apply([{ type: "create_bot", name: "Juno" }], withDefaults).bots[3]).toMatchObject({
       provider: "codex",
@@ -440,7 +440,10 @@ describe("provider snapshot", () => {
           },
           { id: "old", label: "Old", isSelectable: false },
         ],
-        modes: [{ id: "auto", label: "Auto" }],
+        modes: [
+          { id: "auto", label: "Auto" },
+          { id: "full-access", label: "Full Access", colorTier: "dangerous" },
+        ],
         defaultModeId: "auto",
       },
       { provider: "claude", enabled: true, status: "loading" },
@@ -452,7 +455,10 @@ describe("provider snapshot", () => {
         models: [
           { id: "gpt", label: "GPT", isDefault: true, thinking: ["low", "high"], defaultThinking: "high" },
         ],
-        modes: [{ id: "auto", label: "Auto" }],
+        modes: [
+          { id: "auto", label: "Auto", colorTier: null },
+          { id: "full-access", label: "Full Access", colorTier: "dangerous" },
+        ],
         defaultModeId: "auto",
       },
       { id: "claude", models: [], modes: [], defaultModeId: null },
@@ -1095,10 +1101,11 @@ describe("library changes", () => {
 });
 
 const CLAUDE_DEFAULTS = {
+  ...DEFAULT_BOT_DEFAULTS,
   provider: "claude",
   model: "opus",
-  modeId: "plan",
   thinkingOptionId: "low",
+  modeByProvider: { claude: "plan" },
   contactBots: "allow" as const,
 };
 
@@ -1113,15 +1120,31 @@ describe("new-bot defaults", () => {
       model: "haiku",
       thinkingOptionId: null,
     });
-    expect(apply([{ type: "set_defaults", mode: "default" }], values).defaults).toEqual({
+    expect(
+      apply(
+        [{ type: "set_defaults", provider: "codex", approval: "ask", mode_by_provider: { codex: "auto" } }],
+        values,
+      ).defaults,
+    ).toEqual({
       ...CLAUDE_DEFAULTS,
-      modeId: "default",
+      provider: "codex",
+      model: null,
+      thinkingOptionId: null,
+      approval: "ask",
+      modeByProvider: { claude: "plan", codex: "auto" },
+    });
+    expect(apply([{ type: "set_defaults", mode_by_provider: { claude: null } }], values).defaults).toEqual({
+      ...CLAUDE_DEFAULTS,
+      modeByProvider: {},
     });
   });
 
   it("checks the defaults against the providers, unless any ready provider will do", () => {
-    expect(() => apply([{ type: "set_defaults", provider: "codex", mode: "plan" }])).toThrow(
+    expect(() => apply([{ type: "set_defaults", mode_by_provider: { codex: "plan" } }])).toThrow(
       'codex has no mode "plan". Use one of: auto.',
+    );
+    expect(() => apply([{ type: "set_defaults", mode_by_provider: { gemini: "x" } }])).toThrow(
+      'There\'s no provider "gemini".',
     );
     expect(apply([{ type: "set_defaults", provider: "", model: "anything" }]).defaults).toMatchObject({
       provider: "",
@@ -1134,7 +1157,7 @@ describe("new-bot defaults", () => {
     expect(apply([{ type: "create_bot", name: "Juno" }], any).bots[3]).toMatchObject({
       provider: "claude",
       model: null,
-      modeId: null,
+      modeId: "plan",
       thinkingOptionId: null,
       contactBots: "allow",
     });
@@ -1142,9 +1165,45 @@ describe("new-bot defaults", () => {
     expect(apply([{ type: "create_bot", name: "Juno", provider: "codex" }], claude).bots[3]).toMatchObject({
       provider: "codex",
       model: null,
-      modeId: "auto",
+      modeId: null,
       thinkingOptionId: null,
     });
+  });
+
+  it("starts bots made blank, from a role and from a preset in the mode the approval setting picks", () => {
+    const preset = { ...presetFromBot(makeBot({ name: "Scout" }), NOW), id: "pr-1" };
+    const values = setup({ presets: [preset], defaults: { ...DEFAULT_BOT_DEFAULTS, approval: "ask" } });
+    const next = apply(
+      [
+        { type: "create_bot", name: "Blank" },
+        { type: "create_bot", name: "Role", role: "ops" },
+        { type: "create_bot", name: "Preset", preset: "Scout" },
+        { type: "create_bot", name: "Codex", provider: "codex" },
+        { type: "create_bot", name: "Chosen", mode: "plan" },
+      ],
+      values,
+    );
+    expect(next.bots.slice(3).map((bot) => [bot.name, bot.provider, bot.modeId])).toEqual([
+      ["Blank", "claude", "default"],
+      ["Role", "claude", "default"],
+      ["Preset", "claude", "default"],
+      ["Codex", "codex", "auto"],
+      ["Chosen", "claude", "plan"],
+    ]);
+  });
+
+  it("notes a new bot whose provider has no mode for the approval setting", () => {
+    const notes: string[] = [];
+    const values = setup({ defaults: { ...DEFAULT_BOT_DEFAULTS, approval: "unattended" } });
+    const changes = ChangesSchema.parse([
+      { type: "create_bot", name: "Juno" },
+      { type: "create_bot", name: "Kit", mode: "plan" },
+    ]);
+    const next = applyChanges(values, changes, { ...context, notes });
+    expect(next.bots[3]?.modeId).toBeNull();
+    expect(notes).toEqual([
+      "Juno: claude has no mode that runs without asking, so it starts in the default mode.",
+    ]);
   });
 });
 
@@ -1296,11 +1355,12 @@ const DESCRIBED: [unknown, string][] = [
       type: "set_defaults",
       provider: "codex",
       model: "gpt",
-      mode: "auto",
       thinking: "high",
+      approval: "ask",
+      mode_by_provider: { codex: "auto", claude: null },
       contact_bots: "off",
     },
-    "**New bots start with** provider codex; model gpt; approval mode auto; thinking high; contact other bots: off",
+    "**New bots start with** provider codex; model gpt; thinking high; approval: a mode that asks first; codex in approval mode auto; claude by the approval setting; contact other bots: off",
   ],
   [{ type: "set_defaults" }, "**New bots start with** the same defaults"],
   [{ type: "save_preset", bot: "Scout" }, "**Save Scout as a preset**"],
@@ -1332,6 +1392,10 @@ const WARNED: [unknown, string[]][] = [
   [{ type: "delete_team", team: "Ops" }, ["Deletes the team Ops."]],
   [{ type: "remove_mcp_server", server: "github" }, ["Removes the MCP server github."]],
   [{ type: "set_skill", skill: "weekly-report", enabled: true }, []],
+  [
+    { type: "set_defaults", approval: "unattended", mode_by_provider: { omp: "full", claude: null } },
+    ["New bots start in a mode that runs without asking.", 'New omp bots start in approval mode "full".'],
+  ],
 ];
 
 describe("describing every kind of change", () => {
@@ -1397,7 +1461,7 @@ const OVERVIEW_LINES = [
   "- live: Live docs [on]",
   "- spare [off]",
   "Connected apps:\n- gmail: accounts work, ca_2\n- slack: accounts team",
-  "New bots start with: provider any ready one, default model, contact other bots: ask.",
+  "New bots start with: provider any ready one, model default, thinking default, approval provider, contact other bots: ask.",
   "Presets: Starter.",
   "Providers: unknown right now.",
 ];
@@ -1425,7 +1489,7 @@ describe("setup overview and bot details", () => {
       "Library skills (0):\n- none",
       "Library MCP servers (0):\n- none",
       "Connected apps:\n- none",
-      "New bots start with: provider any ready one, default model, contact other bots: ask.",
+      "New bots start with: provider any ready one, model default, thinking default, approval provider, contact other bots: ask.",
       "Presets: none.",
       "Providers:\n- bare: models none; modes none",
       expect.stringMatching(/^Roles for new bots: assistant \(General assistant\), /),

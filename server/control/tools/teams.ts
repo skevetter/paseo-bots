@@ -9,7 +9,7 @@ import { type Change, LogoInput } from "../../../shared/changes/schema";
 import { importElevations } from "../../../shared/elevated";
 import { groupBots, teamLogoOf } from "../../../shared/groups";
 import { addImportedBots } from "../../../shared/library";
-import { applyContext } from "../../apply-context";
+import { newBotStart } from "../../apply-context";
 import { createProposal } from "../../proposals";
 import { exportBot, exportTeam, importTeam } from "../../share";
 import type { ToolResult } from "../../tools/mcp";
@@ -225,9 +225,10 @@ const botsImport = defineControlTool({
       "Give exactly one of json or path.",
     ),
   async run({ json, path }, context) {
-    const imported = await importTeam({ json: path ? await importFile(path) : (json ?? "") });
+    const start = await newBotStart(context.host);
+    const imported = await importTeam({ json: path ? await importFile(path) : (json ?? "") }, start);
     const values = await context.host.values();
-    const reasons = importElevations(values, imported, (await applyContext(context.host)).modes);
+    const reasons = importElevations(values, imported, start.modes);
     const incoming = imported.bots.map((entry) => entry.bot.name).join(", ");
     if (await needsApproval(context, reasons)) {
       const summary = `Import ${plural(imported.bots.length, "bot")} (${incoming})${teamsText(imported.teams)}`;
@@ -236,9 +237,9 @@ const botsImport = defineControlTool({
         agentId: "",
         origin: "control",
         kind: "import",
-        data: { summary, bots: imported.bots, teams: imported.teams },
+        data: { summary, bots: imported.bots, teams: imported.teams, notes: imported.notes },
       });
-      return pendingResult(proposal, reasons);
+      return pendingResult(proposal, reasons, imported.notes);
     }
     const saved = await context.host.store.update((current) =>
       addImportedBots(current, imported.bots, imported.teams),
@@ -248,8 +249,16 @@ const botsImport = defineControlTool({
       .filter((bot) => ids.has(bot.id))
       .map((bot) => ({ id: bot.id, name: bot.name }));
     return result(
-      `Added ${plural(bots.length, "bot")} (${bots.map((bot) => bot.name).join(", ")})${teamsText(imported.teams)}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`,
-      { status: "applied", bots, teams: imported.teams.map((team) => team.name) },
+      [
+        `Added ${plural(bots.length, "bot")} (${bots.map((bot) => bot.name).join(", ")})${teamsText(imported.teams)}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`,
+        ...imported.notes,
+      ].join(" "),
+      {
+        status: "applied",
+        bots,
+        teams: imported.teams.map((team) => team.name),
+        notes: imported.notes,
+      },
     );
   },
 });

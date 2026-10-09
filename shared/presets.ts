@@ -1,4 +1,6 @@
+import { startingMode } from "./approval";
 import type { Bot, BotDefaults, Preset } from "./bot";
+import type { ProviderModesById } from "./bot-checks";
 import { prefixedId } from "./uuid";
 
 export function presetFromBot(bot: Bot, now: string = new Date().toISOString()): Preset {
@@ -15,16 +17,23 @@ export function presetFromBot(bot: Bot, now: string = new Date().toISOString()):
   };
 }
 
-export function applyDefaults(bot: Bot, defaults: BotDefaults, provider: string): Bot {
-  const chosen = defaults.provider || provider;
-  // A model, mode or thinking level only means something for the provider it was picked for.
-  const same = !!defaults.provider;
+/** `note` says why the bot fell back to its provider's default mode. */
+export function applyDefaults(
+  bot: Bot,
+  defaults: BotDefaults,
+  providers: ProviderModesById,
+): { bot: Bot; note: string | null } {
+  // A model or thinking level only means something for the provider it was picked for.
+  const same = !!defaults.provider && defaults.provider === bot.provider;
+  const mode = startingMode(defaults, bot.provider, providers[bot.provider]);
   return {
-    ...bot,
-    provider: chosen,
-    model: same ? defaults.model : null,
-    modeId: same ? defaults.modeId : null,
-    thinkingOptionId: same ? defaults.thinkingOptionId : null,
-    contactBots: defaults.contactBots,
+    bot: {
+      ...bot,
+      model: same ? defaults.model : null,
+      modeId: mode.modeId,
+      thinkingOptionId: same ? defaults.thinkingOptionId : null,
+      contactBots: defaults.contactBots,
+    },
+    note: mode.note && `${bot.name}: ${mode.note}`,
   };
 }

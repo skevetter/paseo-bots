@@ -2,6 +2,7 @@ import { type Bot, type BotState, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "..
 import { newRoutineId } from "../bot-ids";
 
 import { withoutBot } from "../groups";
+import { applyDefaults } from "../presets";
 import { scheduleFrom } from "../routines";
 import { BOT_TEMPLATES, botFromPreset, newBot } from "../templates";
 import type { ApplyContext } from "./context";
@@ -40,17 +41,11 @@ export function startingBot(
 export function createBot(values: BotState, change: ChangeOf<"create_bot">, context: ApplyContext): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
-  const base = startingBot(values, change, defaults.provider || context.provider);
-  const same = !!defaults.provider;
-  let bot: Bot = {
-    ...base,
-    name: uniqueBotName(values, change.name),
-    model: same ? defaults.model : null,
-    modeId: same ? defaults.modeId : null,
-    thinkingOptionId: same ? defaults.thinkingOptionId : null,
-    contactBots: defaults.contactBots,
-    createdAt: context.now,
-  };
+  const base = startingBot(values, change, change.provider ?? (defaults.provider || context.provider));
+  const modes = Object.fromEntries((context.providers ?? []).map((entry) => [entry.id, entry]));
+  const start = applyDefaults({ ...base, name: uniqueBotName(values, change.name) }, defaults, modes);
+  if (start.note && change.mode === undefined) context.notes?.push(start.note);
+  let bot: Bot = { ...start.bot, createdAt: context.now };
   bot = withFields(bot, change, context);
   bot = withLibraryItems(bot, library, "skill", { add: change.skills });
   bot = withLibraryItems(bot, library, "mcp", { add: change.mcp_servers });

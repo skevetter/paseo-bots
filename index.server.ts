@@ -1,5 +1,6 @@
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { turnEnded, turnStarted } from "./server/activity";
+import { hostProviders, newBotStart } from "./server/apply-context";
 import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
 import { CommandAllowlist } from "./server/commands";
 import {
@@ -238,7 +239,10 @@ export default function contribute(server: PluginServerContext) {
   });
   server.handle(proposalGetRpc, async ({ id }) => ({ proposal: await getProposal(id) }));
   server.handle(proposalListRpc, async (filter) => ({ proposals: await listProposals(filter) }));
-  server.handle(proposalAcceptRpc, ({ id }) => acceptProposal(id, { store, commands }));
+  server.handle(proposalAcceptRpc, async ({ id }, context) => {
+    attach(context);
+    return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
+  });
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
   server.handle(routineStatusRpc, (_input, context) => {
     attach(context);
@@ -257,7 +261,10 @@ export default function contribute(server: PluginServerContext) {
   server.handle(exportBotRpc, async (input) => exportBot(input, await host.library()));
   server.handle(importBotRpc, importBot);
   server.handle(exportTeamRpc, async (input) => exportTeam(input, await host.library()));
-  server.handle(importTeamRpc, importTeam);
+  server.handle(importTeamRpc, async (input, context) => {
+    attach(context);
+    return importTeam(input, await newBotStart(host));
+  });
   server.handle(uploadRpc, saveUpload);
   handleChatEvents(server, { host, journal, scheduler, commands });
   const stopControl = handleControl(server, { host, relay, scheduler, journal, commands });

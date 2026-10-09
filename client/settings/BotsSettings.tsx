@@ -10,7 +10,15 @@ import {
 } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { plural } from "../../shared/activity";
-import { type Bot, type BotDefaults, type BotGroup, DEFAULT_BOT_DEFAULTS } from "../../shared/bot";
+import { startingMode } from "../../shared/approval";
+import {
+  type Approval,
+  type Bot,
+  type BotDefaults,
+  type BotGroup,
+  DEFAULT_BOT_DEFAULTS,
+} from "../../shared/bot";
+import { runsUnattended } from "../../shared/bot-checks";
 import { addImportedBots } from "../../shared/library";
 import { exportTeamRpc, importTeamRpc } from "../../shared/rpc";
 import { useBotHost, useProviders } from "../data";
@@ -18,6 +26,8 @@ import { confirmDialog, errorText } from "../native";
 import { Button, SheetActions } from "../panel/controls";
 import { FormTextArea } from "../panel/fields";
 import { CardNote } from "../panel/rows";
+import { Alert } from "../panel/status";
+import type { PaseoProviderEntry } from "../paseo";
 import { useBotState } from "../useBotState";
 import { ControlSection } from "./ControlSection";
 
@@ -38,6 +48,7 @@ export function BotsSettings({ theme, host, layout }: PluginSurfaceProps) {
   return (
     <>
       <DefaultsSection
+        colors={colors}
         localHost={{ id: host.id, label: host.label }}
         defaults={values.defaults ?? DEFAULT_BOT_DEFAULTS}
         onChange={(patch) =>
@@ -89,22 +100,91 @@ export function BotsSettings({ theme, host, layout }: PluginSurfaceProps) {
   );
 }
 
+const APPROVAL_OPTIONS: { label: string; value: Approval }[] = [
+  { label: "Provider default", value: "provider" },
+  { label: "Ask first", value: "ask" },
+  { label: "Run without asking", value: "unattended" },
+];
+
+function startHint(defaults: BotDefaults, entry: PaseoProviderEntry): string {
+  const mode = startingMode(defaults, entry.provider, entry);
+  const id = mode.modeId ?? entry.defaultModeId;
+  const label = entry.modes?.find((option) => option.id === id)?.label ?? "the default mode";
+  return mode.note ? `No matching mode, so new bots start in ${label}` : `New bots start in ${label}`;
+}
+
+function withOverride(overrides: Readonly<Record<string, string>>, provider: string, modeId: string) {
+  const { [provider]: _previous, ...rest } = overrides;
+  return modeId ? { ...rest, [provider]: modeId } : rest;
+}
+
+function ApprovalRows({
+  colors,
+  ready,
+  defaults,
+  onChange,
+}: {
+  colors: Colors;
+  ready: readonly PaseoProviderEntry[];
+  defaults: BotDefaults;
+  onChange(patch: Partial<BotDefaults>): void;
+}) {
+  const unattended = ready.filter((entry) =>
+    runsUnattended({ modeId: startingMode(defaults, entry.provider, entry).modeId }, entry),
+  );
+  return (
+    <>
+      <SettingsSelect
+        label="Approval"
+        hint="The mode new bots start in, on any provider"
+        value={defaults.approval}
+        options={APPROVAL_OPTIONS}
+        onValueChange={(approval) => onChange({ approval })}
+      />
+      {ready.map((entry) => (
+        <SettingsSelect
+          key={entry.provider}
+          label={entry.label ?? entry.provider}
+          hint={startHint(defaults, entry)}
+          value={defaults.modeByProvider[entry.provider] ?? ""}
+          options={[
+            { label: "Use Approval setting", value: "" },
+            ...(entry.modes ?? []).map((mode) => ({ label: mode.label, value: mode.id })),
+          ]}
+          onValueChange={(modeId) =>
+            onChange({ modeByProvider: withOverride(defaults.modeByProvider, entry.provider, modeId) })
+          }
+        />
+      ))}
+      {unattended.length ? (
+        <Alert
+          colors={colors}
+          variant="warning"
+          description={`New ${unattended.map((entry) => entry.label ?? entry.provider).join(", ")} bots run without asking: they act as you with no prompts.`}
+        />
+      ) : null}
+    </>
+  );
+}
+
 function DefaultsSection({
+  colors,
   localHost,
   defaults,
   onChange,
 }: {
+  colors: Colors;
   localHost: { id: string; label: string };
   defaults: BotDefaults;
   onChange(patch: Partial<BotDefaults>): void;
 }) {
-  const providers = useProviders(useBotHost(null, localHost));
-  const provider = providers.data?.find((entry) => entry.provider === defaults.provider);
+  const providers = useProviders(useBotHost(null, localHost)).data ?? [];
+  const provider = providers.find((entry) => entry.provider === defaults.provider);
   const models = (provider?.models ?? []).filter((model) => model.isSelectable !== false);
   return (
     <SettingsSection
       title="Defaults for new bots"
-      info="The agent a new bot starts with, whether it starts blank, from a role or from a preset. Change it per bot under Model and Permissions."
+      info="The agent and approval mode a new bot starts with, whether it starts blank, from a role, from a preset or from a file. Change them per bot under Model and Permissions."
     >
       <SettingsCard>
         <SettingsSelect
@@ -113,37 +193,30 @@ function DefaultsSection({
           value={defaults.provider}
           options={[
             { label: "Automatic", value: "" },
-            ...(providers.data ?? []).map((entry) => ({
+            ...providers.map((entry) => ({
               label: (entry.label ?? entry.provider) + (entry.status === "ready" ? "" : ` (${entry.status})`),
               value: entry.provider,
             })),
           ]}
-          onValueChange={(value) =>
-            onChange({ provider: value, model: null, modeId: null, thinkingOptionId: null })
-          }
+          onValueChange={(value) => onChange({ provider: value, model: null, thinkingOptionId: null })}
         />
         {provider ? (
-          <>
-            <SettingsSelect
-              label="Model"
-              value={defaults.model ?? ""}
-              options={[
-                { label: "Default", value: "" },
-                ...models.map((entry) => ({ label: entry.label, value: entry.id })),
-              ]}
-              onValueChange={(value) => onChange({ model: value || null, thinkingOptionId: null })}
-            />
-            <SettingsSelect
-              label="Mode"
-              value={defaults.modeId ?? ""}
-              options={[
-                { label: "Default", value: "" },
-                ...(provider.modes ?? []).map((mode) => ({ label: mode.label, value: mode.id })),
-              ]}
-              onValueChange={(value) => onChange({ modeId: value || null })}
-            />
-          </>
+          <SettingsSelect
+            label="Model"
+            value={defaults.model ?? ""}
+            options={[
+              { label: "Default", value: "" },
+              ...models.map((entry) => ({ label: entry.label, value: entry.id })),
+            ]}
+            onValueChange={(value) => onChange({ model: value || null, thinkingOptionId: null })}
+          />
         ) : null}
+        <ApprovalRows
+          colors={colors}
+          ready={providers.filter((entry) => entry.status === "ready")}
+          defaults={defaults}
+          onChange={onChange}
+        />
         <SettingsSelect
           label="Contact other bots"
           value={defaults.contactBots}
@@ -165,9 +238,16 @@ function teamFileHint(bots: readonly Bot[], groups: readonly BotGroup[]): string
   return `${plural(bots.length, "bot")}${teams}, all but archived ones`;
 }
 
-function importedMessage(imported: { bots: readonly unknown[]; teams: readonly unknown[] }): string {
+function importedMessage(imported: {
+  bots: readonly unknown[];
+  teams: readonly unknown[];
+  notes: readonly string[];
+}): string {
   const teams = imported.teams.length ? ` and ${plural(imported.teams.length, "team")}` : "";
-  return `Added ${plural(imported.bots.length, "bot")}${teams}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`;
+  return [
+    `Added ${plural(imported.bots.length, "bot")}${teams}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`,
+    ...imported.notes,
+  ].join(" ");
 }
 
 function TeamSection({
