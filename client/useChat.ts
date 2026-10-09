@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useCallback, useEffect, useRef, useState } from "react";
-import { mergeEntries } from "./chat/stream/model";
+import { mergeEntries } from "../shared/timeline";
 import type { PaseoAgent, PaseoApi } from "./paseo";
 
 type AgentHandle = ReturnType<PaseoApi["agents"]["ref"]>;
@@ -21,26 +21,6 @@ export interface ChatState {
 
 /** Paseo's TIMELINE_FETCH_PAGE_SIZE. */
 const TIMELINE_PAGE_SIZE = 40;
-
-/** Oldest first. */
-export async function fullTimeline(api: PaseoApi, agentId: string): Promise<ChatEntry[]> {
-  const handle = api.agents.ref(agentId);
-  let page = await handle.timeline.refetch({ direction: "tail", projection: "projected", limit: 200 });
-  if (page.error) throw new Error(page.error);
-  let entries = page.entries;
-  for (let pages = 0; pages < 100 && page.hasOlder && page.startCursor; pages++) {
-    page = await handle.timeline.refetch({
-      direction: "before",
-      cursor: page.startCursor,
-      projection: "projected",
-      limit: 200,
-    });
-    if (page.error) throw new Error(page.error);
-    if (page.entries.length === 0) break;
-    entries = mergeEntries(entries, page.entries);
-  }
-  return entries;
-}
 
 const noop = () => {};
 const EMPTY: ChatState = {

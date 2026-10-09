@@ -7,6 +7,11 @@ export const ROUTINE_LABEL = "paseo-bots.routine";
 /** Paseo's limit (protocol/agent-title-limits.ts). */
 const MAX_TITLE_CHARS = 200;
 
+/** Starts the setup interview from a bot's panel. */
+export const SETUP_PROMPT =
+  "Let's set you up. Interview me one short question at a time about what I want from you, how I like to work, and what you should never do. " +
+  "Then propose standing instructions for yourself and a starting MEMORY.md. Write the memory file once I confirm, and give me the instructions to paste into your Soul settings.";
+
 /** Older chats were titled "[Bot Name] …"; views grouped by bot drop the prefix. */
 export function displayTitle(title: string | null | undefined): string {
   return (title ?? "").replace(/^\[[^\]]*\]\s*/, "") || "New chat";

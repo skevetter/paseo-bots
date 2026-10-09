@@ -39,7 +39,7 @@ interface ChatState {
   reply: string;
 }
 
-async function readChat(
+export async function readChat(
   paseo: PaseoApi,
   chatId: string,
 ): Promise<ChatState & { labels: Record<string, string> }> {
@@ -63,7 +63,7 @@ async function readChat(
   };
 }
 
-function chatStatus(agent: {
+export function chatStatus(agent: {
   status: string;
   pendingPermissions?: readonly unknown[] | null;
 }): ChatState["state"] {

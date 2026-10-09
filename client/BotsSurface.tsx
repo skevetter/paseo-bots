@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
-import { startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
+import { SETUP_PROMPT, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
 import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
@@ -50,10 +50,6 @@ import { useBotsSurface } from "./useBotsSurface";
 import { useChat } from "./useChat";
 
 type Colors = PluginTheme["colors"];
-
-const SETUP_PROMPT =
-  "Let's set you up. Interview me one short question at a time about what I want from you, how I like to work, and what you should never do. " +
-  "Then propose standing instructions for yourself and a starting MEMORY.md. Write the memory file once I confirm, and give me the instructions to paste into your Soul settings.";
 
 export function BotsSurface(props: PluginScreenProps) {
   const { colors } = props.theme;

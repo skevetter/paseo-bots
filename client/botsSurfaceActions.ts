@@ -20,6 +20,7 @@ import { addImportedBots } from "../shared/library";
 import { applyDefaults, presetFromBot } from "../shared/presets";
 import { moveKey } from "../shared/sidebar";
 import { type BotTemplate, botFromPreset, newBot } from "../shared/templates";
+import { fullTimeline } from "../shared/timeline";
 import { chatTranscript } from "../shared/transcript";
 import { botMenuEntries, chatMenuEntries } from "./BotDialogs";
 import type { BotHost } from "./data";
@@ -29,7 +30,6 @@ import type { PaseoAgent } from "./paseo";
 import type { ChatMenuRequest, MenuSource, Selection } from "./sidebar/types";
 import { measureAnchor } from "./ui/Menu";
 import type { BotsSurfaceModel } from "./useBotsSurface";
-import { fullTimeline } from "./useChat";
 
 export interface SurfaceView {
   values: BotState;

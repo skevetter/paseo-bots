@@ -3,10 +3,10 @@ import {
   buildRows,
   findRows,
   layoutStream,
-  mergeEntries,
   retainLayout,
   type StreamLayout,
 } from "../client/chat/stream/model";
+import { mergeEntries } from "../shared/timeline";
 import { chatEntries, streamedChunk } from "./fixtures";
 import { report } from "./report";
 

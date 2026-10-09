@@ -5,7 +5,6 @@ import {
   findRows,
   gapBetween,
   layoutStream,
-  mergeEntries,
   retainLayout,
   type StreamEntry,
   type StreamRow,
@@ -18,6 +17,7 @@ import {
   shouldSubmitEmptyOnDismiss,
 } from "../client/chat/stream/question";
 import { proposalIdOf } from "../shared/proposals";
+import { mergeEntries } from "../shared/timeline";
 import {
   buildLineDiff,
   buildToolCallDisplayModel,

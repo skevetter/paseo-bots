@@ -532,17 +532,6 @@ export function retainLayout(previous: StreamLayout | null, next: StreamLayout):
   return { items: changed ? items : previous.items, auxiliaryFooter };
 }
 
-export interface MergeableEntry {
-  seqStart: number;
-  seqEnd: number;
-  sourceSeqRanges?: readonly { startSeq: number; endSeq: number }[];
-}
-
-function sameEntry(a: MergeableEntry, b: MergeableEntry): boolean {
-  if (a.seqStart !== b.seqStart || a.seqEnd !== b.seqEnd) return false;
-  return JSON.stringify(a.sourceSeqRanges ?? null) === JSON.stringify(b.sourceSeqRanges ?? null);
-}
-
 /** `needle` must already be lower-case. */
 export function findRows(items: readonly StreamLayoutItem[], needle: string): number[] {
   if (!needle) return [];
@@ -551,23 +540,4 @@ export function findRows(items: readonly StreamLayoutItem[], needle: string): nu
     const text = row.kind === "user" || row.kind === "assistant" || row.kind === "speak" ? row.text : "";
     return text.toLowerCase().includes(needle) ? [index] : [];
   });
-}
-
-/**
- * Keyed by first seq: a re-sent entry (a message still streaming, a tool that finished)
- * replaces the old one; unchanged ones keep their identity.
- */
-export function mergeEntries<T extends MergeableEntry>(current: readonly T[], incoming: readonly T[]): T[] {
-  if (incoming.length === 0) return current as T[];
-  const bySeq = new Map<number, T>();
-  for (const entry of current) bySeq.set(entry.seqStart, entry);
-  let changed = false;
-  for (const entry of incoming) {
-    const existing = bySeq.get(entry.seqStart);
-    if (existing && sameEntry(existing, entry)) continue;
-    bySeq.set(entry.seqStart, entry);
-    changed = true;
-  }
-  if (!changed) return current as T[];
-  return [...bySeq.values()].sort((a, b) => a.seqStart - b.seqStart);
 }
