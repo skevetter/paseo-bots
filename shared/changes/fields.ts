@@ -1,4 +1,5 @@
 import type { z } from "zod";
+import { canonicalSlug } from "../apps";
 import { randomSeed } from "../avatar";
 import type { Bot, BotAvatar, BotSettingsValues, Library } from "../bot";
 import { pushHistory } from "../bot-history";
@@ -95,7 +96,7 @@ interface BotApps {
 }
 
 function addApp(state: BotApps, entry: AppInputValue, context: ApplyContext): void {
-  const slug = entry.app.trim().toLowerCase();
+  const slug = canonicalSlug(entry.app);
   if (!APP_SLUG.test(slug)) throw new Error(`"${entry.app}" isn't an app slug, like gmail.`);
   if (!state.apps.includes(slug)) state.apps.push(slug);
   const account = entry.account ? accountId(slug, entry.account, context) : null;
@@ -105,7 +106,7 @@ function addApp(state: BotApps, entry: AppInputValue, context: ApplyContext): vo
 }
 
 function removeApp(state: BotApps, ref: string, botName: string): void {
-  const slug = ref.trim().toLowerCase();
+  const slug = canonicalSlug(ref);
   const index = state.apps.indexOf(slug);
   if (index === -1) throw new Error(`${botName} doesn't use ${ref}.`);
   state.apps.splice(index, 1);

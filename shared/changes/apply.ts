@@ -1,3 +1,4 @@
+import { canonicalSlug } from "../apps";
 import { type BotDefaults, type BotSettingsValues, DEFAULT_BOT_DEFAULTS } from "../bot";
 import { presetFromBot } from "../presets";
 
@@ -107,7 +108,7 @@ export function resolveChanges(changes: readonly Change[], context: ApplyContext
   const resolveApps = (apps: readonly AppInputValue[] | undefined) =>
     apps?.map((entry) =>
       entry.account
-        ? { ...entry, account: accountId(entry.app.trim().toLowerCase(), entry.account, context) }
+        ? { ...entry, account: accountId(canonicalSlug(entry.app), entry.account, context) }
         : entry,
     );
   return changes.map((change) => {

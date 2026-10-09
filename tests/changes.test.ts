@@ -318,6 +318,19 @@ describe("setup changes on the host", () => {
     ).toThrow("slack isn't connected yet");
   });
 
+  it("names X by Composio's slug, so its account and connection are found", () => {
+    const accounts = [{ id: "ca_9", slug: "twitter", names: ["brand"] }];
+    const changes = resolveChanges(
+      ChangesSchema.parse([{ type: "update_bot", bot: "Solo", add_apps: [{ app: "X", account: "Brand" }] }]),
+      { ...context, accounts },
+    );
+    const added = botIn(applyChanges(setup(), changes, { now: NOW, provider: "" }), "solo");
+    expect(added.apps).toEqual(["twitter"]);
+    expect(added.appRules).toEqual({ twitter: { tools: "all", account: "ca_9" } });
+    const values = setup({ bots: [added] });
+    expect(soloAfter([{ type: "update_bot", bot: "Solo", remove_apps: ["x"] }], values).apps).toEqual([]);
+  });
+
   it("gives new bots the defaults' provider, else the host's pick", () => {
     expect(apply([{ type: "create_bot", name: "Juno" }]).bots[3]?.provider).toBe("claude");
     const withDefaults = setup({
