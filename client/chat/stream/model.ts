@@ -333,20 +333,19 @@ function isResponseBoundary(previous: StreamRow | null, next: StreamRow | null):
   return previous !== null && next !== null && !continuesResponse(previous, next);
 }
 
-const GAPS: Partial<Record<`${Category}>${Category}`, number>> = {
-  "user>user": 4,
-  "user>assistant": 0,
-  "tool>tool": 0,
-  "user>tool": 16,
-  "assistant>tool": 4,
-  "tool>assistant": 4,
+/** Gap below a row of the outer category when a row of the inner one follows; 16 otherwise. */
+const GAPS: Record<Category, Partial<Record<Category, number>>> = {
+  user: { user: 4, assistant: 0, tool: 16 },
+  assistant: { tool: 4 },
+  tool: { tool: 0, assistant: 4 },
+  other: {},
 };
 
 export function gapBetween(row: StreamRow | null, below: StreamRow | null): number {
   const a = category(row);
   const b = category(below);
   if (!a || !b) return 0;
-  return GAPS[`${a}>${b}`] ?? 16;
+  return GAPS[a][b] ?? 16;
 }
 
 interface TurnTiming {
