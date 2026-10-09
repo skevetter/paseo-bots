@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { type AppLimit, checkAppCall } from "../shared/apps";
@@ -6,14 +6,13 @@ import type { AppRule, Bot, McpServerConfig } from "../shared/bot";
 import { accounts, appTools, connectedSlugs, deadline, readState, session, writeState } from "./composio";
 import type { BotsHost } from "./host";
 import { readCapped } from "./http";
+import { json, readMessage, refuseNonPost, tokenMatches } from "./mcp-http";
 import { answerMcp, type BotTool } from "./tools/mcp";
 
 // Loopback MCP servers on 127.0.0.1; each chat gets a bearer token in its config, signed with a secret
 // only this process knows.
 
-const MAX_BODY = 5 * 1024 * 1024;
 const MAX_RESPONSE = 20 * 1024 * 1024;
-const DISCARD_MS = 2_000;
 const ID = /^[a-z0-9-]+$/;
 
 function sign(secret: string, subject: string): string {
@@ -27,48 +26,6 @@ function botToken(secret: string, botId: string): string {
 
 function toolsToken(secret: string, botId: string, agentId: string): string {
   return sign(secret, `tools:${botId}:${agentId}`);
-}
-
-function tokenMatches(expected: string, header: string | undefined): boolean {
-  const given = /^Bearer (.+)$/.exec(header ?? "")?.[1] ?? "";
-  const a = Buffer.from(expected);
-  const b = Buffer.from(given);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-export class BodyTooLargeError extends Error {
-  constructor(readonly limit: number) {
-    super(`The request body is over ${limit} bytes.`);
-    this.name = "BodyTooLargeError";
-  }
-}
-
-/**
- * Past `limit` the rest of the body is discarded, not buffered, until it ends (or for DISCARD_MS) so the
- * client is done sending and reads the 413 instead of a reset; then rejects with BodyTooLargeError.
- */
-export function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<string> {
-  const tooLarge = new BodyTooLargeError(limit);
-  if (Number(request.headers["content-length"]) > limit) return Promise.reject(tooLarge);
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    let chunks: Buffer[] | null = [];
-    request.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      if (chunks && size > limit) {
-        chunks = null;
-        setTimeout(() => reject(tooLarge), DISCARD_MS).unref();
-      }
-      chunks?.push(chunk);
-    });
-    request.on("end", () => (chunks ? resolve(Buffer.concat(chunks).toString("utf8")) : reject(tooLarge)));
-    request.on("error", reject);
-    request.on("close", () => reject(new Error("The request closed before its body arrived.")));
-  });
-}
-
-function json(response: ServerResponse, status: number, body: unknown) {
-  response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
 }
 
 /** Returns true when it handled the request. */
@@ -224,45 +181,6 @@ export class Relay {
     json(response, 404, { error: "not found" });
   }
 
-  /** Streamable HTTP lets a server decline the optional GET stream; sessions end on their own. */
-  private refuseNonPost(request: IncomingMessage, response: ServerResponse): boolean {
-    if (request.method === "POST") return false;
-    if (request.method === "DELETE") response.writeHead(204).end();
-    else response.writeHead(405, { allow: "POST" }).end();
-    return true;
-  }
-
-  /** One message per request, as in MCP 2025-06-18: a batch would carry tool calls past the app checks. */
-  private async parse(
-    request: IncomingMessage,
-    response: ServerResponse,
-  ): Promise<Record<string, unknown> | null> {
-    const body = await readBody(request).catch((error: unknown) => {
-      if (error instanceof BodyTooLargeError) return null;
-      throw error;
-    });
-    if (body === null) {
-      json(response, 413, {
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32600, message: `Send at most ${MAX_BODY / 1024 / 1024} MB.` },
-      });
-      return null;
-    }
-    let message: unknown;
-    try {
-      message = JSON.parse(body);
-    } catch {
-      json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
-      return null;
-    }
-    if (!message || typeof message !== "object" || Array.isArray(message)) {
-      json(response, 400, { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } });
-      return null;
-    }
-    return message as Record<string, unknown>;
-  }
-
   private async handleTools(
     request: IncomingMessage,
     response: ServerResponse,
@@ -277,8 +195,8 @@ export class Relay {
     ) {
       return json(response, 401, { error: "unauthorized" });
     }
-    if (this.refuseNonPost(request, response)) return;
-    const message = await this.parse(request, response);
+    if (refuseNonPost(request, response)) return;
+    const message = await readMessage(request, response);
     if (!message) return;
     const bot = await this.host.bot(botId);
     const id = (message.id as string | number | undefined) ?? null;
@@ -288,12 +206,16 @@ export class Relay {
         id,
         error: { code: -32001, message: "This bot no longer exists." },
       });
-    const answer = await answerMcp(message, this.tools, {
-      bot,
-      agentId,
-      host: this.host,
-      relay: this,
-    });
+    const answer = await answerMcp(
+      message,
+      { name: "paseo-bots", tools: this.tools },
+      {
+        bot,
+        agentId,
+        host: this.host,
+        relay: this,
+      },
+    );
     if (!answer) return response.writeHead(202).end();
     json(response, 200, answer);
   }
@@ -303,8 +225,8 @@ export class Relay {
     if (!ID.test(botId) || !tokenMatches(botToken(state.secret, botId), request.headers.authorization)) {
       return json(response, 401, { error: "unauthorized" });
     }
-    if (this.refuseNonPost(request, response)) return;
-    const message = await this.parse(request, response);
+    if (refuseNonPost(request, response)) return;
+    const message = await readMessage(request, response);
     if (!message) return;
     const bot = await this.host.bot(botId);
     const id = (message.id as string | number | undefined) ?? null;

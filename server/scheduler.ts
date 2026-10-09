@@ -11,8 +11,9 @@ import { pluginDataPath } from "./bot-home";
 import { startChat } from "./chats";
 import { readJson, writeJson } from "./files";
 import type { BotsHost } from "./host";
+import { readBody } from "./mcp-http";
 import type { PaseoApi } from "./paseo";
-import { type Relay, readBody } from "./relay";
+import type { Relay } from "./relay";
 
 const TICK_MS = 30_000;
 const KEEP_RUNS = 30;

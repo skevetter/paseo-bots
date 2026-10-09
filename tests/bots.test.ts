@@ -189,7 +189,7 @@ describe("tools a bot isn't offered", () => {
         method: "tools/call",
         params: { name: "ask_bot", arguments: { bot: "Inbox", message: "hi" } },
       },
-      [askBot],
+      { name: "paseo-bots", tools: [askBot] },
       { bot: scout, agentId: "caller-chat", host, relay: null as never },
     );
     expect(answer?.error?.code).toBe(-32602);
