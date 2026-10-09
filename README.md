@@ -47,6 +47,25 @@ The preset is off for every bot. Importing a bot or team file does not turn it o
 
 A separate browser profile without your main accounts limits the damage.
 
+## MCP control
+
+MCP clients such as Claude Code, Cursor, Hermes or omp can manage bots through a local endpoint, with or without the app open.
+
+1. Turn on **Settings > Bots > External control (MCP)**.
+2. Copy **Client config** into your client:
+
+```json
+{ "mcpServers": { "paseo-bots": { "command": "<Paseo home>/plugin-data/paseo-bots/bin/paseo-bots-mcp" } } }
+```
+
+The command runs with bun or node and reads the endpoint and token from plugin data. **Rotate token** locks out old clients.
+
+- Chats get no token. A bot that runs commands without asking can read any of your files, this token included.
+- No tool reads or sets API keys or webhook secrets.
+- The Browser server, modes that don't ask, always-allowed commands and new MCP servers wait for you to accept them there, unless **Allow elevated changes without approval** is on.
+- Delete and archive tools need `confirm: true`.
+- Chat and Run now tools need the app to connect once after the daemon starts.
+
 ## What this fork changes
 
 Compared with oliexe/paseo-bots 0.2.0, this fork:

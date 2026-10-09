@@ -23,7 +23,11 @@ paseo-bots runs on your Paseo host. It makes network requests in these cases:
 - **Google's favicon service**: to show icons for connected apps.
 - **Image links**: avatar and team logo pictures load from the links you enter.
 
-The plugin listens on `127.0.0.1` for its relay and for routine webhooks. Each request needs a token or secret that the plugin holds.
+The plugin listens on `127.0.0.1` in these cases. Each request needs a token or secret that the plugin holds.
+
+- **Relay**: the MCP tools and connected apps of each bot chat, with a token per chat.
+- **Routine webhooks**: on the relay's port, with a secret per routine.
+- **External control** (port 6898, or a free port when that one is taken): only while **Settings > Bots > External control (MCP)** is on. MCP clients start `plugin-data/paseo-bots/bin/paseo-bots-mcp`, which reads the token in `plugin-data/paseo-bots/control-token`. Chats get no token for it.
 
 ## The Browser server
 
