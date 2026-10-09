@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { routineState, runStartError, withRunStart } from "../client/panel/routines/runs";
 import type { Routine } from "../shared/bot";
+import type { RoutineRun } from "../shared/rpc";
 
 const routine: Routine = {
   id: "rt",
@@ -20,18 +21,33 @@ describe("Run now state", () => {
     expect(routineState(routine, new Date(), undefined)).toEqual({ label: "Active", variant: "success" });
   });
 
-  it("shows why a run couldn't start, and nothing otherwise", () => {
-    expect(runStartError({ status: "failed", error: "Routine not found" })).toBe(
-      "Couldn't start the run: Routine not found",
+  it("shows why a run couldn't start until the routine runs again", () => {
+    const earlier: RoutineRun = {
+      id: "run-1",
+      trigger: "schedule",
+      scheduledFor: "2026-09-01T09:00:00Z",
+      startedAt: "2026-09-01T09:00:00Z",
+      endedAt: "2026-09-01T09:01:00Z",
+      status: "succeeded",
+      agentId: "a1",
+      output: null,
+      error: null,
+    };
+    const failed = { status: "failed", error: "Routine not found", lastRunId: "run-1" } as const;
+    expect(runStartError(failed, earlier)).toBe("Couldn't start the run: Routine not found");
+    expect(runStartError(failed, { ...earlier, id: "run-2", startedAt: "2026-09-01T10:00:00Z" })).toBeNull();
+    expect(runStartError({ status: "failed", error: "Offline", lastRunId: null }, undefined)).toBe(
+      "Couldn't start the run: Offline",
     );
-    expect(runStartError({ status: "starting" })).toBeNull();
-    expect(runStartError(undefined)).toBeNull();
+    expect(runStartError({ status: "starting" }, earlier)).toBeNull();
+    expect(runStartError(undefined, earlier)).toBeNull();
   });
 
   it("replaces and clears one routine's start without touching the others", () => {
     const starts = withRunStart({ other: { status: "starting" } }, "rt", { status: "starting" });
-    const failed = withRunStart(starts, "rt", { status: "failed", error: "x" });
-    expect(failed).toEqual({ other: { status: "starting" }, rt: { status: "failed", error: "x" } });
+    const failure = { status: "failed", error: "x", lastRunId: null } as const;
+    const failed = withRunStart(starts, "rt", failure);
+    expect(failed).toEqual({ other: { status: "starting" }, rt: failure });
     expect(withRunStart(failed, "rt", null)).toEqual({ other: { status: "starting" } });
     expect(starts).toEqual({ other: { status: "starting" }, rt: { status: "starting" } });
   });

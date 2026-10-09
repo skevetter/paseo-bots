@@ -13,7 +13,8 @@ export interface RoutineActions {
   starts: RunStarts;
   setRoutines(routines: Routine[]): void;
   update(id: string, patch: Partial<Routine>): void;
-  run(routine: Routine): Promise<void>;
+  /** `lastRunId`: the routine's latest run; a failure shows until a newer one is recorded. */
+  run(routine: Routine, lastRunId: string | null): Promise<void>;
   copyWebhook(routine: Routine): Promise<void>;
   remove(routine: Routine): Promise<void>;
 }
@@ -45,7 +46,7 @@ export function useRoutineActions({
   const update = (id: string, patch: Partial<Routine>) =>
     setRoutines(bot.routines.map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
 
-  const run = async (routine: Routine) => {
+  const run = async (routine: Routine, lastRunId: string | null) => {
     mark(routine.id, { status: "starting" });
     try {
       await flush();
@@ -54,7 +55,7 @@ export function useRoutineActions({
       showRunOutcome(toast, routine, bot.name, started);
       void queryClient.invalidateQueries({ queryKey: ["paseo-bots"] });
     } catch (error) {
-      mark(routine.id, { status: "failed", error: errorText(error) });
+      mark(routine.id, { status: "failed", error: errorText(error), lastRunId });
     }
   };
 

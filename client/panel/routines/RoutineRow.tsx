@@ -35,7 +35,12 @@ function routineMeta(routine: Routine, run: RoutineRun | undefined, next: Date |
   return parts.join(" · ");
 }
 
-function routineMenuEntries(routine: Routine, actions: RoutineActions, onEdit: () => void): MenuEntry[] {
+function routineMenuEntries(
+  routine: Routine,
+  lastRun: RoutineRun | undefined,
+  actions: RoutineActions,
+  onEdit: () => void,
+): MenuEntry[] {
   return [
     { label: "Edit routine", icon: "Pencil", onSelect: onEdit },
     routine.enabled
@@ -54,7 +59,7 @@ function routineMenuEntries(routine: Routine, actions: RoutineActions, onEdit: (
       icon: "RotateCw",
       disabled: !routine.prompt.trim() || actions.starts[routine.id]?.status === "starting",
       pendingLabel: "Starting...",
-      onSelect: () => actions.run(routine),
+      onSelect: () => actions.run(routine, lastRun?.id ?? null),
     },
     ...(routine.schedule.kind === "webhook"
       ? [
@@ -93,6 +98,7 @@ export function RoutineRow({
   const menu = useMenu();
   const next = nextRun(routine.schedule, new Date(record?.lastRunAt ?? routine.createdAt), now);
   const start = actions.starts[routine.id];
+  const lastRun = record?.runs.at(-1);
   const badge = routineState(routine, next, start);
   return (
     <PressableRow colors={colors} accessibilityLabel={`Edit routine ${routine.name}`} onPress={onEdit}>
@@ -101,8 +107,8 @@ export function RoutineRow({
           <RowText
             colors={colors}
             label={routine.name || "Untitled routine"}
-            hint={routineMeta(routine, record?.runs.at(-1), next)}
-            error={runStartError(start)}
+            hint={routineMeta(routine, lastRun, next)}
+            error={runStartError(start, lastRun)}
             hintLines={2}
           />
           <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -116,7 +122,7 @@ export function RoutineRow({
                   align: "end",
                   width: 220,
                   title: routine.name || "Routine",
-                  entries: routineMenuEntries(routine, actions, onEdit),
+                  entries: routineMenuEntries(routine, lastRun, actions, onEdit),
                 })
               }
             />

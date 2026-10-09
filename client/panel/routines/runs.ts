@@ -78,8 +78,8 @@ export function runHint(entry: RoutineRun, now: Date): string {
     .join("\n");
 }
 
-/** A Run now the user asked for, kept until the server records the run or the call fails. */
-export type RunStart = { status: "starting" } | { status: "failed"; error: string };
+/** A Run now the user asked for: shown while the call is out, and a failure until the routine runs again. */
+export type RunStart = { status: "starting" } | { status: "failed"; error: string; lastRunId: string | null };
 export type RunStarts = Readonly<Record<string, RunStart>>;
 
 export function withRunStart(starts: RunStarts, id: string, start: RunStart | null): RunStarts {
@@ -99,6 +99,7 @@ export function routineState(
   return { label: "Active", variant: "success" };
 }
 
-export function runStartError(start: RunStart | undefined): string | null {
-  return start?.status === "failed" ? `Couldn't start the run: ${start.error}` : null;
+export function runStartError(start: RunStart | undefined, lastRun: RoutineRun | undefined): string | null {
+  if (start?.status !== "failed" || (lastRun?.id ?? null) !== start.lastRunId) return null;
+  return `Couldn't start the run: ${start.error}`;
 }
