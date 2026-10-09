@@ -182,7 +182,9 @@ interface JournalRowLike {
   removed: number;
 }
 
-const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+export function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
 
 export function journalSummary(row: JournalRowLike, botName: string): string {
   const who = row.actor === "bot" ? botName : "You";

@@ -9,6 +9,7 @@ import {
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
+import { plural } from "../../shared/activity";
 import { type Bot, type BotDefaults, type BotGroup, DEFAULT_BOT_DEFAULTS } from "../../shared/bot";
 import { addImportedBots } from "../../shared/library";
 import { exportTeamRpc, importTeamRpc } from "../../shared/rpc";
@@ -156,19 +157,15 @@ function DefaultsSection({
   );
 }
 
-function counted(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
-
 function teamFileHint(bots: readonly Bot[], groups: readonly BotGroup[]): string {
   if (!bots.length) return "No bots to share yet";
-  const teams = groups.length ? ` on ${counted(groups.length, "team", "teams")}` : "";
-  return `${counted(bots.length, "bot", "bots")}${teams}, all but archived ones`;
+  const teams = groups.length ? ` on ${plural(groups.length, "team")}` : "";
+  return `${plural(bots.length, "bot")}${teams}, all but archived ones`;
 }
 
 function importedMessage(imported: { bots: readonly unknown[]; teams: readonly unknown[] }): string {
-  const teams = imported.teams.length ? ` and ${counted(imported.teams.length, "team", "teams")}` : "";
-  return `Added ${counted(imported.bots.length, "bot", "bots")}${teams}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`;
+  const teams = imported.teams.length ? ` and ${plural(imported.teams.length, "team")}` : "";
+  return `Added ${plural(imported.bots.length, "bot")}${teams}. Routines arrive paused, skills need a review, and MCP servers wait switched off in Skills & Tools.`;
 }
 
 function TeamSection({
@@ -194,7 +191,7 @@ function TeamSection({
     try {
       const file = await exportTeam({ bots, groups, includeMemory });
       await copyText(file.json);
-      toast.show(`Team file with ${counted(bots.length, "bot", "bots")} copied`, {
+      toast.show(`Team file with ${plural(bots.length, "bot")} copied`, {
         variant: "success",
       });
     } catch (error) {
