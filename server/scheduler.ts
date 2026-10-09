@@ -127,7 +127,7 @@ function serial(): Queue {
 /** Idles until the Paseo API is captured from an RPC handler or hook (the app calls `bots.hello` on start). */
 export class RoutineScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
-  private ticking = false;
+  private ticking: Promise<void> | null = null;
   private readonly records = serial();
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
@@ -155,9 +155,11 @@ export class RoutineScheduler {
     return this.paseo !== null;
   }
 
-  stop(): void {
+  /** Resolves once a tick that's under way has finished, so nothing writes routine state after it. */
+  async stop(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    await this.ticking;
   }
 
   /** One change to routines.json at a time. */
@@ -384,15 +386,19 @@ export class RoutineScheduler {
     }
   }
 
-  private async tick(): Promise<void> {
-    if (this.ticking || !this.paseo) return;
-    this.ticking = true;
+  private tick(): Promise<void> {
+    if (!this.ticking && this.paseo)
+      this.ticking = this.tickSafely().finally(() => {
+        this.ticking = null;
+      });
+    return this.ticking ?? Promise.resolve();
+  }
+
+  private async tickSafely(): Promise<void> {
     try {
       await this.tickBots();
     } catch (error) {
       console.error("paseo-bots: routine tick failed", error);
-    } finally {
-      this.ticking = false;
     }
   }
 

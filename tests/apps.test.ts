@@ -635,7 +635,7 @@ function relayTests(fake: FakeComposio) {
       });
       expect(off.status).toBe(403);
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -668,7 +668,7 @@ function relayTests(fake: FakeComposio) {
       expect(body.result.isError).toBe(true);
       expect(body.result.content[0]?.text).toContain("isn't allowed to use slack");
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 }
@@ -709,7 +709,7 @@ function appToolTests(fake: FakeComposio) {
           .arguments.tools[0]?.account,
       ).toBe("ca_1");
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 

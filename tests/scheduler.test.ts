@@ -1,9 +1,11 @@
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { EventEmitter, once } from "node:events";
+import { readdir, readFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import type { startChat } from "../server/chats";
+import { writeAtomic } from "../server/files";
 import { BotsHost } from "../server/host";
 import { Relay } from "../server/relay";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
@@ -59,21 +61,29 @@ function fakePaseo(brokenChat?: string) {
   return { api, appended, status, unreachable, posting };
 }
 
+/** Every scheduler and relay a test makes; each test waits for them to stop before the next one starts. */
+const running: { stop(): Promise<void> }[] = [];
+
+function track(host: BotsHost, launch: Launch) {
+  const relay = new Relay(host, []);
+  const scheduler = new RoutineScheduler(host, relay, launch);
+  running.push(scheduler, relay);
+  return { scheduler, relay };
+}
+
 async function startScheduler(bots: Bot[], launch: Launch, brokenChat?: string) {
   const host = fakeHost(bots);
   const paseo = fakePaseo(brokenChat);
   host.attach(paseo.api);
-  const relay = new Relay(host, []);
-  const scheduler = new RoutineScheduler(host, relay, launch);
-  scheduler.stop();
-  return { scheduler, relay, host, ...paseo };
+  const started = track(host, launch);
+  void started.scheduler.stop();
+  return { ...started, host, ...paseo };
 }
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
 
-async function writeState(name: string, text: string): Promise<void> {
-  await mkdir(pluginDataPath(), { recursive: true });
-  await writeFile(join(pluginDataPath(), name), text);
+function writeState(name: string, text: string): Promise<void> {
+  return writeAtomic(join(pluginDataPath(), name), text);
 }
 
 async function setAside(name: string): Promise<string[]> {
@@ -81,7 +91,8 @@ async function setAside(name: string): Promise<string[]> {
   return Promise.all(files.map((file) => readFile(join(pluginDataPath(), file), "utf8")));
 }
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(running.splice(0).map((item) => item.stop()));
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -160,58 +171,54 @@ describe("the routine scheduler", () => {
     let started = 0;
     const prompts: string[] = [];
     // Created now, so the first tick has no missed run to record.
-    const { scheduler, relay, appended, status } = await startScheduler(
+    const { scheduler, appended, status } = await startScheduler(
       [makeBot({ id: "bot-r", routines: [routine({ createdAt: new Date().toISOString() }), hook] })],
       async (_host, _relay, _bot, { prompt }) => {
         prompts.push(prompt);
         return `run-chat-${++started}`;
       },
     );
-    try {
-      const manual = await scheduler.runNow("bot-r", "rt-1");
-      expect(manual.run).toMatchObject({ trigger: "manual", status: "running", agentId: "run-chat-1" });
-      // No results chat: nothing is posted.
-      expect(appended).toHaveLength(0);
+    const manual = await scheduler.runNow("bot-r", "rt-1");
+    expect(manual.run).toMatchObject({ trigger: "manual", status: "running", agentId: "run-chat-1" });
+    // No results chat: nothing is posted.
+    expect(appended).toHaveLength(0);
 
-      // While that run's chat is working, the next run is skipped.
-      status.set("run-chat-1", "running");
-      expect((await scheduler.runNow("bot-r", "rt-1")).run.status).toBe("skipped-busy");
+    // While that run's chat is working, the next run is skipped.
+    status.set("run-chat-1", "running");
+    expect((await scheduler.runNow("bot-r", "rt-1")).run.status).toBe("skipped-busy");
 
-      const { url } = await scheduler.webhookUrl("rt-hook");
-      expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/rt-hook\/[a-f0-9]{48}$/);
-      expect((await fetch(url)).status).toBe(405);
-      expect((await fetch(url.replace(/.{8}$/, "00000000"), { method: "POST" })).status).toBe(404);
-      const call = await fetch(url, {
-        method: "POST",
-        headers: { "content-type": "text/plain" },
-        body: "order 42 shipped",
-      });
-      expect(call.status).toBe(202);
-      expect(await call.json()).toEqual({ status: "running", chat: "run-chat-2" });
-      expect(prompts[1]).toContain("order 42 shipped");
-      expect(appended.at(-1)).toMatchObject({
-        agentId: "results-chat",
-        item: { kind: "routine-run", data: { status: "running", output: null } },
-      });
+    const { url } = await scheduler.webhookUrl("rt-hook");
+    expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/rt-hook\/[a-f0-9]{48}$/);
+    expect((await fetch(url)).status).toBe(405);
+    expect((await fetch(url.replace(/.{8}$/, "00000000"), { method: "POST" })).status).toBe(404);
+    const call = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "order 42 shipped",
+    });
+    expect(call.status).toBe(202);
+    expect(await call.json()).toEqual({ status: "running", chat: "run-chat-2" });
+    expect(prompts[1]).toContain("order 42 shipped");
+    expect(appended.at(-1)).toMatchObject({
+      agentId: "results-chat",
+      item: { kind: "routine-run", data: { status: "running", output: null } },
+    });
 
-      // The run's turn ends: it's recorded and its card updated in place (same id).
-      await scheduler.finished("rt-hook", "run-chat-2", { kind: "completed" }, "Shipped order 42 to Acme.");
-      const last = defined(appended.at(-1), "updated card");
-      expect(last.item.id).toBe(defined(appended.at(-2), "posted card").item.id);
-      expect(last.item.data).toMatchObject({ status: "succeeded", output: "Shipped order 42 to Acme." });
-      const { routines } = await scheduler.status();
-      expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, run.status])).toEqual([
-        ["webhook", "succeeded"],
-      ]);
-      expect(routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running", "skipped-busy"]);
+    // The run's turn ends: it's recorded and its card updated in place (same id).
+    await scheduler.finished("rt-hook", "run-chat-2", { kind: "completed" }, "Shipped order 42 to Acme.");
+    const last = defined(appended.at(-1), "updated card");
+    expect(last.item.id).toBe(defined(appended.at(-2), "posted card").item.id);
+    expect(last.item.data).toMatchObject({ status: "succeeded", output: "Shipped order 42 to Acme." });
+    const { routines } = await scheduler.status();
+    expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, run.status])).toEqual([
+      ["webhook", "succeeded"],
+    ]);
+    expect(routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running", "skipped-busy"]);
 
-      // A rotated URL retires the old one.
-      const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
-      expect(fresh).not.toBe(url);
-      expect((await fetch(url, { method: "POST" })).status).toBe(404);
-    } finally {
-      relay.stop();
-    }
+    // A rotated URL retires the old one.
+    const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
+    expect(fresh).not.toBe(url);
+    expect((await fetch(url, { method: "POST" })).status).toBe(404);
   });
 });
 
@@ -359,36 +366,28 @@ describe("the routine scheduler's saved state", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     await writeState("webhooks.json", '{"rt-hook": "ab');
     const hook = routine({ id: "rt-hook", schedule: { kind: "webhook" } });
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-w", routines: [hook] })],
       async () => "chat-1",
     );
-    try {
-      expect((await scheduler.webhookUrl("rt-hook")).url).toMatch(/\/hooks\/rt-hook\/[a-f0-9]{48}$/);
-      expect(await setAside("webhooks.json")).toEqual(['{"rt-hook": "ab']);
-      expect(errors).toHaveBeenCalledWith(expect.stringContaining("webhooks.json"), expect.any(SyntaxError));
-    } finally {
-      relay.stop();
-    }
+    expect((await scheduler.webhookUrl("rt-hook")).url).toMatch(/\/hooks\/rt-hook\/[a-f0-9]{48}$/);
+    expect(await setAside("webhooks.json")).toEqual(['{"rt-hook": "ab']);
+    expect(errors).toHaveBeenCalledWith(expect.stringContaining("webhooks.json"), expect.any(SyntaxError));
   });
 
   it("gives two callers asking at once the same saved webhook secret", async () => {
     const hook = routine({ id: "rt-race", schedule: { kind: "webhook" } });
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-race", routines: [hook] })],
       async () => "chat-1",
     );
-    try {
-      const [first, second] = await Promise.all([
-        scheduler.webhookUrl("rt-race"),
-        scheduler.webhookUrl("rt-race"),
-      ]);
-      expect(second.url).toBe(first.url);
-      const saved = JSON.parse(await readFile(join(pluginDataPath(), "webhooks.json"), "utf8"));
-      expect(first.url.endsWith(`/${saved["rt-race"]}`)).toBe(true);
-    } finally {
-      relay.stop();
-    }
+    const [first, second] = await Promise.all([
+      scheduler.webhookUrl("rt-race"),
+      scheduler.webhookUrl("rt-race"),
+    ]);
+    expect(second.url).toBe(first.url);
+    const saved = JSON.parse(await readFile(join(pluginDataPath(), "webhooks.json"), "utf8"));
+    expect(first.url.endsWith(`/${saved["rt-race"]}`)).toBe(true);
   });
 });
 
@@ -646,7 +645,7 @@ describe("routine webhook calls", () => {
   useTempPaseoHome("paseo-bots-scheduler-hooks-");
 
   it("turns away calls for paused, archived and scheduled routines, and malformed links", async () => {
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [
         makeBot({
           id: "bot-h",
@@ -659,75 +658,56 @@ describe("routine webhook calls", () => {
       ],
       async () => "never-started",
     );
-    try {
-      const notFound = [404, { error: "not found" }];
-      const call = async (routineId: string) => hook((await scheduler.webhookUrl(routineId)).url);
-      expect(await call("rt-paused")).toEqual([409, { error: "The routine is paused." }]);
-      expect(await call("rt-shelved")).toEqual(notFound);
-      expect(await call("rt-timed")).toEqual(notFound);
-      expect(await hook((await scheduler.webhookUrl("rt-paused")).url.slice(0, -1))).toEqual(notFound);
-      expect(await runsOf(scheduler, "rt-paused")).toEqual([]);
-    } finally {
-      relay.stop();
-    }
+    const notFound = [404, { error: "not found" }];
+    const call = async (routineId: string) => hook((await scheduler.webhookUrl(routineId)).url);
+    expect(await call("rt-paused")).toEqual([409, { error: "The routine is paused." }]);
+    expect(await call("rt-shelved")).toEqual(notFound);
+    expect(await call("rt-timed")).toEqual(notFound);
+    expect(await hook((await scheduler.webhookUrl("rt-paused")).url.slice(0, -1))).toEqual(notFound);
+    expect(await runsOf(scheduler, "rt-paused")).toEqual([]);
   });
 
   it("takes ten calls a minute", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-t", routines: [webhook({ id: "rt-many" })] })],
       async () => "many-chat",
     );
-    try {
-      const { url } = await scheduler.webhookUrl("rt-many");
-      const answers: number[] = [];
-      for (let call = 0; call < 10; call++) answers.push((await hook(url, `event ${call}`))[0]);
-      expect(answers).toEqual(Array(10).fill(202));
-      expect(await hook(url, "one more")).toEqual([429, { error: "Too many calls this minute." }]);
-      vi.setSystemTime(Date.now() + 60_000);
-      expect((await hook(url, "next minute"))[0]).toBe(202);
-      expect(await runsOf(scheduler, "rt-many")).toHaveLength(11);
-    } finally {
-      relay.stop();
-    }
+    const { url } = await scheduler.webhookUrl("rt-many");
+    const answers: number[] = [];
+    for (let call = 0; call < 10; call++) answers.push((await hook(url, `event ${call}`))[0]);
+    expect(answers).toEqual(Array(10).fill(202));
+    expect(await hook(url, "one more")).toEqual([429, { error: "Too many calls this minute." }]);
+    vi.setSystemTime(Date.now() + 60_000);
+    expect((await hook(url, "next minute"))[0]).toBe(202);
+    expect(await runsOf(scheduler, "rt-many")).toHaveLength(11);
   });
 
   it("answers 413 to a body over 256 KB and hands an empty one over as marked", async () => {
     const prompts: string[] = [];
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-e", routines: [webhook({ id: "rt-empty" })] })],
       async (_host, _relay, _bot, { prompt }) => {
         prompts.push(prompt);
         return "empty-chat";
       },
     );
-    try {
-      const { url } = await scheduler.webhookUrl("rt-empty");
-      expect(await declareBody(url, 300 * 1024)).toEqual([
-        413,
-        JSON.stringify({ error: "Send at most 256 KB." }),
-      ]);
-      expect(await hook(url)).toEqual([202, { status: "running", chat: "empty-chat" }]);
-      expect(prompts).toEqual([expect.stringContaining("Content type: unknown\n\n(empty body)\n")]);
-    } finally {
-      relay.stop();
-    }
+    const { url } = await scheduler.webhookUrl("rt-empty");
+    expect(await declareBody(url, 300 * 1024)).toEqual([
+      413,
+      JSON.stringify({ error: "Send at most 256 KB." }),
+    ]);
+    expect(await hook(url)).toEqual([202, { status: "running", chat: "empty-chat" }]);
+    expect(prompts).toEqual([expect.stringContaining("Content type: unknown\n\n(empty body)\n")]);
   });
 
   it("answers 500 with the reason when a webhook's chat can't start", async () => {
-    const { scheduler, relay } = await startScheduler(
+    const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-500", routines: [webhook({ id: "rt-500" })] })],
       () => Promise.reject(new Error("The bot has no provider.")),
     );
-    try {
-      const { url } = await scheduler.webhookUrl("rt-500");
-      expect(await hook(url, "event")).toEqual([
-        500,
-        { status: "failed", error: "The bot has no provider." },
-      ]);
-    } finally {
-      relay.stop();
-    }
+    const { url } = await scheduler.webhookUrl("rt-500");
+    expect(await hook(url, "event")).toEqual([500, { status: "failed", error: "The bot has no provider." }]);
   });
 });
 
@@ -737,7 +717,7 @@ describe("overlapping routine webhook calls", () => {
   it("lets three webhook runs be unfinished at once while their cards post", async () => {
     let started = 0;
     let posted: () => void = () => {};
-    const { scheduler, relay, status, posting } = await startScheduler(
+    const { scheduler, status, posting } = await startScheduler(
       [makeBot({ id: "bot-p", routines: [webhook({ id: "rt-p", resultsChatId: "p-results" })] })],
       async () => {
         const chat = `p-chat-${++started}`;
@@ -748,21 +728,17 @@ describe("overlapping routine webhook calls", () => {
     posting.until = new Promise((resolve) => {
       posted = resolve;
     });
-    try {
-      const { url } = await scheduler.webhookUrl("rt-p");
-      const calls: Promise<[number, unknown]>[] = [];
-      for (const count of [1, 2, 3]) {
-        calls.push(hook(url, `event ${count}`));
-        await vi.waitFor(() => expect(started).toBe(count));
-      }
-      expect(await hook(url, "event 4")).toEqual([429, { status: "skipped-busy" }]);
-      posted();
-      expect(await Promise.all(calls)).toEqual(
-        [1, 2, 3].map((count) => [202, { status: "running", chat: `p-chat-${count}` }]),
-      );
-    } finally {
-      relay.stop();
+    const { url } = await scheduler.webhookUrl("rt-p");
+    const calls: Promise<[number, unknown]>[] = [];
+    for (const count of [1, 2, 3]) {
+      calls.push(hook(url, `event ${count}`));
+      await vi.waitFor(() => expect(started).toBe(count));
     }
+    expect(await hook(url, "event 4")).toEqual([429, { status: "skipped-busy" }]);
+    posted();
+    expect(await Promise.all(calls)).toEqual(
+      [1, 2, 3].map((count) => [202, { status: "running", chat: `p-chat-${count}` }]),
+    );
   });
 });
 
@@ -789,14 +765,10 @@ function catchUpThenTick() {
   });
   const host = fakeHost([makeBot({ id: "bot-clock", routines: [daily, minutely] })]);
   const launched: string[] = [];
-  const scheduler = new RoutineScheduler(
-    host,
-    new Relay(host, []),
-    async (_host, _relay, _bot, { title }) => {
-      launched.push(title);
-      return `clock-chat-${launched.length}`;
-    },
-  );
+  const { scheduler } = track(host, async (_host, _relay, _bot, { title }) => {
+    launched.push(title);
+    return `clock-chat-${launched.length}`;
+  });
   return { host, scheduler, launched };
 }
 
@@ -815,8 +787,8 @@ describe("the routine clock", () => {
     await vi.waitFor(() => expect(launched).toEqual(["Daily", "Minutely"]));
     host.attach(fakePaseo().api);
     expect(vi.getTimerCount()).toBe(1);
-    scheduler.stop();
-    scheduler.stop();
+    await scheduler.stop();
+    await scheduler.stop();
     expect(vi.getTimerCount()).toBe(0);
     expect((await scheduler.status()).scheduler).toBe(true);
   });
@@ -843,20 +815,31 @@ describe("the routine clock", () => {
     const ready = async () => ({ status: "ready", values, revision: "1" });
     const host = new BotsHost({ read: () => (reads.shift() ?? ready)() } as never);
     const launched: string[] = [];
-    const scheduler = new RoutineScheduler(
-      host,
-      new Relay(host, []),
-      async (_host, _relay, _bot, { title }) => {
-        launched.push(title);
-        return "flaky-chat";
-      },
-    );
+    track(host, async (_host, _relay, _bot, { title }) => {
+      launched.push(title);
+      return "flaky-chat";
+    });
     host.attach(fakePaseo().api);
     await vi.waitFor(() => {
       vi.advanceTimersByTime(30_000);
       expect(launched).toEqual(["Inbox check"]);
     });
     expect(errors).toHaveBeenCalledWith("paseo-bots: routine tick failed", expect.any(Error));
-    scheduler.stop();
+  });
+
+  it("finishes the tick under way before it says it stopped", async () => {
+    const events = new EventEmitter();
+    const launching = once(events, "launch");
+    const due = routine({ id: "rt-z", schedule: { kind: "interval", minutes: 30 }, createdAt: hoursAgo(1) });
+    const { scheduler } = await startScheduler([makeBot({ id: "bot-z", routines: [due] })], async () => {
+      events.emit("launch");
+      const [chat] = await once(events, "started");
+      return chat as string;
+    });
+    await launching;
+    const stopped = scheduler.stop();
+    events.emit("started", "chat-z");
+    await stopped;
+    expect((await runsOf(scheduler, "rt-z")).map((run) => run.agentId)).toEqual(["chat-z"]);
   });
 });

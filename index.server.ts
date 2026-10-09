@@ -234,8 +234,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(uploadRpc, saveUpload);
   handleChatEvents(server, { host, journal, scheduler, commands });
 
-  return () => {
-    scheduler.stop();
-    relay.stop();
+  return async () => {
+    await Promise.all([scheduler.stop(), relay.stop()]);
   };
 }

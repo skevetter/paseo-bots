@@ -226,7 +226,7 @@ describe("the bots MCP server", () => {
       };
       expect(unknown.error.code).toBe(-32601);
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 });

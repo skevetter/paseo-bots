@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { type AppLimit, checkAppCall } from "../shared/apps";
 import type { AppRule, Bot, McpServerConfig } from "../shared/bot";
@@ -167,11 +168,18 @@ export class Relay {
     return port;
   }
 
-  stop() {
+  /** Resolves once the server has closed; requests still open are cut off. */
+  async stop(): Promise<void> {
     this.starts++;
-    this.server?.close();
+    const { server, listening } = this;
     this.server = null;
     this.listening = null;
+    await listening?.catch(() => {});
+    if (!server) return;
+    const closed = once(server, "close");
+    server.close();
+    server.closeAllConnections();
+    await closed;
   }
 
   async mountApps(botId: string): Promise<McpServerConfig | null> {

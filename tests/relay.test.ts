@@ -1,4 +1,4 @@
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import {
   type ClientRequest,
   createServer,
@@ -79,7 +79,7 @@ describe("the relay's request bodies", () => {
       expect(answer.status).toBe(413);
       expect(JSON.parse(answer.body)).toMatchObject({ jsonrpc: "2.0", error: { code: -32600 } });
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -92,7 +92,7 @@ describe("the relay's request bodies", () => {
       expect(answer.status).toBe(413);
       expect(answer.body).toContain("Send at most 5 MB.");
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -122,7 +122,7 @@ describe("the relay's request bodies", () => {
       hangUpMidBody(`http://127.0.0.1:${await relay.start()}/upload`, started);
       expect(await outcome).toBe("closed");
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -143,7 +143,7 @@ describe("the relay's request bodies", () => {
       const chunked = { "transfer-encoding": "chunked" };
       expect((await post(target, chunked, (request) => request.end("x".repeat(64)))).status).toBe(413);
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -189,7 +189,7 @@ describe("the relay's own failures", () => {
         404,
       );
     } finally {
-      relay.stop();
+      await relay.stop();
       listen.mockRestore();
       logged.mockRestore();
     }
@@ -209,7 +209,7 @@ describe("the relay's own failures", () => {
       );
       expect(answer).toMatchObject({ status: 200, body: "partial", complete: false });
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 
@@ -226,7 +226,7 @@ describe("the relay's own failures", () => {
       expect(answer.status).toBe(502);
       expect(JSON.parse(answer.body)).toMatchObject({ error: { code: -32002, message: "no upstream" } });
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 });
@@ -239,7 +239,7 @@ describe("the relay's lifecycle", () => {
     const relay = new Relay(fakeHost([]), []);
     try {
       const starting = relay.start();
-      relay.stop();
+      await relay.stop();
       await expect(starting).rejects.toThrow("stopped");
       const server = listen.mock.contexts.at(-1);
       if (!(server instanceof Server)) throw new Error("Expected the relay to listen");
@@ -249,7 +249,7 @@ describe("the relay's lifecycle", () => {
         404,
       );
     } finally {
-      relay.stop();
+      await relay.stop();
       listen.mockRestore();
     }
   });
@@ -258,12 +258,27 @@ describe("the relay's lifecycle", () => {
     const relay = new Relay(fakeHost([]), []);
     try {
       const port = await relay.start();
-      relay.stop();
+      await relay.stop();
       expect(await relay.start()).toBe(port);
       expect((await readState()).port).toBe(port);
     } finally {
-      relay.stop();
+      await relay.stop();
     }
+  });
+
+  it("closes requests still open when it stops, and says so once it has", async () => {
+    const relay = new Relay(fakeHost([]), []);
+    const events = new EventEmitter();
+    const reached = once(events, "reached");
+    relay.addRoute(async (_request, _response, path) => {
+      if (path !== "/hang") return false;
+      events.emit("reached");
+      return await new Promise<boolean>(() => {});
+    });
+    const answer = fetch(`http://127.0.0.1:${await relay.start()}/hang`, { method: "POST" });
+    await reached;
+    await relay.stop();
+    await expect(answer).rejects.toThrow();
   });
 
   it("moves to a free port and remembers it when its last one is taken", async () => {
@@ -282,7 +297,7 @@ describe("the relay's lifecycle", () => {
         404,
       );
     } finally {
-      relay.stop();
+      await relay.stop();
       squatter.close();
     }
   });
@@ -293,7 +308,7 @@ describe("the relay's lifecycle", () => {
     try {
       expect(await relay.mountApps("bot-a")).toBeNull();
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   });
 });
@@ -453,7 +468,7 @@ describe("the relay's answers from connected apps", () => {
         request.end(message),
       );
     } finally {
-      relay.stop();
+      await relay.stop();
     }
   };
 
@@ -533,8 +548,8 @@ function useAppsRelay(bots: Bot[]) {
     fake = await startFakeComposio();
     process.env.PASEO_BOTS_COMPOSIO_ORIGIN = fake.origin;
   });
-  afterAll(() => {
-    relay.stop();
+  afterAll(async () => {
+    await relay.stop();
     delete process.env.PASEO_BOTS_COMPOSIO_ORIGIN;
     fake?.close();
   });
