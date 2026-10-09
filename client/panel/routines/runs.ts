@@ -1,6 +1,7 @@
 import type { Routine } from "../../../shared/bot";
 import { upcomingRuns } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
+import { calendarDaysBetween } from "../../../shared/time";
 import type { BadgeVariant } from "../status";
 
 const UPCOMING = 6;
@@ -21,9 +22,7 @@ const TRIGGER_LABELS: Record<RoutineRun["trigger"], string> = {
 
 export function runTime(at: Date, now: Date): string {
   const time = at.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-  const day = new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const offset = Math.round((day - today) / 86_400_000);
+  const offset = calendarDaysBetween(now, at);
   if (offset === 0) return `Today ${time}`;
   if (offset === 1) return `Tomorrow ${time}`;
   if (offset === -1) return `Yesterday ${time}`;

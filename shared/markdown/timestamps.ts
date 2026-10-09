@@ -1,3 +1,5 @@
+import { calendarDaysBetween } from "../time";
+
 /** Mirrors Paseo's formatDuration (utils/time.ts); always floors. */
 export function formatDuration(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 0) return "0s";
@@ -11,11 +13,6 @@ export function formatDuration(durationMs: number): string {
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
   return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-}
-
-function calendarDaysBetween(earlier: Date, later: Date): number {
-  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  return Math.round((startOfDay(later).getTime() - startOfDay(earlier).getTime()) / 86_400_000);
 }
 
 let timeFormatter: Intl.DateTimeFormat | null = null;

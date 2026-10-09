@@ -10,6 +10,11 @@ export function localTime(date: Date): string {
   return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
+export function calendarDaysBetween(earlier: Date, later: Date): number {
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((startOfDay(later).getTime() - startOfDay(earlier).getTime()) / 86_400_000);
+}
+
 export function relativeTime(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return "";
   const then = Date.parse(iso);
