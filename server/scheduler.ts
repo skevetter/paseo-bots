@@ -113,11 +113,23 @@ function webhookStatus(status: RoutineRun["status"]): number {
   return 500;
 }
 
+type Queue = <T>(task: () => Promise<T>) => Promise<T>;
+
+function serial(): Queue {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (task) => {
+    const next = tail.then(task);
+    tail = next.catch(() => {});
+    return next;
+  };
+}
+
 /** Idles until the Paseo API is captured from an RPC handler or hook (the app calls `bots.hello` on start). */
 export class RoutineScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly records = serial();
+  private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
 
   constructor(
@@ -148,7 +160,7 @@ export class RoutineScheduler {
 
   /** One change to routines.json at a time. */
   private update<T>(change: (records: Records) => T | Promise<T>): Promise<T> {
-    const run = async () => {
+    return this.records(async () => {
       const raw = await readJson<Record<string, RoutineRecord | LegacyState>>(recordsPath(), {});
       const records: Records = Object.fromEntries(
         Object.entries(raw).map(([id, entry]) => [id, upgrade(entry)]),
@@ -156,10 +168,7 @@ export class RoutineScheduler {
       const result = await change(records);
       await writeJson(recordsPath(), records);
       return result;
-    };
-    const next = this.queue.then(run);
-    this.queue = next.catch(() => {});
-    return next;
+    });
   }
 
   async status() {
@@ -185,13 +194,16 @@ export class RoutineScheduler {
   }
 
   async webhookUrl(routineId: string, rotate = false): Promise<{ url: string }> {
-    const hooks = await readJson<Record<string, string>>(hooksPath(), {});
-    if (!hooks[routineId] || rotate) {
-      hooks[routineId] = randomBytes(24).toString("hex");
-      await writeJson(hooksPath(), hooks, 0o600);
-    }
+    const secret = await this.hooks(async () => {
+      const hooks = await readJson<Record<string, string>>(hooksPath(), {});
+      if (!hooks[routineId] || rotate) {
+        hooks[routineId] = randomBytes(24).toString("hex");
+        await writeJson(hooksPath(), hooks, 0o600);
+      }
+      return hooks[routineId];
+    });
     const port = await this.relay.start();
-    return { url: `http://127.0.0.1:${port}/hooks/${routineId}/${hooks[routineId]}` };
+    return { url: `http://127.0.0.1:${port}/hooks/${routineId}/${secret}` };
   }
 
   async finished(

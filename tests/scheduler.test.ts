@@ -309,4 +309,23 @@ describe("the routine scheduler's saved state", () => {
       relay.stop();
     }
   });
+
+  it("gives two callers asking at once the same saved webhook secret", async () => {
+    const hook = routine({ id: "rt-race", schedule: { kind: "webhook" } });
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-race", routines: [hook] })],
+      async () => "chat-1",
+    );
+    try {
+      const [first, second] = await Promise.all([
+        scheduler.webhookUrl("rt-race"),
+        scheduler.webhookUrl("rt-race"),
+      ]);
+      expect(second.url).toBe(first.url);
+      const saved = JSON.parse(await readFile(join(pluginDataPath(), "webhooks.json"), "utf8"));
+      expect(first.url.endsWith(`/${saved["rt-race"]}`)).toBe(true);
+    } finally {
+      relay.stop();
+    }
+  });
 });
