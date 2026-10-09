@@ -325,6 +325,21 @@ describe("retainLayout", () => {
     const third = retainLayout(second, layoutStream(buildRows(grown, true), true));
     expect(third).toBe(second);
   });
+
+  it("keeps task rows by identity while a later message streams", () => {
+    const plan = tool("TodoWrite", {
+      type: "unknown",
+      input: { todos: [{ content: "a", status: "in_progress" }] },
+      output: null,
+    });
+    const question = user("q");
+    const partial = assistant("partial");
+    const first = layoutStream(buildRows([question, plan, partial], true), true);
+    const grown = { ...partial, item: { type: "assistant_message", text: "partial and more" } };
+    const second = retainLayout(first, layoutStream(buildRows([question, plan, grown], true), true));
+    expect(first.items[1]?.row.kind).toBe("todo");
+    expect(second.items[1]).toBe(first.items[1]);
+  });
 });
 
 describe("mergeEntries", () => {
