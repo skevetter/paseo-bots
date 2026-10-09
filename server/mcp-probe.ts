@@ -1,4 +1,5 @@
 import { spawnProcess, terminateProcess } from "@getpaseo/plugin/server";
+import { redactSecrets } from "../shared/activity";
 import type { McpServerConfig, McpTool } from "../shared/bot";
 import { browserUnreachableMessage, browserUrlOf } from "../shared/browser";
 import { PLUGIN_VERSION } from "../shared/version";
@@ -318,11 +319,14 @@ async function probeSse(
   }
 }
 
+/** A server may echo only the credential of "Bearer <token>", or a key it was passed as an argument. */
 function redact(text: string, config: McpServerConfig): string {
-  const secrets = Object.values(config.type === "stdio" ? config.env : config.headers).filter(
-    (value) => value.length >= 4,
-  );
-  return secrets.reduce((out, secret) => out.split(secret).join("•••"), text);
+  const values = Object.values(config.type === "stdio" ? config.env : config.headers);
+  const secrets = values
+    .flatMap((value) => [value, /^\S+\s+(\S+)$/.exec(value.trim())?.[1] ?? ""])
+    .filter((value) => value.length >= 4)
+    .sort((a, b) => b.length - a.length);
+  return redactSecrets(secrets.reduce((out, secret) => out.split(secret).join("•••"), text));
 }
 
 /** chrome-devtools-mcp lists its tools without the browser, so check the browser is listening first. */

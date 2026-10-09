@@ -414,6 +414,38 @@ describe("probeMcpServer", () => {
     expect(!exits.ok && exits.error).not.toContain("sk-12345");
   });
 
+  it("keeps a header's token and a key passed as an argument out of the error it reports", async () => {
+    const http = createServer((_request, response) => {
+      response.writeHead(401).end("token 0f3a9c1d2e4b5a6978 is not valid");
+    });
+    await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
+    const { port } = http.address() as { port: number };
+    try {
+      const refused = await probeMcpServer({
+        config: {
+          type: "http",
+          url: `http://127.0.0.1:${port}/mcp`,
+          headers: { Authorization: "Bearer 0f3a9c1d2e4b5a6978" },
+        },
+      });
+      expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("401") });
+      expect(!refused.ok && refused.error).not.toContain("0f3a9c1d2e4b5a6978");
+    } finally {
+      http.close();
+    }
+    const key = "ghp_0123456789abcdefghijABCDEFGHIJ";
+    const crashed = await probeMcpServer({
+      config: {
+        type: "stdio",
+        command: process.execPath,
+        args: ["-e", "console.error('bad key ' + process.argv[1]); process.exit(2)", key],
+        env: {},
+      },
+    });
+    expect(crashed).toMatchObject({ ok: false, error: expect.stringContaining("code 2") });
+    expect(!crashed.ok && crashed.error).not.toContain(key);
+  });
+
   it("speaks streamable HTTP with a session and event-stream answers", async () => {
     const seen: string[] = [];
     const http = createServer((request, response) => {
