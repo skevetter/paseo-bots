@@ -729,6 +729,27 @@ describe("routine webhook calls", () => {
     expect(prompts).toEqual([expect.stringContaining("Content type: unknown\n\n(empty body)\n")]);
   });
 
+  it("turns away a wrong secret or a paused routine before reading any of the body", async () => {
+    const { scheduler } = await startScheduler(
+      [
+        makeBot({
+          id: "bot-g",
+          routines: [webhook({ id: "rt-guard" }), webhook({ id: "rt-off", enabled: false })],
+        }),
+      ],
+      async () => "never-started",
+    );
+    const { url } = await scheduler.webhookUrl("rt-guard");
+    const forged = url.replace(/[a-f0-9]{48}$/, "0".repeat(48));
+    const endless = 10 * 1024 ** 3;
+    expect(await declareBody(forged, endless)).toEqual([404, JSON.stringify({ error: "not found" })]);
+    expect(await declareBody((await scheduler.webhookUrl("rt-off")).url, endless)).toEqual([
+      409,
+      JSON.stringify({ error: "The routine is paused." }),
+    ]);
+    expect(await runsOf(scheduler, "rt-guard")).toEqual([]);
+  });
+
   it("answers 500 with the reason when a webhook's chat can't start", async () => {
     const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-500", routines: [webhook({ id: "rt-500" })] })],

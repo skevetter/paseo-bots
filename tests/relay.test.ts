@@ -419,6 +419,45 @@ describe("the relay's bot tools endpoint", () => {
   });
 });
 
+describe("the relay's tokens", () => {
+  useTempPaseoHome("paseo-bots-relay-tokens-");
+  const relay = new Relay(fakeHost([makeBot({ id: "bot-a" }), makeBot({ id: "bot-b" })]), []);
+  afterAll(() => relay.stop());
+  const statusFor = async (target: string, authorization: string) =>
+    (await post(target, { authorization }, (request) => request.end(INITIALIZE))).status;
+
+  it("turns a stranger away before reading any of its body, however large or endless", async () => {
+    const { url } = httpMount(await relay.mountTools("bot-a", newUuid()));
+    const apps = url.replace(/\/bots\/.*$/, "/mcp/bot-a");
+    for (const target of [url, apps]) {
+      const declared = await post(target, { "content-length": String(10 * 1024 * MB) }, (request) =>
+        request.flushHeaders(),
+      );
+      expect(declared.status).toBe(401);
+      const endless = await post(target, { "transfer-encoding": "chunked" }, (request) => request.write("{"));
+      expect(endless.status).toBe(401);
+    }
+  });
+
+  it("keeps each token to the bot, chat and endpoint it was minted for", async () => {
+    const agentId = newUuid();
+    const tools = httpMount(await relay.mountTools("bot-a", agentId));
+    await writeState({ apiKey: "ak_test" });
+    try {
+      const apps = httpMount(await relay.mountApps("bot-a"));
+      const port = new URL(tools.url).port;
+      const at = (path: string) => `http://127.0.0.1:${port}${path}`;
+      expect(await statusFor(at(`/bots/bot-b/${agentId}`), tools.authorization)).toBe(401);
+      expect(await statusFor(at("/mcp/bot-a"), tools.authorization)).toBe(401);
+      expect(await statusFor(at("/mcp/bot-b"), apps.authorization)).toBe(401);
+      expect(await statusFor(at(`/bots/bot-a/${agentId}`), apps.authorization)).toBe(401);
+      expect(await statusFor(tools.url, tools.authorization)).toBe(200);
+    } finally {
+      await writeState({ apiKey: null });
+    }
+  });
+});
+
 function pour(response: ServerResponse, sent: { bytes: number }): void {
   const chunk = Buffer.alloc(MB, "x");
   const next = () => {

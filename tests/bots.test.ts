@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { askBot } from "../server/tools/bots";
+import { answerMcp } from "../server/tools/mcp";
 import { EMPTY_LIBRARY } from "../shared/bot";
 import { buildAgentConfig } from "../shared/bot-agent";
 
@@ -169,5 +171,28 @@ describe("asking other bots", () => {
     expect(granted("allow")).toContain("ask_bot");
     expect(granted("ask")).not.toContain("ask_bot");
     expect(granted("ask")).toContain("check_chat");
+  });
+});
+
+describe("tools a bot isn't offered", () => {
+  it("won't run ask_bot for a bot kept from contacting others, even when called by name", async () => {
+    const scout = makeBot({ id: "bot-scout", name: "Scout", contactBots: "off" });
+    const host = fakeHost([scout, makeBot({ id: "bot-inbox", name: "Inbox" })]);
+    host.attach(
+      fakePaseo({ "caller-chat": { status: "running", labels: { "paseo-bots.bot": "bot-scout" } } }),
+    );
+    const before = started.length;
+    const answer = await answerMcp(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "ask_bot", arguments: { bot: "Inbox", message: "hi" } },
+      },
+      [askBot],
+      { bot: scout, agentId: "caller-chat", host, relay: null as never },
+    );
+    expect(answer?.error?.code).toBe(-32602);
+    expect(started).toHaveLength(before);
   });
 });
