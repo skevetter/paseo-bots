@@ -16,8 +16,10 @@ const KEEP = 200;
 type NewProposal = Pick<Proposal, "botId" | "agentId" | "kind" | "data"> & Partial<Pick<Proposal, "origin">>;
 
 export interface AcceptServices {
-  store: Pick<BotStore, "update">;
+  store: Pick<BotStore, "read" | "update">;
   commands: Pick<CommandAllowlist, "add">;
+  /** Runs on the state being written and throws to refuse. */
+  guard?: (proposal: Proposal, values: BotState) => void;
 }
 
 export interface AcceptedSkill {
@@ -51,7 +53,7 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function save(proposals: Proposal[]): Promise<void> {
-  await writeJson(storePath(), { proposals: proposals.slice(-KEEP) });
+  await writeJson(storePath(), { proposals: proposals.slice(-KEEP) }, 0o600);
 }
 
 export function createProposal(input: NewProposal): Promise<Proposal> {
@@ -128,27 +130,35 @@ function withSkill(values: BotState, botId: string, skill: AcceptedSkill): BotSt
   };
 }
 
-async function apply(proposal: Proposal, { store, commands }: AcceptServices): Promise<AcceptedSkill | null> {
+async function apply(proposal: Proposal, services: AcceptServices): Promise<AcceptedSkill | null> {
+  const { store, commands, guard = () => {} } = services;
+  const checked = (change: (values: BotState) => BotState) =>
+    store.update((values) => {
+      guard(proposal, values);
+      return change(values);
+    });
   switch (proposal.kind) {
     case "skill": {
+      guard(proposal, (await store.read()).values);
       const saved = await writeSkill({ id: proposal.data.name, text: proposal.data.text });
       const skill = { id: proposal.data.name, ...saved };
-      await store.update((values) => withSkill(values, proposal.botId, skill));
+      await checked((values) => withSkill(values, proposal.botId, skill));
       return skill;
     }
     case "routine":
-      await store.update((values) => withRoutine(values, proposal));
+      await checked((values) => withRoutine(values, proposal));
       return null;
     case "changes": {
       const context = { now: new Date().toISOString(), provider: proposal.data.provider };
-      await store.update((values) => applyChanges(values, proposal.data.changes, context));
+      await checked((values) => applyChanges(values, proposal.data.changes, context));
       return null;
     }
     case "command":
+      guard(proposal, (await store.read()).values);
       await commands.add(proposal.botId, proposal.data.command, proposal.data.cwd);
       return null;
     case "import":
-      await store.update((values) => addImportedBots(values, proposal.data.bots, proposal.data.teams));
+      await checked((values) => addImportedBots(values, proposal.data.bots, proposal.data.teams));
       return null;
   }
 }

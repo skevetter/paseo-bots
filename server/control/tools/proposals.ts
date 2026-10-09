@@ -146,10 +146,18 @@ const accept = defineControlTool({
     "Accepts a pending proposal, as its card's button in the app does. Elevated ones need the user unless they allow elevated changes.",
   input: z.object({ id: ProposalId }),
   async run({ id }, context) {
-    const reasons = await reasonsFor(context, await existing(id));
-    if (await needsApproval(context, reasons))
-      throw new Error(`${reasons.join(" ")} Accept it under ${APPROVAL_PLACE}.`);
-    const accepted = await acceptProposal(id, { store: context.host.store, commands: context.commands });
+    const { modes } = await applyContext(context.host);
+    const { allowElevated } = await context.settings();
+    const guard = (proposal: Proposal, values: BotState) => {
+      const reasons = proposalElevations(proposal, values, modes);
+      if (reasons.length && !allowElevated)
+        throw new Error(`${reasons.join(" ")} Accept it under ${APPROVAL_PLACE}.`);
+    };
+    const accepted = await acceptProposal(id, {
+      store: context.host.store,
+      commands: context.commands,
+      guard,
+    });
     return result(`Accepted ${describeProposal(accepted.proposal)}.`, {
       proposal: summary(accepted.proposal, await context.host.values()),
       ...(accepted.skill ? { skill: accepted.skill } : {}),

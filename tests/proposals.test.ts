@@ -90,3 +90,37 @@ describe("accepting proposals on the host", () => {
     );
   });
 });
+
+describe("the accept guard", () => {
+  useTempPaseoHome("paseo-bots-proposals-guard-");
+
+  it("runs on the state being written and leaves the proposal pending when it refuses", async () => {
+    const store = new BotStore();
+    await store.update((values) => ({ ...values, bots: [makeBot({ id: "bot-a", name: "Ada" })] }));
+    const proposal = await createProposal({
+      botId: "",
+      agentId: "",
+      origin: "control",
+      kind: "changes",
+      data: {
+        summary: "Mode",
+        changes: [{ type: "update_bot", bot: "Ada", mode: "bypassPermissions" }],
+        provider: "",
+      },
+    });
+    const seen: string[][] = [];
+    const guard = (_proposal: unknown, values: { bots: { name: string }[] }) => {
+      seen.push(values.bots.map((bot) => bot.name));
+      throw new Error("Needs the app.");
+    };
+    await store.update((values) => ({
+      ...values,
+      bots: [...values.bots, makeBot({ id: "bot-b", name: "Bea" })],
+    }));
+    const commands = { add: async () => ({ id: "", command: "", cwd: "" }) };
+    await expect(acceptProposal(proposal.id, { store, commands, guard })).rejects.toThrow("Needs the app.");
+    expect(seen).toEqual([["Ada", "Bea"]]);
+    expect((await store.read()).values.bots[0]?.modeId).toBeNull();
+    expect((await listProposals({ status: "pending" })).map((entry) => entry.id)).toContain(proposal.id);
+  });
+});

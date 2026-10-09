@@ -72,7 +72,7 @@ export function importElevations(
   ];
 }
 
-/** A changes proposal that no longer applies counts as not elevated; accepting it fails anyway. */
+/** A changes proposal that no longer applies counts as elevated: what it would do can't be checked. */
 export function proposalElevations(
   proposal: Proposal,
   values: BotState,
@@ -84,7 +84,7 @@ export function proposalElevations(
       try {
         return elevations(values, applyChanges(values, proposal.data.changes, context), providers);
       } catch {
-        return [];
+        return ["It no longer applies to the current setup, so check it in the app."];
       }
     }
     case "command":

@@ -90,5 +90,11 @@ describe("elevated changes", () => {
       data: { command: "rm -rf /tmp/x", cwd: "/tmp" },
     } satisfies Proposal;
     expect(proposalElevations(command, state())).toHaveLength(1);
+    const stale = {
+      ...command,
+      kind: "changes",
+      data: { summary: "x", changes: [{ type: "delete_bot", bot: "Nobody" }], provider: "" },
+    } satisfies Proposal;
+    expect(proposalElevations(stale, state())).toEqual([expect.stringContaining("no longer applies")]);
   });
 });

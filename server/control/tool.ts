@@ -61,28 +61,35 @@ export type ChangeOutcome =
   | { status: "applied"; values: BotState }
   | { status: "pending"; result: ToolResult };
 
-/** The same changes the app's setup cards apply. Elevated ones wait in a proposal. */
+/**
+ * The same changes the app's setup cards apply. Elevated ones wait in a proposal; the check runs on the
+ * state being written, so a request that lands in between can't slip one past. `extra` adds reasons the
+ * state can't show, such as a new MCP server.
+ */
 export async function applyOrPropose(
   context: ControlContext,
   summary: string,
   changes: readonly Change[],
+  extra: readonly string[] = [],
 ): Promise<ChangeOutcome> {
   const apply = await applyContext(context.host);
   const resolved = resolveChanges(changes, apply);
-  const before = await context.host.values();
-  const reasons = elevations(before, applyChanges(before, resolved, apply), apply.modes);
-  if (await needsApproval(context, reasons)) {
-    const proposal = await createProposal({
-      botId: "",
-      agentId: "",
-      origin: "control",
-      kind: "changes",
-      data: { summary, changes: resolved, provider: apply.provider },
-    });
-    return { status: "pending", result: pendingResult(proposal, reasons) };
-  }
-  const saved = await context.host.store.update((values) => applyChanges(values, resolved, apply));
-  return { status: "applied", values: saved.values };
+  const { allowElevated } = await context.settings();
+  let reasons: string[] = [];
+  const saved = await context.host.store.update((values) => {
+    const after = applyChanges(values, resolved, apply);
+    reasons = [...extra, ...elevations(values, after, apply.modes)];
+    return reasons.length && !allowElevated ? values : after;
+  });
+  if (!reasons.length || allowElevated) return { status: "applied", values: saved.values };
+  const proposal = await createProposal({
+    botId: "",
+    agentId: "",
+    origin: "control",
+    kind: "changes",
+    data: { summary, changes: resolved, provider: apply.provider },
+  });
+  return { status: "pending", result: pendingResult(proposal, reasons) };
 }
 
 /** Env and header values are usually secrets, so only their names leave the host. */
