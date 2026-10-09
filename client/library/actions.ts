@@ -1,27 +1,20 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
+import type { Bot, BotMcpServer, BotState, LibraryMcpServer, LibrarySkill } from "../../shared/bot";
 import {
-  type Bot,
-  type BotMcpServer,
-  type BotState,
-  EMPTY_LIBRARY,
-  type Library,
-  type LibraryMcpServer,
-  type LibrarySkill,
-} from "../../shared/bot";
-import { withBrowserServer } from "../../shared/browser";
-import {
+  addedSkillsMessage,
   addMcpServers,
-  forgetItem,
+  changeLibrary,
   type LibraryKind,
-  newMcpServerId,
-  renameGrants,
+  type LibraryMutation,
+  newLibraryServer,
+  patchedServer,
   setBotUses,
-  updateMcpServer,
   updateSkill,
   upsertSkills,
   withoutMcpServer,
+  withoutSkill,
 } from "../../shared/library";
 import { skillDeleteRpc } from "../../shared/rpc";
 import { errorText } from "../native";
@@ -34,9 +27,7 @@ export type SetTarget = (target: LibraryTarget | null) => void;
 
 export type CommitSettings = (mutate: (values: BotState) => BotState) => Promise<boolean>;
 
-type SaveLibrary = (
-  mutate: (library: Library, bots: Bot[]) => { library?: Library; bots?: Bot[] },
-) => Promise<boolean>;
+type SaveLibrary = (mutate: LibraryMutation) => Promise<boolean>;
 
 export interface LibraryActions {
   save: SaveLibrary;
@@ -52,13 +43,7 @@ export interface LibraryActions {
 }
 
 export function useLibraryActions(commit: CommitSettings, setTarget: SetTarget): LibraryActions {
-  /** Changes the library and the bots together in one write. */
-  const save: SaveLibrary = (mutate) =>
-    commit((values) => {
-      const current = withBrowserServer(values.library ?? EMPTY_LIBRARY);
-      const next = mutate(current, values.bots);
-      return { ...values, library: next.library ?? current, bots: next.bots ?? values.bots };
-    });
+  const save: SaveLibrary = (mutate) => commit((values) => changeLibrary(values, mutate));
   const skillActions = useSkillActions(save, setTarget);
 
   const addServers = async (drafts: BotMcpServer[]) => {
@@ -116,7 +101,7 @@ function useSkillActions(
     if (!first) return;
     if (!(await save((current) => ({ library: upsertSkills(current, skills) })))) return;
     for (const skill of skills) void queryClient.invalidateQueries({ queryKey: skillQueryKey(skill.id) });
-    toast.show(addedSkillsMessage(skills, first.id), { variant: "success" });
+    toast.show(addedSkillsMessage(skills), { variant: "success" });
     setTarget({ kind: "skill", id: first.id });
   };
 
@@ -127,60 +112,12 @@ function useSkillActions(
       toast.error(`Couldn't delete the files: ${errorText(error)}`);
       return;
     }
-    if (
-      await save((current, currentBots) => ({
-        library: { ...current, skills: current.skills.filter((skill) => skill.id !== id) },
-        bots: forgetItem(currentBots, "skill", id),
-      }))
-    ) {
+    if (await save((current, currentBots) => withoutSkill(current, currentBots, id))) {
       setTarget(null);
     }
   };
 
   return { addSkills, removeSkill };
-}
-
-function addedSkillsMessage(skills: readonly SavedSkill[], firstId: string): string {
-  const added = skills.length === 1 ? `Added ${firstId}` : `Added ${skills.length} skills`;
-  const unreviewed = skills.filter((skill) => !skill.reviewedSha).length;
-  if (!unreviewed) return added;
-  const them = unreviewed === 1 ? "it" : "them";
-  return `${added}. Review ${them} before bots use ${them}.`;
-}
-
-function newLibraryServer(draft: McpDraft): LibraryMcpServer {
-  const now = new Date().toISOString();
-  // Off until a test connects to it.
-  return {
-    ...draft,
-    id: newMcpServerId(),
-    enabled: false,
-    tools: null,
-    checkedAt: null,
-    checkError: null,
-    createdAt: now,
-    updatedAt: now,
-  };
-}
-
-function patchedServer({
-  library,
-  bots,
-  id,
-  patch,
-}: {
-  library: Library;
-  bots: Bot[];
-  id: string;
-  patch: Partial<LibraryMcpServer>;
-}): { library: Library; bots: Bot[] } {
-  const before = library.mcpServers.find((server) => server.id === id);
-  const name = patch.name;
-  const renamed = name !== undefined && before !== undefined && name !== before.name;
-  return {
-    library: updateMcpServer(library, id, patch),
-    bots: renamed ? renameGrants(bots, before.name, name) : bots,
-  };
 }
 
 function withAppToggled(

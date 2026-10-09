@@ -6,17 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Text, View } from "react-native";
 import type { BotMcpServer, LibraryMcpServer, McpServerConfig } from "../../shared/bot";
-import {
-  formatPairs,
-  joinArgs,
-  MCP_NAME,
-  parseMcpJson,
-  parsePairs,
-  RESERVED_MCP_NAMES,
-  splitArgs,
-} from "../../shared/mcp-servers";
-
-import { PASEO_MCP_NAME } from "../../shared/paseo-tools";
+import { mcpServerNameError } from "../../shared/library";
+import { formatPairs, joinArgs, parseMcpJson, parsePairs, splitArgs } from "../../shared/mcp-servers";
 import { mcpSourcesRpc } from "../../shared/rpc";
 import { Button, SheetFooter } from "../panel/controls";
 import { FormTextArea, InputField, TextAreaField } from "../panel/fields";
@@ -48,7 +39,7 @@ export function ServerSheet({ colors, initial, isNew, otherNames, onClose, onSav
   const draft = useServerDraft(initial);
   const { server, config } = draft;
   const name = server.name.trim();
-  const nameError = serverNameError(name, otherNames);
+  const nameError = mcpServerNameError(name, otherNames);
   const urlError =
     config.type !== "stdio" && config.url.trim() && !URL_PATTERN.test(config.url.trim())
       ? "Use an http:// or https:// URL"
@@ -121,14 +112,6 @@ function configForType(type: McpServerConfig["type"], config: McpServerConfig): 
     url: config.type === "stdio" ? "" : config.url,
     headers: config.type === "stdio" ? {} : config.headers,
   };
-}
-
-function serverNameError(name: string, otherNames: readonly string[]): string | null {
-  if (!name) return null;
-  if (!MCP_NAME.test(name)) return "Use letters, numbers, dashes and underscores";
-  if (RESERVED_MCP_NAMES.includes(name))
-    return `"${name}" is taken by ${name === PASEO_MCP_NAME ? "Paseo's own tools" : "connected apps"}`;
-  return otherNames.includes(name) ? `"${name}" is already in the library` : null;
 }
 
 function ServerFields({

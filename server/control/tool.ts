@@ -1,5 +1,5 @@
 import { type ZodType, z } from "zod";
-import type { Bot, BotState, ControlSettings } from "../../shared/bot";
+import type { Bot, BotState, ControlSettings, McpServerConfig } from "../../shared/bot";
 import { applyChanges, resolveChanges } from "../../shared/changes/apply";
 import { findBot } from "../../shared/changes/refs";
 import type { Change } from "../../shared/changes/schema";
@@ -83,4 +83,17 @@ export async function applyOrPropose(
   }
   const saved = await context.host.store.update((values) => applyChanges(values, resolved, apply));
   return { status: "applied", values: saved.values };
+}
+
+/** Env and header values are usually secrets, so only their names leave the host. */
+export const MASK = "•••";
+
+export function maskValues(record: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.keys(record).map((name) => [name, MASK]));
+}
+
+export function maskedConfig(config: McpServerConfig): McpServerConfig {
+  return config.type === "stdio"
+    ? { ...config, env: maskValues(config.env) }
+    : { ...config, headers: maskValues(config.headers) };
 }

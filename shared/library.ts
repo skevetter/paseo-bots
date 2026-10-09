@@ -6,12 +6,15 @@ import {
   type Library,
   type LibraryMcpServer,
   type LibrarySkill,
+  type McpTool,
   type TeamFileTeam,
 } from "./bot";
 import { newGroupId, numberedName, uniqueName } from "./bot-ids";
-import { isBrowserServer } from "./browser";
+import { isBrowserServer, withBrowserServer } from "./browser";
 import { saveTeam } from "./groups";
-import { joinArgs, RESERVED_MCP_NAMES } from "./mcp-servers";
+import { joinArgs, MCP_NAME, RESERVED_MCP_NAMES } from "./mcp-servers";
+import { PASEO_MCP_NAME } from "./paseo-tools";
+import { parseSkillFrontmatter } from "./skills";
 import { prefixedId } from "./uuid";
 
 export function newMcpServerId(): string {
@@ -20,20 +23,68 @@ export function newMcpServerId(): string {
 
 export type LibraryKind = "skill" | "mcp";
 
+type McpServerDraft = Pick<LibraryMcpServer, "name" | "description" | "config">;
+
+export type LibraryMutation = (library: Library, bots: Bot[]) => { library?: Library; bots?: Bot[] };
+
+/** Changes the library, with its built-in Browser entry, and the bots in one go. */
+export function changeLibrary(values: BotState, mutate: LibraryMutation): BotState {
+  const current = withBrowserServer(values.library ?? EMPTY_LIBRARY);
+  const next = mutate(current, values.bots);
+  return { ...values, library: next.library ?? current, bots: next.bots ?? values.bots };
+}
+
 /** Off until a test connects to it. */
-function libraryServer(draft: BotMcpServer, name: string, now: string): LibraryMcpServer {
+export function newLibraryServer(
+  draft: McpServerDraft,
+  now: string = new Date().toISOString(),
+): LibraryMcpServer {
   return {
     id: newMcpServerId(),
-    name,
-    description: "",
+    name: draft.name,
+    description: draft.description,
     enabled: false,
-    config: JSON.parse(JSON.stringify(draft.config)) as BotMcpServer["config"],
+    config: draft.config,
     tools: null,
     checkedAt: null,
     checkError: null,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+export function mcpServerNameError(name: string, otherNames: readonly string[]): string | null {
+  if (!name) return null;
+  if (!MCP_NAME.test(name)) return "Use letters, numbers, dashes and underscores";
+  if (RESERVED_MCP_NAMES.includes(name))
+    return `"${name}" is taken by ${name === PASEO_MCP_NAME ? "Paseo's own tools" : "connected apps"}`;
+  return otherNames.includes(name) ? `"${name}" is already in the library` : null;
+}
+
+/** A changed connection makes the old test stale, so it needs a new one. */
+export function editedServer(
+  server: Pick<LibraryMcpServer, "config">,
+  draft: McpServerDraft,
+): { patch: Partial<LibraryMcpServer>; retest: boolean } {
+  const retest = JSON.stringify(draft.config) !== JSON.stringify(server.config);
+  const stale = retest ? { tools: null, checkError: null, checkedAt: null } : {};
+  return {
+    patch: { name: draft.name, description: draft.description, config: draft.config, ...stale },
+    retest,
+  };
+}
+
+export type McpTestResult = { ok: true; tools: McpTool[] } | { ok: false; error: string };
+
+/** What a connection test records; `enable` turns the server on once it connects. */
+export function testedServer(
+  result: McpTestResult,
+  enable = false,
+  checkedAt: string = new Date().toISOString(),
+): Partial<LibraryMcpServer> {
+  return result.ok
+    ? { tools: result.tools, checkError: null, checkedAt, ...(enable ? { enabled: true } : {}) }
+    : { checkError: result.error, checkedAt };
 }
 
 /** `reuseByName` serves imports: a file's redacted copy of a server the user already set up adds nothing. */
@@ -56,9 +107,12 @@ export function addMcpServers(
       ids.push(existing.id);
       continue;
     }
-    const server = libraryServer(
-      draft,
-      uniqueName(name, new Set([...RESERVED_MCP_NAMES, ...servers.map((entry) => entry.name)])),
+    const server = newLibraryServer(
+      {
+        name: uniqueName(name, new Set([...RESERVED_MCP_NAMES, ...servers.map((entry) => entry.name)])),
+        description: "",
+        config: JSON.parse(JSON.stringify(draft.config)) as BotMcpServer["config"],
+      },
       now,
     );
     servers.push(server);
@@ -98,6 +152,27 @@ export function upsertSkills(
       };
   }
   return { ...library, skills: next };
+}
+
+export function addedSkillsMessage(skills: readonly Pick<LibrarySkill, "id" | "reviewedSha">[]): string {
+  const [first] = skills;
+  const added = first && skills.length === 1 ? `Added ${first.id}` : `Added ${skills.length} skills`;
+  const unreviewed = skills.filter((skill) => !skill.reviewedSha).length;
+  if (!unreviewed) return added;
+  const them = unreviewed === 1 ? "it" : "them";
+  return `${added}. Review ${them} before bots use ${them}.`;
+}
+
+/** Imports stored as "github.com/owner/repo/path" update from "owner/repo/path"; links update from themselves. */
+export function skillUpdateSource(source: string): string | null {
+  if (source.startsWith("github.com/")) return source.slice("github.com/".length);
+  return /^https?:\/\//i.test(source) ? source : null;
+}
+
+export function skillTextWarning(text: string, id: string): string | null {
+  const meta = parseSkillFrontmatter(text);
+  if (!meta.description) return "Add a description: line to the frontmatter so bots know when to use it";
+  return meta.name && meta.name !== id ? `The name in the frontmatter should be "${id}"` : null;
 }
 
 export function updateMcpServer(library: Library, id: string, patch: Partial<LibraryMcpServer>): Library {
@@ -148,6 +223,38 @@ export function withoutMcpServer(
         ? { ...bot, alwaysAllow: bot.alwaysAllow.filter((grant) => !grant.startsWith(prefix)) }
         : bot,
     ),
+  };
+}
+
+export function withoutSkill(
+  library: Library,
+  bots: readonly Bot[],
+  id: string,
+): { library: Library; bots: Bot[] } {
+  return {
+    library: { ...library, skills: library.skills.filter((skill) => skill.id !== id) },
+    bots: forgetItem(bots, "skill", id),
+  };
+}
+
+/** Renames the server's grants along with it. */
+export function patchedServer({
+  library,
+  bots,
+  id,
+  patch,
+}: {
+  library: Library;
+  bots: Bot[];
+  id: string;
+  patch: Partial<LibraryMcpServer>;
+}): { library: Library; bots: Bot[] } {
+  const before = library.mcpServers.find((server) => server.id === id);
+  const name = patch.name;
+  const renamed = name !== undefined && before !== undefined && name !== before.name;
+  return {
+    library: updateMcpServer(library, id, patch),
+    bots: renamed ? renameGrants(bots, before.name, name) : bots,
   };
 }
 

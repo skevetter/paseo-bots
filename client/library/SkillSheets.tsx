@@ -4,14 +4,9 @@ import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsSection } from "@getpaseo/plugin/client/ui";
 import { useState } from "react";
 import { Text, View } from "react-native";
+import { skillTextWarning } from "../../shared/library";
 import { skillImportRpc, skillWriteRpc } from "../../shared/rpc";
-import {
-  parseSkillFrontmatter,
-  parseSkillSource,
-  sanitizeSkillName,
-  scanSkillText,
-  skillMarkdown,
-} from "../../shared/skills";
+import { parseSkillSource, sanitizeSkillName, scanSkillText, skillMarkdown } from "../../shared/skills";
 import { errorText, MONO_FONT, MONO_PROPS } from "../native";
 import { Button, SheetActions, SheetFooter } from "../panel/controls";
 import { FormTextArea, InputField, TextAreaField } from "../panel/fields";
@@ -241,12 +236,7 @@ export function EditSkillSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const changed = draft !== saved;
-  const meta = parseSkillFrontmatter(draft);
-  const warning = !meta.description
-    ? "Add a description: line to the frontmatter so bots know when to use it"
-    : meta.name && meta.name !== id
-      ? `The name in the frontmatter should be "${id}"`
-      : null;
+  const warning = skillTextWarning(draft, id);
 
   const save = async () => {
     setBusy(true);

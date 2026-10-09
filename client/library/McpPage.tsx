@@ -11,7 +11,7 @@ import { useState } from "react";
 import { Text, View } from "react-native";
 import type { Bot, LibraryMcpServer, McpTool } from "../../shared/bot";
 import { BROWSER_SERVER_ID, isBrowserServer, mcpServerLabel } from "../../shared/browser";
-import { mcpServerTested, mcpTarget } from "../../shared/library";
+import { editedServer, mcpServerTested, mcpTarget, testedServer } from "../../shared/library";
 import { mcpProbeRpc } from "../../shared/rpc";
 import { relativeTime } from "../../shared/time";
 import { errorText, MONO_FONT, MONO_PROPS } from "../native";
@@ -65,10 +65,9 @@ export function McpPage({
 
   const saveEdit = (draft: McpDraft) => {
     setEditing(false);
-    const changed = JSON.stringify(draft.config) !== JSON.stringify(server.config);
-    // A changed connection makes the old tool list stale; test the new one right away.
-    onPatch({ ...draft, ...(changed ? { tools: null, checkError: null, checkedAt: null } : {}) });
-    if (changed) void onTest(draft.config);
+    const { patch, retest } = editedServer(server, draft);
+    onPatch(patch);
+    if (retest) void onTest(draft.config);
   };
 
   return (
@@ -147,16 +146,9 @@ export function useServerTests(onPatch: (id: string, patch: Partial<LibraryMcpSe
   const test = async (id: string, config: ServerConfig, enable = false) => {
     setTesting((current) => withMember(current, id, true));
     try {
-      const result = await probe({ config });
-      const checkedAt = new Date().toISOString();
-      onPatch(
-        id,
-        result.ok
-          ? { tools: result.tools, checkError: null, checkedAt, ...(enable ? { enabled: true } : {}) }
-          : { checkError: result.error, checkedAt },
-      );
+      onPatch(id, testedServer(await probe({ config }), enable));
     } catch (error) {
-      onPatch(id, { checkError: errorText(error), checkedAt: new Date().toISOString() });
+      onPatch(id, testedServer({ ok: false, error: errorText(error) }));
     } finally {
       setTesting((current) => withMember(current, id, false));
     }

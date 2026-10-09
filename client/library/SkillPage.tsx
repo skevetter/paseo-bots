@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { type Bot, type LibrarySkill, skillNeedsReview } from "../../shared/bot";
+import { skillUpdateSource } from "../../shared/library";
 import { skillImportRpc, skillReadRpc } from "../../shared/rpc";
 import { errorText, MONO_FONT, MONO_PROPS } from "../native";
 import { Button } from "../panel/controls";
@@ -31,12 +32,6 @@ interface SkillPageProps {
 
 export const skillQueryKey = (id: string) => ["paseo-bots", "library-skill", id];
 
-/** Imports stored as "github.com/owner/repo/path" update from "owner/repo/path"; links update from themselves. */
-function updateSource(source: string): string | null {
-  if (source.startsWith("github.com/")) return source.slice("github.com/".length);
-  return /^https?:\/\//i.test(source) ? source : null;
-}
-
 export function SkillPage({
   colors,
   skill,
@@ -52,7 +47,7 @@ export function SkillPage({
   const file = useQuery({ queryKey: skillQueryKey(skill.id), queryFn: () => read({ id: skill.id }) });
   const [editing, setEditing] = useState(false);
   const [reviewing, setReviewing] = useState(false);
-  const source = updateSource(skill.source);
+  const source = skillUpdateSource(skill.source);
   const { updating, update } = useSkillUpdate({ id: skill.id, source, onImported });
   const needsReview = skillNeedsReview(skill, file.data?.sha ?? null);
   const changedSinceReview = typeof skill.reviewedSha === "string" && needsReview;
