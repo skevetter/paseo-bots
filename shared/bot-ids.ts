@@ -1,14 +1,16 @@
+import { prefixedId } from "./uuid";
+
 export function uniqueName(name: string, taken: ReadonlySet<string>): string {
   if (!taken.has(name)) return name;
   for (let n = 2; ; n++) if (!taken.has(`${name}-${n}`)) return `${name}-${n}`;
 }
 
 export function newBotId(): string {
-  return `bot-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return prefixedId("bot");
 }
 
 export function newGroupId(): string {
-  return `team-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return prefixedId("team");
 }
 
 export function numberedName(name: string, taken: ReadonlySet<string>): string {
@@ -17,9 +19,9 @@ export function numberedName(name: string, taken: ReadonlySet<string>): string {
 }
 
 export function newPlaybookId(): string {
-  return `pb-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return prefixedId("pb");
 }
 
 export function newRoutineId(): string {
-  return `rt-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return prefixedId("rt");
 }

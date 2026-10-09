@@ -1,12 +1,9 @@
 import type { Bot, BotDefaults, Preset } from "./bot";
-
-function newPresetId(): string {
-  return `pr-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-}
+import { prefixedId } from "./uuid";
 
 export function presetFromBot(bot: Bot, now: string = new Date().toISOString()): Preset {
   return {
-    id: newPresetId(),
+    id: prefixedId("pr"),
     name: bot.name,
     title: bot.title,
     description: bot.description,

@@ -1,3 +1,5 @@
+import { prefixedId } from "./uuid";
+
 // The wire types mirror Paseo's `images` and AgentAttachment.
 
 export type ComposerAttachment =
@@ -89,5 +91,5 @@ export function toWire(attachments: readonly ComposerAttachment[]): {
 }
 
 export function newAttachmentId(): string {
-  return `att-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return prefixedId("att", 6);
 }

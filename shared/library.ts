@@ -12,9 +12,10 @@ import { newGroupId, numberedName, uniqueName } from "./bot-ids";
 import { isBrowserServer } from "./browser";
 import { saveTeam } from "./groups";
 import { joinArgs, RESERVED_MCP_NAMES } from "./mcp-servers";
+import { prefixedId } from "./uuid";
 
 export function newMcpServerId(): string {
-  return `mcp-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return prefixedId("mcp");
 }
 
 export type LibraryKind = "skill" | "mcp";

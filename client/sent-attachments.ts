@@ -1,4 +1,5 @@
 import type { ComposerAttachment } from "../shared/attachments";
+import { prefixedId } from "../shared/uuid";
 
 // Paseo's timeline keeps only the text of user messages, so attachments sent from here are remembered for the session.
 interface Sent {
@@ -29,5 +30,5 @@ export function sentAttachments(item: {
 }
 
 export function newMessageId(): string {
-  return `msg-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  return prefixedId("msg", 6);
 }
