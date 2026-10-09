@@ -1,7 +1,7 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Platform, type TextStyle } from "react-native";
+import { clamp } from "../../../shared/layout";
 import { createTextMeasurer, domNode, observeWidth, type TextMeasurer } from "../../web";
-import { clampHeight } from "./logic";
 
 const web = Platform.OS === "web";
 
@@ -26,7 +26,7 @@ export function useInputHeight({ inputRef, text, minHeight, maxHeight, fontSize 
     (value: string) => {
       const measured = measurer.current?.measure(domNode(inputRef.current), value);
       if (measured === null || measured === undefined) return;
-      const next = clampHeight(measured, minHeight, maxHeight);
+      const next = clamp(measured, minHeight, maxHeight);
       setHeight((current) => (Math.abs(current - next) < 1 ? current : next));
     },
     [inputRef, minHeight, maxHeight],

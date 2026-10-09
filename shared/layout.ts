@@ -3,7 +3,9 @@ export const LIST_WIDTH = { default: 320, min: 200, max: 600 };
 const PANEL_WIDTH = { default: 320, min: 240 };
 export const CENTER_MIN_WIDTH = 400;
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+export function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 /** Keeps the chat CENTER_MIN_WIDTH wide; the settings panel gives way before the list. */
 export function fitColumns(

@@ -103,10 +103,6 @@ export function resolveMaxInputHeight(windowHeight: number): number {
   return Math.max(DEFAULT_MAX_INPUT_HEIGHT, Math.floor(windowHeight * 0.5));
 }
 
-export function clampHeight(height: number, min: number, max: number): number {
-  return Math.max(min, Math.min(max, height));
-}
-
 export interface QueuedMessage {
   id: string;
   text: string;
