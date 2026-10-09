@@ -4,6 +4,7 @@ import { BOTS_TOOLS } from "./bots";
 import { CHAT_TOOLS } from "./chats";
 import { LIBRARY_TOOLS } from "./library";
 import { MEMORY_TOOLS } from "./memory";
+import { PROPOSAL_TOOLS } from "./proposals";
 import { ROUTINE_TOOLS } from "./routines";
 
 /** In the order clients see them. */
@@ -14,4 +15,5 @@ export const CONTROL_TOOLS: readonly ControlTool[] = [
   ...ROUTINE_TOOLS,
   ...MEMORY_TOOLS,
   ...APP_TOOLS,
+  ...PROPOSAL_TOOLS,
 ];
