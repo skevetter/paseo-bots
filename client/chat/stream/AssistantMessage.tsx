@@ -2,7 +2,8 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, useRevealedText } from "@getpaseo/plugin/client/react-native";
 import { memo, useMemo } from "react";
 import { Text, View } from "react-native";
-import { capMessageForRender, utf8ByteLength } from "../../../shared/markdown/render-limit";
+import { utf8Bytes } from "../../../shared/bot-checks";
+import { capMessageForRender } from "../../../shared/markdown/render-limit";
 import { Markdown } from "../../Markdown";
 import { content, ui } from "../../typography";
 import { isWeb } from "./ui";
@@ -23,7 +24,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   const capped = useMemo(() => capMessageForRender(text), [text]);
   const revealed = useRevealedText(capped.text, phase);
   const bytes = useMemo(
-    () => (capped.capped && phase === "complete" ? utf8ByteLength(text) : null),
+    () => (capped.capped && phase === "complete" ? utf8Bytes(text) : null),
     [capped.capped, phase, text],
   );
   return (

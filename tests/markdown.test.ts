@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { utf8Bytes } from "../shared/bot-checks";
 import { parseMarkdown } from "../shared/markdown/blocks";
 import { parseInline } from "../shared/markdown/inline";
-import { capMessageForRender, utf8ByteLength } from "../shared/markdown/render-limit";
+import { capMessageForRender } from "../shared/markdown/render-limit";
 import { formatDuration } from "../shared/markdown/timestamps";
 import type { Block, Inline } from "../shared/markdown/types";
 
@@ -199,7 +200,7 @@ describe("render limits", () => {
     const long = "a".repeat(40_000);
     expect(capMessageForRender(long)).toEqual({ text: "a".repeat(32_000), capped: true });
     expect(capMessageForRender("short")).toEqual({ text: "short", capped: false });
-    expect(utf8ByteLength("aé€😀")).toBe(1 + 2 + 3 + 4);
+    expect(utf8Bytes("aé€😀")).toBe(1 + 2 + 3 + 4);
   });
 });
 
