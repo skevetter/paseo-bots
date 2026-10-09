@@ -146,10 +146,13 @@ async function importSkillDir(tree: RepoTree, dir: string): Promise<ImportedSkil
     .sort((a, b) => Number(b.path === `${base}SKILL.md`) - Number(a.path === `${base}SKILL.md`))
     .slice(0, MAX_FILES_PER_SKILL);
   const files = new Map<string, string>();
+  const encoded = (path: string) => path.split("/").map(encodeURIComponent).join("/");
   for (const blob of blobs) {
     files.set(
       blob.path.slice(base.length),
-      await fetchText(`https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${blob.path}`),
+      await fetchText(
+        `https://raw.githubusercontent.com/${owner}/${repo}/${encoded(ref)}/${encoded(blob.path)}`,
+      ),
     );
   }
   const origin = `github.com/${owner}/${repo}${dir === "." ? "" : `/${dir}`}`;
