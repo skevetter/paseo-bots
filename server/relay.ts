@@ -121,6 +121,7 @@ async function readCapped(upstream: Response, limit: number): Promise<Buffer> {
 export class Relay {
   private server: Server | null = null;
   private listening: Promise<number> | null = null;
+  private starts = 0;
   private readonly routes: RelayRoute[] = [];
 
   constructor(
@@ -134,32 +135,40 @@ export class Relay {
 
   /** Reuses the previous port when it's free so running chats keep their URLs. */
   start(): Promise<number> {
-    this.listening ??= (async () => {
-      const state = await readState();
-      const server = createServer((request, response) => void this.handle(request, response));
-      const listen = (port: number) =>
-        new Promise<number>((resolve, reject) => {
-          server.once("error", reject);
-          server.listen(port, "127.0.0.1", () => {
-            server.off("error", reject);
-            resolve((server.address() as { port: number }).port);
-          });
-        });
-      let port: number;
-      try {
-        port = await listen(state.port ?? 0);
-      } catch {
-        port = await listen(0);
-      }
-      this.server = server;
-      server.on("error", (error) => console.error("paseo-bots: the relay's server failed", error));
-      if (port !== state.port) await writeState({ port });
-      return port;
-    })();
+    this.listening ??= this.open(this.starts);
     return this.listening;
   }
 
+  private async open(start: number): Promise<number> {
+    const state = await readState();
+    const server = createServer((request, response) => void this.handle(request, response));
+    const listen = (port: number) =>
+      new Promise<number>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+          server.off("error", reject);
+          const address = server.address();
+          resolve(address && typeof address === "object" ? address.port : port);
+        });
+      });
+    let port: number;
+    try {
+      port = await listen(state.port ?? 0);
+    } catch {
+      port = await listen(0);
+    }
+    if (start !== this.starts) {
+      server.close();
+      throw new Error("The relay stopped before it started listening.");
+    }
+    this.server = server;
+    server.on("error", (error) => console.error("paseo-bots: the relay's server failed", error));
+    if (port !== state.port) await writeState({ port });
+    return port;
+  }
+
   stop() {
+    this.starts++;
     this.server?.close();
     this.server = null;
     this.listening = null;

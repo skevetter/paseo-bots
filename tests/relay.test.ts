@@ -185,6 +185,30 @@ describe("the relay's own failures", () => {
   });
 });
 
+describe("the relay's lifecycle", () => {
+  useTempPaseoHome("paseo-bots-relay-lifecycle-");
+
+  it("closes the server it was still starting when it's stopped", async () => {
+    const listen = vi.spyOn(Server.prototype, "listen");
+    const relay = new Relay(fakeHost([]), []);
+    try {
+      const starting = relay.start();
+      relay.stop();
+      await expect(starting).rejects.toThrow("stopped");
+      const server = listen.mock.contexts.at(-1);
+      if (!(server instanceof Server)) throw new Error("Expected the relay to listen");
+      expect(server.listening).toBe(false);
+      const port = await relay.start();
+      expect((await post(`http://127.0.0.1:${port}/nowhere`, {}, (request) => request.end())).status).toBe(
+        404,
+      );
+    } finally {
+      relay.stop();
+      listen.mockRestore();
+    }
+  });
+});
+
 function pour(response: ServerResponse, sent: { bytes: number }): void {
   const chunk = Buffer.alloc(MB, "x");
   const next = () => {
