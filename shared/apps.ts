@@ -182,6 +182,23 @@ export interface AppTool {
   readOnly: boolean;
 }
 
+export function filterAppTools(list: readonly AppTool[], query: string): readonly AppTool[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return list;
+  return list.filter(
+    (tool) => tool.name.toLowerCase().includes(needle) || tool.slug.toLowerCase().includes(needle),
+  );
+}
+
+/** An account that has since been disconnected reads as any account. */
+export function ruleAccount(
+  rule: AppRule | undefined,
+  accounts: readonly Pick<AppAccount, "id" | "status">[],
+): string | null {
+  const id = rule?.account;
+  return id && accounts.some((entry) => entry.id === id && entry.status === "connected") ? id : null;
+}
+
 export function withAppRule(
   rules: Readonly<Record<string, AppRule>>,
   slug: string,

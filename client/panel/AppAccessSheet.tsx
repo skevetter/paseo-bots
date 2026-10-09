@@ -11,7 +11,7 @@ import {
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
-import { type AppAccount, type AppTool, accountLabel } from "../../shared/apps";
+import { type AppAccount, type AppTool, accountLabel, filterAppTools, ruleAccount } from "../../shared/apps";
 import type { AppRule } from "../../shared/bot";
 import { appsToolsRpc } from "../../shared/rpc";
 import { APPS_KEY } from "../library/apps";
@@ -25,21 +25,9 @@ type Colors = PluginTheme["colors"];
 type Mode = "all" | "read" | "chosen";
 type ToolsQuery = UseQueryResult<{ tools: AppTool[] }>;
 
-function initialAccount(rule: AppRule | undefined, accounts: readonly AppAccount[]): string | null {
-  if (!rule) return null;
-  return accounts.some((entry) => entry.id === rule.account) ? rule.account : null;
-}
-
 function initialMode(rule: AppRule | undefined): Mode {
   if (Array.isArray(rule?.tools)) return "chosen";
   return rule?.tools ?? "all";
-}
-
-function filterTools(list: readonly AppTool[], needle: string): readonly AppTool[] {
-  if (!needle) return list;
-  return list.filter(
-    (tool) => tool.name.toLowerCase().includes(needle) || tool.slug.toLowerCase().includes(needle),
-  );
 }
 
 /** The relay enforces the account and tool limits chosen here. */
@@ -65,8 +53,7 @@ export function AppAccessSheet({
     staleTime: 10 * 60_000,
   });
   const list = tools.data?.tools ?? [];
-  // An account that has since been disconnected reads as any account.
-  const [account, setAccount] = useState(initialAccount(rule, accounts));
+  const [account, setAccount] = useState(ruleAccount(rule, accounts));
   const [mode, setMode] = useState<Mode>(initialMode(rule));
   const [chosen, setChosen] = useState<string[]>(Array.isArray(rule?.tools) ? rule.tools : []);
   const [query, setQuery] = useState("");
@@ -192,7 +179,7 @@ function ChosenToolsSection({
 }) {
   const list = tools.data?.tools ?? [];
   const needle = query.trim().toLowerCase();
-  const shown = filterTools(list, needle);
+  const shown = filterAppTools(list, needle);
 
   return (
     <SettingsSection
