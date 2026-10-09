@@ -35,7 +35,7 @@ import { AppPage } from "./AppPage";
 import { AppsPage } from "./AppsPage";
 import { useAppsAccounts, useAppsCatalog, useAppsInvalidate, useAppsStatus } from "./apps";
 import { LibraryList } from "./LibraryList";
-import { McpPage } from "./McpPage";
+import { McpPage, type ServerTests, useServerTests } from "./McpPage";
 import { BLANK_SERVER, ImportSheet, type McpDraft, ServerSheet } from "./McpSheets";
 import { BackBar, PAGE_STYLE } from "./parts";
 import { SkillPage, skillQueryKey } from "./SkillPage";
@@ -118,6 +118,7 @@ export function LibraryView({
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const apps = useAppConnections(setTarget);
   const actions = useLibraryActions(commit, setTarget);
+  const serverTests = useServerTests(actions.patchServer);
   const menus = useAddMenus(setSheet);
   const library = useMemo(() => withBrowserServer(values.library ?? EMPTY_LIBRARY), [values.library]);
 
@@ -134,6 +135,7 @@ export function LibraryView({
       onSelect={setTarget}
       onAddSkill={menus.openSkillMenu}
       onAddServer={menus.openServerMenu}
+      testingServers={serverTests.testing}
       touch={compact || layout.platform !== "web"}
       onBack={compact ? undefined : onBack}
       bottomInset={bottomInset}
@@ -153,6 +155,7 @@ export function LibraryView({
         compact={compact}
         actions={actions}
         apps={apps}
+        serverTests={serverTests}
         setTarget={setTarget}
       />
     </ScrollView>
@@ -497,6 +500,7 @@ function LibraryPage({
   compact,
   actions,
   apps,
+  serverTests,
   setTarget,
 }: {
   colors: Colors;
@@ -506,6 +510,7 @@ function LibraryPage({
   compact: boolean;
   actions: LibraryActions;
   apps: AppConnections;
+  serverTests: ServerTests;
   setTarget: SetTarget;
 }) {
   const showTitle = !compact;
@@ -538,6 +543,8 @@ function LibraryPage({
           bots={bots}
           otherNames={library.mcpServers.filter((entry) => entry.id !== server.id).map((entry) => entry.name)}
           showTitle={showTitle}
+          testing={serverTests.testing.has(server.id)}
+          onTest={(config, enable) => serverTests.test(server.id, config, enable)}
           onPatch={(patch) => actions.patchServer(server.id, patch)}
           onToggleBot={(bot, on) => actions.toggleBot("mcp", server.id, bot, on)}
           onDelete={() => void actions.removeServer(server.id)}

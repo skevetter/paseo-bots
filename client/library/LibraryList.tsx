@@ -1,7 +1,7 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon, ScrollView } from "@getpaseo/plugin/client/react-native";
 import { type ReactNode, useRef } from "react";
-import { type LayoutRectangle, Pressable, Text, View } from "react-native";
+import { ActivityIndicator, type LayoutRectangle, Pressable, Text, View } from "react-native";
 import type { AppAccount } from "../../shared/apps";
 import type { Library, LibraryMcpServer, LibrarySkill } from "../../shared/bot";
 import { mcpServerLabel } from "../../shared/browser";
@@ -14,6 +14,7 @@ import { measureAnchor } from "../ui/Menu";
 import { tooltip } from "../ui/Tooltip";
 import { connectedApps, useAppsAccounts, useAppsCatalog, useAppsStatus } from "./apps";
 import { AppLogo } from "./parts";
+import { type ListNote, mcpServerNote } from "./status";
 
 type Colors = PluginTheme["colors"];
 
@@ -27,6 +28,8 @@ interface LibraryListProps {
   onSelect(target: LibraryTarget): void;
   onAddSkill(anchor: LayoutRectangle): void;
   onAddServer(anchor: LayoutRectangle): void;
+  /** Ids of the MCP servers being tested. */
+  testingServers: ReadonlySet<string>;
   touch: boolean;
   onBack?(): void;
   bottomInset: number;
@@ -41,6 +44,7 @@ export function LibraryList({
   onSelect,
   onAddSkill,
   onAddServer,
+  testingServers,
   touch,
   onBack,
   bottomInset,
@@ -57,7 +61,13 @@ export function LibraryList({
       <ListHeader colors={colors} query={query} onQuery={onQuery} touch={touch} onBack={onBack} />
       <SkillsGroup {...rows} skills={library.skills} query={query} onAdd={onAddSkill} />
       <Divider colors={colors} />
-      <ServersGroup {...rows} servers={library.mcpServers} query={query} onAdd={onAddServer} />
+      <ServersGroup
+        {...rows}
+        servers={library.mcpServers}
+        testing={testingServers}
+        query={query}
+        onAdd={onAddServer}
+      />
       <Divider colors={colors} />
       <AppsGroup {...rows} query={query} />
     </ScrollView>
@@ -121,9 +131,9 @@ function ListHeader({
   );
 }
 
-function skillNote(skill: LibrarySkill): string | undefined {
-  if (skill.reviewedSha === null) return "Review";
-  return skill.enabled ? undefined : "Off";
+function skillNote(skill: LibrarySkill): ListNote | undefined {
+  if (skill.reviewedSha === null) return { text: "Review" };
+  return skill.enabled ? undefined : { text: "Off" };
 }
 
 function SkillsGroup({
@@ -168,8 +178,13 @@ function ServersGroup({
   selected,
   onSelect,
   servers,
+  testing,
   onAdd,
-}: GroupRowsProps & { servers: readonly LibraryMcpServer[]; onAdd(anchor: LayoutRectangle): void }) {
+}: GroupRowsProps & {
+  servers: readonly LibraryMcpServer[];
+  testing: ReadonlySet<string>;
+  onAdd(anchor: LayoutRectangle): void;
+}) {
   const shown = servers
     .filter((server) =>
       matchesQuery(query, mcpServerLabel(server), server.name, server.description, mcpTarget(server.config)),
@@ -183,7 +198,7 @@ function ServersGroup({
           colors={colors}
           icon="Plug"
           label={mcpServerLabel(server)}
-          note={server.enabled ? undefined : "Off"}
+          note={mcpServerNote(server, testing.has(server.id))}
           selected={isSelected(selected, "mcp", server.id)}
           touch={touch}
           onPress={() => onSelect({ kind: "mcp", id: server.id })}
@@ -196,10 +211,10 @@ function ServersGroup({
   );
 }
 
-const APP_NOTES: Record<AppAccount["status"], string | undefined> = {
+const APP_NOTES: Record<AppAccount["status"], ListNote | undefined> = {
   connected: undefined,
-  pending: "Pending",
-  failed: "Failed",
+  pending: { text: "Pending" },
+  failed: { text: "Failed" },
 };
 
 function appsEmptyText(searching: boolean, configured: boolean): string {
@@ -321,8 +336,8 @@ interface NavRowProps {
   label: string;
   /** Replaces the icon. */
   leading?: ReactNode;
-  /** Also mutes the label. */
-  note?: string;
+  /** A plain note also mutes the label. */
+  note?: ListNote;
   selected: boolean;
   touch: boolean;
   onPress(): void;
@@ -335,7 +350,7 @@ function NavRow({ colors, icon, leading, label, note, selected, touch, onPress }
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={note ? `${label}, ${note}` : label}
+      accessibilityLabel={note ? `${label}, ${note.text}` : label}
       accessibilityState={{ selected }}
       onPress={onPress}
       {...hoverProps}
@@ -353,11 +368,21 @@ function NavRow({ colors, icon, leading, label, note, selected, touch, onPress }
       {leading ?? <Icon name={icon} size={16} color={tint} />}
       <Text
         numberOfLines={1}
-        style={{ flex: 1, minWidth: 0, fontSize: ui(14), color: tint, opacity: note ? 0.6 : 1 }}
+        style={{ flex: 1, minWidth: 0, fontSize: ui(14), color: tint, opacity: note && !note.tone ? 0.6 : 1 }}
       >
         {label}
       </Text>
-      {note ? <Text style={{ fontSize: ui(12), color: colors.foregroundMuted }}>{note}</Text> : null}
+      {note ? <NavNote colors={colors} note={note} /> : null}
     </Pressable>
+  );
+}
+
+function NavNote({ colors, note }: { colors: Colors; note: ListNote }) {
+  const color = note.tone === "danger" ? colors.statusDanger : colors.foregroundMuted;
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      {note.tone === "busy" ? <ActivityIndicator size="small" color={colors.foregroundMuted} /> : null}
+      <Text style={{ fontSize: ui(12), color }}>{note.text}</Text>
+    </View>
   );
 }

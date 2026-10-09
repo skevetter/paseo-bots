@@ -20,8 +20,11 @@ import { code, ui } from "../typography";
 import { BrowserSection } from "./BrowserSection";
 import { type McpDraft, ServerSheet } from "./McpSheets";
 import { BotsCard, DangerZone, PageTitle } from "./parts";
+import { withMember } from "./status";
 
 type Colors = PluginTheme["colors"];
+
+type ServerConfig = LibraryMcpServer["config"];
 
 interface McpPageProps {
   colors: Colors;
@@ -29,6 +32,8 @@ interface McpPageProps {
   bots: Bot[];
   otherNames: string[];
   showTitle: boolean;
+  testing: boolean;
+  onTest(config: ServerConfig, enable?: boolean): Promise<void>;
   onPatch(patch: Partial<LibraryMcpServer>): void;
   onToggleBot(bot: Bot, on: boolean): void;
   onDelete(): void;
@@ -47,12 +52,13 @@ export function McpPage({
   bots,
   otherNames,
   showTitle,
+  testing,
+  onTest,
   onPatch,
   onToggleBot,
   onDelete,
 }: McpPageProps) {
   const [editing, setEditing] = useState(false);
-  const { testing, test } = useServerTest(server, onPatch);
   const tested = mcpServerTested(server);
 
   const saveEdit = (draft: McpDraft) => {
@@ -60,14 +66,14 @@ export function McpPage({
     const changed = JSON.stringify(draft.config) !== JSON.stringify(server.config);
     // A changed connection makes the old tool list stale; test the new one right away.
     onPatch({ ...draft, ...(changed ? { tools: null, checkError: null, checkedAt: null } : {}) });
-    if (changed) void test(draft.config);
+    if (changed) void onTest(draft.config);
   };
 
   return (
     <>
       {showTitle ? <PageTitle colors={colors} title={mcpServerLabel(server)} /> : null}
       {!server.enabled && !tested ? (
-        <TestFirstNotice colors={colors} testing={testing} onTest={() => void test(server.config, true)} />
+        <TestFirstNotice colors={colors} testing={testing} onTest={() => void onTest(server.config, true)} />
       ) : null}
       {isBrowserServer(server) ? (
         <BrowserSection
@@ -80,11 +86,16 @@ export function McpPage({
         server={server}
         tested={tested}
         testing={testing}
-        onTestAndEnable={() => void test(server.config, true)}
+        onTestAndEnable={() => void onTest(server.config, true)}
         onPatch={onPatch}
         onEdit={() => setEditing(true)}
       />
-      <ToolsSection colors={colors} server={server} testing={testing} onTest={() => void test()} />
+      <ToolsSection
+        colors={colors}
+        server={server}
+        testing={testing}
+        onTest={() => void onTest(server.config)}
+      />
 
       <BotsCard
         colors={colors}
@@ -119,25 +130,33 @@ export function McpPage({
   );
 }
 
-function useServerTest(server: LibraryMcpServer, onPatch: McpPageProps["onPatch"]) {
-  const probe = useRpc(mcpProbeRpc);
-  const [testing, setTesting] = useState(false);
-
+export interface ServerTests {
+  /** Ids of the servers being tested. */
+  testing: ReadonlySet<string>;
   /** Tests the connection; `enable` turns the server on when it connects. */
-  const test = async (config = server.config, enable = false) => {
-    setTesting(true);
+  test(id: string, config: ServerConfig, enable?: boolean): Promise<void>;
+}
+
+/** Held above the page, so a running test still shows in the list and when its page reopens. */
+export function useServerTests(onPatch: (id: string, patch: Partial<LibraryMcpServer>) => void): ServerTests {
+  const probe = useRpc(mcpProbeRpc);
+  const [testing, setTesting] = useState<ReadonlySet<string>>(new Set());
+
+  const test = async (id: string, config: ServerConfig, enable = false) => {
+    setTesting((current) => withMember(current, id, true));
     try {
       const result = await probe({ config });
       const checkedAt = new Date().toISOString();
       onPatch(
+        id,
         result.ok
           ? { tools: result.tools, checkError: null, checkedAt, ...(enable ? { enabled: true } : {}) }
           : { checkError: result.error, checkedAt },
       );
     } catch (error) {
-      onPatch({ checkError: errorText(error), checkedAt: new Date().toISOString() });
+      onPatch(id, { checkError: errorText(error), checkedAt: new Date().toISOString() });
     } finally {
-      setTesting(false);
+      setTesting((current) => withMember(current, id, false));
     }
   };
 
