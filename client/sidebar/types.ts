@@ -8,12 +8,17 @@ import type { PaseoAgent } from "../paseo";
 
 type Colors = PluginTheme["colors"];
 
+/** A message to send as a new chat starts; each id starts at most one chat. */
+export interface StartRequest {
+  id: string;
+  prompt: string;
+}
+
 export interface Selection {
   botId: string;
   /** Null is a new, not yet started chat. */
   chatId: string | null;
-  /** Sent straight away when the new chat starts. */
-  prompt?: string;
+  start?: StartRequest;
 }
 
 export type MenuSource = "kebab" | "context";

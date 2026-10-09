@@ -4,7 +4,7 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { SettingsAction, SettingsCard } from "@getpaseo/plugin/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactElement, useEffect, useRef } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
 import { startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
@@ -12,6 +12,7 @@ import type { TeamTab } from "../shared/groups";
 import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
+import { autoStarter, withoutStart } from "./autoStart";
 import { ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
 import { BotSidebar } from "./BotSidebar";
 import {
@@ -225,6 +226,7 @@ function renderPane(ctx: SurfaceContext): ReactElement {
       }
       onTogglePanel={() => ctx.setPanel({ open: !panel.open, section: panel.section })}
       onStarted={(chatId) => ctx.setSelection({ botId: selectedBot.id, chatId })}
+      onStartHandled={(id) => ctx.setSelection((current) => withoutStart(current, id))}
     />
   );
 }
@@ -253,7 +255,11 @@ function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
         ctx.setPanelVersion((version) => version + 1);
         ctx.toast.show("Restored. Undo it from History if needed.", { variant: "success" });
       }}
-      onSetup={() => select(ctx, { botId: selectedBot.id, chatId: null, prompt: SETUP_PROMPT })}
+      onSetup={() => {
+        select(ctx, { botId: selectedBot.id, chatId: null, start: { id: newUuid(), prompt: SETUP_PROMPT } });
+        // On phones the panel covers the chat.
+        if (layout.compact) ctx.setPanel({ open: false, section: panel.section });
+      }}
       onOpenChat={(chatId) => {
         select(ctx, { botId: selectedBot.id, chatId });
         // On phones the panel covers the chat.
@@ -448,6 +454,7 @@ interface SelectedChatProps {
   onBotMenu(anchor: LayoutRectangle | null): void;
   onTogglePanel(): void;
   onStarted(chatId: string): void;
+  onStartHandled(id: string): void;
 }
 
 interface StartChatOptions {
@@ -512,21 +519,25 @@ function useWorkspaceTitle(bot: Bot, host: BotHost) {
   }, [name, hostApi]);
 }
 
-function useAutoStart(selection: Selection, host: BotHost, start: StartChat) {
+function useAutoStart(selection: Selection, host: BotHost, start: StartChat, clear: (id: string) => void) {
   const toast = useToast();
-  const autoStarted = useRef(false);
-  const latest = useRef({ selection, start, toast });
-  latest.current = { selection, start, toast };
-  const hostApi = host.api;
-  useEffect(() => {
-    const { selection: current, start: begin, toast: notify } = latest.current;
-    if (current.chatId !== null || !current.prompt || autoStarted.current || !hostApi) return;
-    autoStarted.current = true;
-    begin({ text: current.prompt, messageId: newMessageId(), images: [], attachments: [] }).catch(
-      (error: unknown) => notify.error(`Couldn't start: ${errorText(error)}`),
-    );
-    // Runs once for the selection that carries the prompt.
-  }, [hostApi]);
+  const latest = useRef({ start, clear, toast });
+  latest.current = { start, clear, toast };
+  const [offer] = useState(() =>
+    autoStarter({
+      start: (request) =>
+        latest.current.start({
+          text: request.prompt,
+          messageId: newMessageId(),
+          images: [],
+          attachments: [],
+        }),
+      clear: (id) => latest.current.clear(id),
+      onError: (error) => latest.current.toast.error(`Couldn't start: ${errorText(error)}`),
+    }),
+  );
+  const ready = host.api !== null;
+  useEffect(() => offer(selection, ready), [offer, selection, ready]);
 }
 
 function SelectedChat({
@@ -543,12 +554,13 @@ function SelectedChat({
   onBotMenu,
   onTogglePanel,
   onStarted,
+  onStartHandled,
 }: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
   const start = useStartChat({ bot, library, host, onStarted });
   useWorkspaceTitle(bot, host);
-  useAutoStart(selection, host, start);
+  useAutoStart(selection, host, start, onStartHandled);
 
   return (
     <ChatPane
