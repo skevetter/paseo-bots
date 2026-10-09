@@ -114,7 +114,7 @@ export function ControlSection({ colors, compact }: { colors: Colors; compact: b
         />
         <SettingsSwitch
           label="Allow elevated changes without approval"
-          hint="Off: the Browser server, approval modes that don't ask, always-allowed commands and imports with MCP servers wait for you below."
+          hint="Off: the Browser server, approval modes that don't ask, always-allowed commands and new MCP servers wait for you below."
           value={values?.allowElevated ?? false}
           disabled={!values}
           onValueChange={(allowElevated) => change({ allowElevated })}

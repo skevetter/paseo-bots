@@ -19,19 +19,16 @@ import {
 import { describeChange } from "../../../shared/changes/describe";
 import { findBot, findServer, findSkill } from "../../../shared/changes/refs";
 import type { Change } from "../../../shared/changes/schema";
-import { elevations } from "../../../shared/elevated";
 import {
   addedSkillsMessage,
   addMcpServers,
   changeLibrary,
   editedServer,
-  forgetItem,
   type LibraryMutation,
   type McpTestResult,
   mcpServerNameError,
   mcpServerTested,
   mcpTarget,
-  newLibraryServer,
   patchedServer,
   skillTextWarning,
   skillUpdateSource,
@@ -44,12 +41,12 @@ import {
 } from "../../../shared/library";
 import { MCP_NAME, parseMcpJson } from "../../../shared/mcp-servers";
 import { sanitizeSkillName, scanSkillText } from "../../../shared/skills";
-import { applyContext } from "../../apply-context";
 import { deleteSkill, importSkills, readSkill, skillSha, writeSkill } from "../../library";
 import { probeMcpServer } from "../../mcp-probe";
 import { mcpSources } from "../../mcp-sources";
 import type { ToolResult } from "../../tools/mcp";
 import {
+  APPROVAL_PLACE,
   applyOrPropose,
   BotRef,
   Confirm,
@@ -145,24 +142,96 @@ async function serverById(context: ControlContext, id: string): Promise<ServerVi
   return serverView(findServer(library, id), values.bots);
 }
 
-function keptValues(next: Record<string, string>, current: Record<string, string>): Record<string, string> {
-  const kept: Record<string, string> = {};
-  for (const [key, value] of Object.entries(next)) {
-    const known = current[key];
-    if (value === MASK && known === undefined) throw new Error(`${key} has no value yet; give it one.`);
-    kept[key] = value === MASK && known !== undefined ? known : value;
-  }
-  return kept;
+/** `stored` is null once the target changed: then a masked value no longer stands for the stored one. */
+function keptValues(
+  next: Record<string, string>,
+  stored: Record<string, string> | null,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(next).map(([key, value]) => {
+      if (value !== MASK) return [key, value];
+      const known = stored?.[key];
+      if (known === undefined)
+        throw new Error(
+          stored
+            ? `${key} has no value yet; give it one.`
+            : `${key} needs its value again for the new target.`,
+        );
+      return [key, known];
+    }),
+  );
 }
 
-/** Clients only ever see env and header values masked, so a masked one keeps what's set. */
+function storedValues(current: McpServerConfig, target: McpServerConfig): Record<string, string> | null {
+  if (current.type === "stdio" && target.type === "stdio")
+    return current.command === target.command && JSON.stringify(current.args) === JSON.stringify(target.args)
+      ? current.env
+      : null;
+  if (current.type !== "stdio" && target.type === current.type && current.url === target.url)
+    return current.headers;
+  return null;
+}
+
+/** Clients only ever see env and header values masked, so a masked one keeps what's set while the target stays. */
 function configFrom(input: ConfigInputValue, current?: McpServerConfig): McpServerConfig {
-  if ("command" in input) {
-    const env = keptValues(input.env ?? {}, current?.type === "stdio" ? current.env : {});
-    return { type: "stdio", command: input.command.trim(), args: input.args ?? [], env };
-  }
-  const headers = keptValues(input.headers ?? {}, current && current.type !== "stdio" ? current.headers : {});
-  return { type: input.transport ?? "http", url: input.url.trim(), headers };
+  const target: McpServerConfig =
+    "command" in input
+      ? { type: "stdio", command: input.command.trim(), args: input.args ?? [], env: input.env ?? {} }
+      : { type: input.transport ?? "http", url: input.url.trim(), headers: input.headers ?? {} };
+  const stored = current ? storedValues(current, target) : {};
+  return target.type === "stdio"
+    ? { ...target, env: keptValues(target.env, stored) }
+    : { ...target, headers: keptValues(target.headers, stored) };
+}
+
+function addServerChange(server: Pick<LibraryMcpServer, "name" | "description" | "config">): Change {
+  const { name, description, config } = server;
+  return config.type === "stdio"
+    ? {
+        type: "add_mcp_server",
+        name,
+        description,
+        command: config.command,
+        args: config.args,
+        env: config.env,
+      }
+    : {
+        type: "add_mcp_server",
+        name,
+        description,
+        url: config.url,
+        transport: config.type,
+        headers: config.headers,
+      };
+}
+
+/** A server added from outside the app runs a program or reaches a URL, so it waits for the user. */
+function addServerReason({ name, config }: Pick<LibraryMcpServer, "name" | "config">): string {
+  const target =
+    config.type === "stdio"
+      ? `runs \`${[config.command, ...config.args].join(" ")}\``
+      : `connects to ${config.url}`;
+  return `Adds the MCP server ${name}, which ${target} on this computer.`;
+}
+
+async function addServers(
+  context: ControlContext,
+  servers: readonly Pick<LibraryMcpServer, "name" | "description" | "config">[],
+): Promise<ToolResult> {
+  const names = servers.map((server) => server.name);
+  const outcome = await applyOrPropose(
+    context,
+    `Add the MCP server${names.length === 1 ? "" : "s"} ${names.join(", ")}`,
+    servers.map(addServerChange),
+    servers.map(addServerReason),
+  );
+  if (outcome.status === "pending") return outcome.result;
+  const library = outcome.values.library ?? EMPTY_LIBRARY;
+  const added = library.mcpServers.filter((server) => names.includes(server.name));
+  return result(
+    `Added ${names.join(", ")}. ${added.length === 1 ? "It stays" : "They stay"} off until mcp_servers_probe with enable: true connects.`,
+    { status: "applied", servers: added.map((server) => serverView(server, outcome.values.bots)) },
+  );
 }
 
 function nameCheck(library: Library, name: string, except?: string): void {
@@ -226,28 +295,18 @@ const serversGet = defineControlTool({
 const serversAdd = defineControlTool({
   name: "mcp_servers_add",
   description:
-    "Add an MCP server to the library, like Add server in the app. It stays off until mcp_servers_probe with enable: true connects to it.",
+    "Add an MCP server to the library, like Add server in the app. It waits for the user's approval in the app unless they allow elevated changes, then stays off until mcp_servers_probe with enable: true connects to it.",
   input: z.object({
     name: ServerName,
     description: z.string().max(300).optional(),
     config: ConfigInput,
   }),
   async run({ name, description, config }, context) {
-    const server = newLibraryServer({
-      name,
-      description: description?.trim() ?? "",
-      config: configFrom(config),
-    });
-    const values = await saveLibrary(context, (library) => {
-      nameCheck(library, name);
-      return { library: { ...library, mcpServers: [...library.mcpServers, server] } };
-    });
-    return result(
-      `Added ${name} (${server.id}). It's off until mcp_servers_probe with enable: true connects.`,
-      {
-        server: serverView(server, values.bots),
-      },
-    );
+    const { library } = await shownLibrary(context);
+    nameCheck(library, name);
+    return addServers(context, [
+      { name, description: description?.trim() ?? "", config: configFrom(config) },
+    ]);
   },
 });
 
@@ -275,46 +334,22 @@ function serverEdit(current: LibraryMcpServer, library: Library, args: z.infer<t
   return { patch, retest, enableOnTest: args.enabled === true && retest };
 }
 
-/** Bots that would get the Browser through the edit lose the server until the user approves. */
-async function saveServerEdit(
-  context: ControlContext,
-  id: string,
-  patch: Partial<LibraryMcpServer>,
-): Promise<Bot[]> {
-  const { modes } = await applyContext(context.host);
-  const { allowElevated } = await context.settings();
-  let held: Bot[] = [];
-  await context.host.store.update((values) => {
-    const next = changeLibrary(values, (library, bots) => patchedServer({ library, bots, id, patch }));
-    if (allowElevated || !elevations(values, next, modes).length) return next;
-    held = next.bots.filter((bot) => bot.mcpServerIds.includes(id));
-    return { ...next, bots: forgetItem(next.bots, "mcp", id) };
-  });
-  return held;
-}
-
-async function heldBack(
-  context: ControlContext,
-  id: string,
-  held: readonly Bot[],
-): Promise<ToolResult | null> {
-  if (!held.length) return null;
-  const changes: Change[] = held.map((bot) => ({ type: "update_bot", bot: bot.id, add_mcp_servers: [id] }));
-  const outcome = await applyOrPropose(context, changes.map(describeChange).join(" "), changes);
-  return outcome.status === "pending" ? outcome.result : null;
-}
-
 const serversUpdate = defineControlTool({
   name: "mcp_servers_update",
   description:
-    "Change an MCP server's name, description, connection or Enabled switch. Renaming carries the bots' always-allow grants along. A new connection is tested right away.",
+    "Change an MCP server's name, description, connection or Enabled switch. Renaming carries the bots' always-allow grants along. A new connection is tested right away, and needs Allow elevated changes without approval; otherwise change it in the app.",
   input: UpdateInput,
   async run(args, context) {
+    if (args.config && !(await context.settings()).allowElevated)
+      throw new Error(
+        `A new connection runs a program or reaches a URL from this computer. Change it in the app, or turn on Allow elevated changes without approval under ${APPROVAL_PLACE}.`,
+      );
     const { library } = await shownLibrary(context);
     const current = findServer(library, args.server);
     const edit = serverEdit(current, library, args);
-    const held = await saveServerEdit(context, current.id, edit.patch);
-    const pending = await heldBack(context, current.id, held);
+    await saveLibrary(context, (next, bots) =>
+      patchedServer({ library: next, bots, id: current.id, patch: edit.patch }),
+    );
     const test = edit.retest
       ? await testServer(
           context,
@@ -323,14 +358,10 @@ const serversUpdate = defineControlTool({
         )
       : null;
     const view = await serverById(context, current.id);
-    const waiting = pending
-      ? ` It now runs the Browser, so ${held.map((bot) => bot.name).join(", ")} get it back once approved. ${pending.text}`
-      : "";
-    return result([`Updated ${view.label}.`, test?.text, waiting].filter(Boolean).join(" "), {
-      status: pending ? "pending" : "applied",
+    return result([`Updated ${view.label}.`, test?.text].filter(Boolean).join(" "), {
+      status: "applied",
       server: view,
       ...(test ? { test: test.test } : {}),
-      ...(pending?.data ? { proposal: pending.data.proposal, reasons: pending.data.reasons } : {}),
     });
   },
 });
@@ -453,7 +484,7 @@ async function importJson(from: string | undefined, json: string | undefined): P
 const serversImport = defineControlTool({
   name: "mcp_servers_import",
   description:
-    "Add MCP servers from {\"mcpServers\": {...}} JSON or from another app's setup, like the app's import sheet. They arrive off; a taken name gets a number.",
+    "Add MCP servers from {\"mcpServers\": {...}} JSON or from another app's setup, like the app's import sheet. They wait for the user's approval in the app unless they allow elevated changes, then arrive off; a taken name gets a number.",
   input: z
     .object({
       json: z
@@ -470,18 +501,12 @@ const serversImport = defineControlTool({
     ),
   async run({ json, from }, context) {
     const drafts = parseMcpJson(await importJson(from, json));
-    let ids: string[] = [];
-    const values = await saveLibrary(context, (library) => {
-      const added = addMcpServers(library, drafts);
-      ids = added.ids;
-      return { library: added.library };
-    });
-    const library = values.library ?? EMPTY_LIBRARY;
-    const servers = ids.flatMap((id) => library.mcpServers.filter((server) => server.id === id));
-    return result(
-      `Added ${servers.map((server) => server.name).join(", ")}. They stay off until mcp_servers_probe with enable: true connects.`,
-      { servers: servers.map((server) => serverView(server, values.bots)) },
-    );
+    const { library } = await shownLibrary(context);
+    const known = new Set(library.mcpServers.map((server) => server.id));
+    const added = addMcpServers(library, drafts).library.mcpServers.filter((server) => !known.has(server.id));
+    if (!added.length)
+      return result("Those servers are in the library already.", { status: "applied", servers: [] });
+    return addServers(context, added);
   },
 });
 

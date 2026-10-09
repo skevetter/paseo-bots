@@ -109,15 +109,20 @@ describe("MCP server reads and adds", () => {
     expect(got.data.server).toMatchObject({ id: "mcp-docs", target: "HTTP · https://docs.example/mcp" });
   });
 
-  it("adds a server off and untested, refusing reserved, taken and malformed names", async () => {
-    const { call, store } = await control({ library: { skills: [], mcpServers: [server()] } });
+  it("waits for approval to add a server, then adds it off and untested; refuses bad names", async () => {
+    const { call, store, context } = await control({ library: { skills: [], mcpServers: [server()] } });
 
     const added = await call("mcp_servers_add", {
       name: "search",
       description: " Finds things ",
       config: { url: "https://search.example/mcp", transport: "sse", headers: { "X-Key": "k1" } },
     });
-    expect(added.isError).toBe(false);
+    expect(added.data).toMatchObject({
+      status: "pending",
+      reasons: [expect.stringContaining("search.example")],
+    });
+    expect((await stored(store)).library.mcpServers.map((entry) => entry.name)).toEqual(["fetch"]);
+    await acceptProposal(String(added.data.proposal), { store, commands: context.commands });
     const { library } = await stored(store);
     expect(library.mcpServers.find((entry) => entry.name === "search")).toMatchObject({
       description: "Finds things",
@@ -143,10 +148,18 @@ describe("MCP server reads and adds", () => {
       config: { command: "x", env: { A: "•••" } },
     });
     expect(masked).toMatchObject({ isError: true, text: expect.stringContaining("A has no value yet") });
-    expect((await stored(store)).library.mcpServers.map((entry) => entry.name)).toEqual([
-      "fetch",
-      "browser",
-      "search",
+    expect((await stored(store)).library.mcpServers.map((entry) => entry.name)).toEqual(["fetch", "search"]);
+  });
+
+  it("adds a server at once when elevated changes are allowed", async () => {
+    const { call, store } = await control({}, { allowElevated: true });
+    const added = await call("mcp_servers_add", { name: "local", config: { command: "uvx", args: ["x"] } });
+    expect(added.data).toMatchObject({
+      status: "applied",
+      servers: [expect.objectContaining({ name: "local" })],
+    });
+    expect((await stored(store)).library.mcpServers.map((entry) => [entry.name, entry.enabled])).toEqual([
+      ["local", false],
     ]);
   });
 });
@@ -193,10 +206,13 @@ describe("MCP server updates", () => {
   useTempPaseoHome("paseo-bots-control-update-");
 
   it("updates a server: only a tested one turns on, a rename carries grants, a new connection is retested", async () => {
-    const { call, store } = await control({
-      bots: [makeBot({ mcpServerIds: ["mcp-fetch"], alwaysAllow: ["fetch/get", "other/run"] })],
-      library: { skills: [], mcpServers: [server()] },
-    });
+    const { call, store } = await control(
+      {
+        bots: [makeBot({ mcpServerIds: ["mcp-fetch"], alwaysAllow: ["fetch/get", "other/run"] })],
+        library: { skills: [], mcpServers: [server()] },
+      },
+      { allowElevated: true },
+    );
 
     const untested = await call("mcp_servers_update", { server: "fetch", enabled: true });
     expect(untested).toMatchObject({ isError: true, text: expect.stringContaining("connection test") });
@@ -211,48 +227,58 @@ describe("MCP server updates", () => {
     expect(state.bots[0]?.alwaysAllow).toEqual(["web/get", "other/run"]);
     expect((await call("mcp_servers_update", { server: "web", name: "paseo" })).isError).toBe(true);
 
-    const retested = await call("mcp_servers_update", {
+    const sameTarget = { command: "uvx", args: ["mcp-server-fetch"], env: { TOKEN: "•••" } };
+    await call("mcp_servers_update", { server: "web", config: sameTarget });
+    expect((await stored(store)).library.mcpServers[0]?.config).toMatchObject({
+      env: { TOKEN: "sk-secret-1" },
+    });
+    const moved = await call("mcp_servers_update", {
       server: "web",
       enabled: true,
       config: { ...workingConfig, env: { TOKEN: "•••", EXTRA: "e" } },
+    });
+    expect(moved).toMatchObject({
+      isError: true,
+      text: expect.stringContaining("TOKEN needs its value again"),
+    });
+
+    const retested = await call("mcp_servers_update", {
+      server: "web",
+      enabled: true,
+      config: { ...workingConfig, env: { TOKEN: "sk-secret-2", EXTRA: "e" } },
     });
     expect(retested.data).toMatchObject({ status: "applied", test: { ok: true } });
     state = await stored(store);
     expect(state.library.mcpServers[0]).toMatchObject({
       enabled: true,
       tools: [{ name: "echo" }],
-      config: { command: process.execPath, env: { TOKEN: "sk-secret-1", EXTRA: "e" } },
+      config: { command: process.execPath, env: { TOKEN: "sk-secret-2", EXTRA: "e" } },
     });
-    expect(JSON.stringify(retested)).not.toContain("sk-secret-1");
+    expect(JSON.stringify(retested)).not.toContain("sk-secret-2");
 
     await call("mcp_servers_update", { server: "web", enabled: false });
     expect((await stored(store)).library.mcpServers[0]?.enabled).toBe(false);
   });
 
-  it("holds back an update that turns an attached server into the Browser until approved", async () => {
+  it("refuses a new connection unless elevated changes are allowed", async () => {
     const devtools = { command: process.execPath, args: ["-e", "process.exit(1)", "chrome-devtools-mcp"] };
     const seed = {
       bots: [makeBot({ mcpServerIds: ["mcp-fetch"] })],
       library: { skills: [], mcpServers: [server()] },
     };
     const held = await control(seed);
-    const pending = await held.call("mcp_servers_update", { server: "fetch", config: devtools });
-    expect(pending.data).toMatchObject({ status: "pending", proposal: expect.any(String) });
-    let state = await stored(held.store);
-    expect(state.library.mcpServers[0]?.config).toMatchObject({ args: devtools.args });
-    expect(state.bots[0]?.mcpServerIds).toEqual([]);
-
-    await acceptProposal(String(pending.data.proposal), {
-      store: held.store,
-      commands: held.context.commands,
+    const refused = await held.call("mcp_servers_update", { server: "fetch", config: devtools });
+    expect(refused).toMatchObject({ isError: true, text: expect.stringContaining("Change it in the app") });
+    expect((await stored(held.store)).library.mcpServers[0]?.config).toMatchObject({
+      args: ["mcp-server-fetch"],
     });
-    state = await stored(held.store);
-    expect(state.bots[0]?.mcpServerIds).toEqual(["mcp-fetch"]);
 
     const allowed = await control(seed, { allowElevated: true });
     const applied = await allowed.call("mcp_servers_update", { server: "fetch", config: devtools });
     expect(applied.data.status).toBe("applied");
-    expect((await stored(allowed.store)).bots[0]?.mcpServerIds).toEqual(["mcp-fetch"]);
+    expect((await stored(allowed.store)).library.mcpServers[0]?.config).toMatchObject({
+      args: devtools.args,
+    });
   });
 });
 
@@ -322,23 +348,28 @@ describe("MCP server import", () => {
     machine.home = "";
   });
 
-  it("imports servers off from JSON or another app's setup", async () => {
-    const { call, store } = await control({ library: { skills: [], mcpServers: [server()] } });
+  it("imports servers off from JSON or another app's setup, after approval", async () => {
+    const { call, store, context } = await control({ library: { skills: [], mcpServers: [server()] } });
 
     const sources = await call("mcp_servers_sources");
     expect(sources.data.sources).toEqual([{ label: "Cursor", servers: ["linear"] }]);
 
-    await call("mcp_servers_import", { from: "cursor" });
+    const fromCursor = await call("mcp_servers_import", { from: "cursor" });
+    expect(fromCursor.data).toMatchObject({
+      status: "pending",
+      reasons: [expect.stringContaining("linear")],
+    });
+    await acceptProposal(String(fromCursor.data.proposal), { store, commands: context.commands });
     const json = JSON.stringify({ mcpServers: { fetch: { command: "npx", args: ["other"] } } });
     const imported = await call("mcp_servers_import", { json });
-    expect(imported.data.servers).toEqual([expect.objectContaining({ name: "fetch-2", enabled: false })]);
+    await acceptProposal(String(imported.data.proposal), { store, commands: context.commands });
     const { library } = await stored(store);
     expect(library.mcpServers.map((entry) => [entry.name, entry.enabled])).toEqual([
       ["fetch", false],
-      ["browser", false],
       ["linear", false],
       ["fetch-2", false],
     ]);
+    expect((await call("mcp_servers_import", { json })).data.status).toBe("pending");
     expect((await call("mcp_servers_import", { from: "Nowhere" })).isError).toBe(true);
     expect((await call("mcp_servers_import", {})).isError).toBe(true);
   });
