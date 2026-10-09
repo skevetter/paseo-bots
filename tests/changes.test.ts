@@ -12,8 +12,8 @@ const PROVIDERS: ProviderInfo[] = [
   {
     id: "claude",
     models: [
-      { id: "opus", label: "Opus", isDefault: true, thinking: ["low", "high"] },
-      { id: "haiku", label: "Haiku", isDefault: false, thinking: [] },
+      { id: "opus", label: "Opus", isDefault: true, thinking: ["low", "high"], defaultThinking: null },
+      { id: "haiku", label: "Haiku", isDefault: false, thinking: [], defaultThinking: null },
     ],
     modes: [
       { id: "default", label: "Default" },
@@ -23,7 +23,7 @@ const PROVIDERS: ProviderInfo[] = [
   },
   {
     id: "codex",
-    models: [{ id: "gpt", label: "GPT", isDefault: true, thinking: [] }],
+    models: [{ id: "gpt", label: "GPT", isDefault: true, thinking: [], defaultThinking: null }],
     modes: [{ id: "auto", label: "Auto" }],
     defaultModeId: "auto",
   },
@@ -383,7 +383,13 @@ describe("provider snapshot", () => {
         enabled: true,
         status: "ready",
         models: [
-          { id: "gpt", label: "GPT", isDefault: true, thinkingOptions: [{ id: "low" }] },
+          {
+            id: "gpt",
+            label: "GPT",
+            isDefault: true,
+            thinkingOptions: [{ id: "low" }, { id: "high" }],
+            defaultThinkingOptionId: "high",
+          },
           { id: "old", label: "Old", isSelectable: false },
         ],
         modes: [{ id: "auto", label: "Auto" }],
@@ -395,7 +401,9 @@ describe("provider snapshot", () => {
     expect(providerInfo(entries)).toEqual([
       {
         id: "codex",
-        models: [{ id: "gpt", label: "GPT", isDefault: true, thinking: ["low"] }],
+        models: [
+          { id: "gpt", label: "GPT", isDefault: true, thinking: ["low", "high"], defaultThinking: "high" },
+        ],
         modes: [{ id: "auto", label: "Auto" }],
         defaultModeId: "auto",
       },
@@ -798,6 +806,38 @@ describe("agent and app account checks", () => {
       provider: "claude",
     });
     expect(unchecked.bots[2]).toMatchObject({ provider: "gemini", model: null, modeId: null });
+  });
+
+  it("moves to the new model's default thinking when a model change leaves the current one behind", () => {
+    const claude = defined(PROVIDERS[0]);
+    const sonnet = {
+      id: "sonnet",
+      label: "Sonnet",
+      isDefault: false,
+      thinking: ["medium"],
+      defaultThinking: "medium",
+    };
+    const providers = [{ ...claude, models: [...claude.models, sonnet] }];
+    const values = setup({
+      bots: [
+        makeBot({ id: "chief", name: "Chief" }),
+        makeBot({ id: "scout", name: "Scout" }),
+        makeBot({ id: "solo", name: "Solo", thinkingOptionId: "high" }),
+      ],
+      defaults: CLAUDE_DEFAULTS,
+    });
+    const changed = (change: Change) =>
+      applyChanges(values, ChangesSchema.parse([change]), { ...context, providers });
+    const solo = (model: string) =>
+      changed({ type: "update_bot", bot: "Solo", model }).bots[2]?.thinkingOptionId;
+    expect([solo("sonnet"), solo("haiku"), solo("opus")]).toEqual(["medium", null, "high"]);
+    expect(changed({ type: "set_defaults", model: "sonnet" }).defaults).toMatchObject({
+      model: "sonnet",
+      thinkingOptionId: "medium",
+    });
+    expect(() => changed({ type: "update_bot", bot: "Solo", model: "sonnet", thinking: "high" })).toThrow(
+      'That model has no thinking option "high". Use one of: medium.',
+    );
   });
 });
 

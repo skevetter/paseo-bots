@@ -2,7 +2,7 @@ import { type BotDefaults, type BotSettingsValues, DEFAULT_BOT_DEFAULTS } from "
 import { presetFromBot } from "../presets";
 
 import { addRoutine, createBot, deleteBot, deleteRoutine, updateBot, updateRoutine } from "./bots";
-import { type ApplyContext, accountId, checkAgent } from "./context";
+import { type ApplyContext, accountId, carriedThinking, checkAgent } from "./context";
 import { addMcpServer, removeMcpServer, setMcpServer, setSkill } from "./library";
 import { byRef, findBot, findTeam } from "./refs";
 import type { AppInputValue, Change, ChangeOf } from "./schema";
@@ -24,6 +24,7 @@ function setDefaults(
     thinkingOptionId: change.thinking !== undefined ? change.thinking : carried.thinkingOptionId,
     contactBots: change.contact_bots ?? current.contactBots,
   };
+  if (change.thinking === undefined) defaults.thinkingOptionId = carriedThinking(context, defaults);
   checkAgent(context, {
     provider: defaults.provider,
     model: defaults.model,

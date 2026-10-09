@@ -1,6 +1,12 @@
 export interface ProviderInfo {
   id: string;
-  models: { id: string; label: string; isDefault: boolean; thinking: string[] }[];
+  models: {
+    id: string;
+    label: string;
+    isDefault: boolean;
+    thinking: string[];
+    defaultThinking: string | null;
+  }[];
   modes: { id: string; label: string }[];
   defaultModeId: string | null;
 }
@@ -22,6 +28,7 @@ interface ProviderEntry {
     isDefault?: boolean;
     isSelectable?: boolean;
     thinkingOptions?: readonly { id: string }[];
+    defaultThinkingOptionId?: string;
   }[];
   modes?: readonly { id: string; label: string }[];
   defaultModeId?: string | null;
@@ -39,6 +46,7 @@ export function providerInfo(entries: readonly ProviderEntry[]): ProviderInfo[] 
           label: model.label,
           isDefault: !!model.isDefault,
           thinking: (model.thinkingOptions ?? []).map((option) => option.id),
+          defaultThinking: model.defaultThinkingOptionId ?? null,
         })),
       modes: (entry.modes ?? []).map((mode) => ({ id: mode.id, label: mode.label })),
       defaultModeId: entry.defaultModeId ?? null,
@@ -72,12 +80,18 @@ function checkModel(provider: ProviderInfo, modelId: string | null): ProviderMod
   return model;
 }
 
+function modelOrDefault(provider: ProviderInfo, modelId: string | null): ProviderModel | undefined {
+  return modelId
+    ? provider.models.find((entry) => entry.id === modelId)
+    : provider.models.find((entry) => entry.isDefault);
+}
+
 function checkThinking(
   provider: ProviderInfo,
   model: ProviderModel | null,
   thinkingOptionId: string | null,
 ): void {
-  const thinking = (model ?? provider.models.find((entry) => entry.isDefault))?.thinking ?? [];
+  const thinking = (model ?? modelOrDefault(provider, null))?.thinking ?? [];
   if (thinkingOptionId && !thinking.includes(thinkingOptionId)) {
     throw new Error(
       `That model has no thinking option "${thinkingOptionId}". Use one of: ${thinking.join(", ") || "none"}.`,
@@ -85,10 +99,23 @@ function checkThinking(
   }
 }
 
-export function checkAgent(
-  context: ApplyContext,
-  fields: { provider: string; model: string | null; modeId: string | null; thinkingOptionId: string | null },
-): void {
+/** A thinking level carried over to a model that lacks it becomes that model's default. */
+export function carriedThinking(context: ApplyContext, fields: AgentFields): string | null {
+  const provider = context.providers?.find((entry) => entry.id === fields.provider);
+  const model = provider && modelOrDefault(provider, fields.model);
+  const { thinkingOptionId } = fields;
+  if (!model || !thinkingOptionId || model.thinking.includes(thinkingOptionId)) return thinkingOptionId;
+  return model.defaultThinking;
+}
+
+interface AgentFields {
+  provider: string;
+  model: string | null;
+  modeId: string | null;
+  thinkingOptionId: string | null;
+}
+
+export function checkAgent(context: ApplyContext, fields: AgentFields): void {
   const providers = context.providers;
   if (!providers || !fields.provider) return;
   const provider = providers.find((entry) => entry.id === fields.provider);

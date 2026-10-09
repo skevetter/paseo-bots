@@ -5,7 +5,7 @@ import { pushHistory } from "../bot-history";
 import { newPlaybookId } from "../bot-ids";
 
 import { setBotUses } from "../library";
-import { type ApplyContext, accountId, checkAgent } from "./context";
+import { type ApplyContext, accountId, carriedThinking, checkAgent } from "./context";
 import { findServer, findSkill } from "./refs";
 import type { AppInputValue, AvatarInput, BotFieldValues, PlaybookInput } from "./schema";
 
@@ -47,6 +47,7 @@ function withAgent(bot: Bot, fields: BotFieldValues, context: ApplyContext): Bot
     modeId: fields.mode !== undefined ? fields.mode : carried.modeId,
     thinkingOptionId: fields.thinking !== undefined ? fields.thinking : carried.thinkingOptionId,
   };
+  if (fields.thinking === undefined) next.thinkingOptionId = carriedThinking(context, next);
   if (
     fields.provider !== undefined ||
     fields.model !== undefined ||
