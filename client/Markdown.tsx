@@ -3,7 +3,7 @@ import { openExternalUrl } from "@getpaseo/plugin/client";
 import { copyText, Icon, useToast } from "@getpaseo/plugin/client/react-native";
 import { memo, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Platform, Pressable, Text, type TextStyle, View } from "react-native";
-import { parseMarkdown } from "../shared/markdown/blocks";
+import { parseMarkdown, retainBlocks } from "../shared/markdown/blocks";
 import { plainText } from "../shared/markdown/inline";
 import type { Block, Inline, ListItem } from "../shared/markdown/types";
 import { MONO_FONT, MONO_PROPS, nativeTokens } from "./native";
@@ -65,7 +65,12 @@ export const Markdown = memo(function Markdown({
   streaming = false,
   linkify = true,
 }: MarkdownProps) {
-  const blocks = useMemo(() => parseMarkdown(text, { streaming, linkify }), [text, streaming, linkify]);
+  const previous = useRef<Block[]>([]);
+  const blocks = useMemo(() => {
+    const next = retainBlocks(previous.current, parseMarkdown(text, { streaming, linkify }));
+    previous.current = next;
+    return next;
+  }, [text, streaming, linkify]);
   return <Blocks colors={colors} blocks={blocks} />;
 });
 
@@ -100,7 +105,7 @@ function bodyStyle(colors: Colors): TextStyle {
   return { color: colors.foreground, fontSize: content(), lineHeight: contentLine() };
 }
 
-function BlockView({
+const BlockView = memo(function BlockView({
   colors,
   block,
   last,
@@ -143,7 +148,7 @@ function BlockView({
     case "rule":
       return <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 10 }} />;
   }
-}
+});
 
 function HeadingView({ colors, level, inlines }: { colors: Colors; level: number; inlines: Inline[] }) {
   const spec = HEADINGS[level] ?? SMALLEST_HEADING;

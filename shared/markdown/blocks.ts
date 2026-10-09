@@ -199,3 +199,11 @@ export function parseMarkdown(source: string, options: ParseOptions = {}): Block
   popTrailingBlanks(lines, 0);
   return parseBlocks(lines, options.streaming === true, references);
 }
+
+/** Keeps the blocks that parse the same as last time, so a streaming reply re-renders only its tail. */
+export function retainBlocks(previous: readonly Block[], next: Block[]): Block[] {
+  return next.map((block, index) => {
+    const old = previous[index];
+    return old?.kind === block.kind && JSON.stringify(old) === JSON.stringify(block) ? old : block;
+  });
+}

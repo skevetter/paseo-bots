@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { utf8Bytes } from "../shared/bot-checks";
-import { parseMarkdown } from "../shared/markdown/blocks";
+import { parseMarkdown, retainBlocks } from "../shared/markdown/blocks";
 import { parseInline } from "../shared/markdown/inline";
 import { capMessageForRender } from "../shared/markdown/render-limit";
 import { formatDuration } from "../shared/markdown/timestamps";
@@ -114,6 +114,19 @@ describe("parseMarkdown blocks", () => {
         text("."),
       ],
     });
+  });
+});
+
+describe("retainBlocks", () => {
+  it("keeps the blocks a streamed chunk didn't change", () => {
+    const first = parseMarkdown("# Plan\n\n- read\n- fix\n\nWorking on i", { streaming: true });
+    const next = parseMarkdown("# Plan\n\n- read\n- fix\n\nWorking on it now", { streaming: true });
+    const kept = retainBlocks(first, next);
+    expect(kept).toEqual(next);
+    expect(kept[0]).toBe(first[0]);
+    expect(kept[1]).toBe(first[1]);
+    expect(kept[2]).toBe(next[2]);
+    expect(retainBlocks(first, parseMarkdown("Other", { streaming: true }))[0]).not.toBe(first[0]);
   });
 });
 

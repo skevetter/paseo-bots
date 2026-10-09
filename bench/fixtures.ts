@@ -110,9 +110,10 @@ export function streamedChunk(entries: readonly StreamEntry[], chunk: string): S
   };
 }
 
-/** A long assistant reply, mid-stream: `sections` headed copies of a mixed markdown section. */
+/** A long assistant reply, mid-stream: `sections` headed copies of a mixed markdown section, then a paragraph. */
 export function longReply(sections: number): string {
-  return Array.from({ length: sections }, (_, index) => `## Part ${index + 1}\n\n${MARKDOWN}`).join("\n\n");
+  const parts = Array.from({ length: sections }, (_, index) => `## Part ${index + 1}\n\n${MARKDOWN}`);
+  return `${parts.join("\n\n")}\n\nIn short, the scheduler`;
 }
 
 export interface FakeChat {
