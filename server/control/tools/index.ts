@@ -6,11 +6,13 @@ import { LIBRARY_TOOLS } from "./library";
 import { MEMORY_TOOLS } from "./memory";
 import { PROPOSAL_TOOLS } from "./proposals";
 import { ROUTINE_TOOLS } from "./routines";
+import { TEAM_TOOLS } from "./teams";
 
 /** In the order clients see them. */
 export const CONTROL_TOOLS: readonly ControlTool[] = [
   ...BOTS_TOOLS,
   ...LIBRARY_TOOLS,
+  ...TEAM_TOOLS,
   ...CHAT_TOOLS,
   ...ROUTINE_TOOLS,
   ...MEMORY_TOOLS,
