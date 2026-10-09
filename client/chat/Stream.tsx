@@ -1,43 +1,18 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { FlatList, Icon } from "@getpaseo/plugin/client/react-native";
-import {
-  memo,
-  type ReactElement,
-  type RefObject,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
-import {
-  ActivityIndicator,
-  Animated,
-  type LayoutChangeEvent,
-  type ListRenderItemInfo,
-  type FlatList as NativeFlatList,
-  type NativeScrollEvent,
-  type NativeSyntheticEvent,
-  Platform,
-  Pressable,
-  Text,
-  View,
-} from "react-native";
+import { FlatList } from "@getpaseo/plugin/client/react-native";
+import { type ReactElement, useCallback, useEffect, useMemo, useRef } from "react";
+import { type ListRenderItemInfo, type FlatList as NativeFlatList, View } from "react-native";
 import type { ComposerAttachment } from "../../shared/attachments";
 import type { BotVoice } from "../../shared/bot";
-import { CONTENT_MAX_WIDTH, nativeTokens } from "../native";
+import { CONTENT_MAX_WIDTH } from "../native";
 import type { PaseoApi } from "../paseo";
 import { sentAttachments } from "../sent-attachments";
 import { canSpeak, speak, stopSpeaking } from "../speech";
-import { ui } from "../typography";
-import { tooltip } from "../ui/Tooltip";
 import type { ChatState } from "../useChat";
 import { FindBar } from "./FindBar";
 import { PermissionCard } from "./Permission";
-import { SecondaryButton } from "./stream/buttons";
 import {
   buildRows,
-  findRows,
   layoutStream,
   retainLayout,
   type StreamEntry,
@@ -45,14 +20,21 @@ import {
   type StreamLayoutItem,
   type StreamRow,
 } from "./stream/model";
-import { RowContent, type RowContext, RowFrame } from "./stream/rows";
+import {
+  ArchivedCallout,
+  LoadingOverlay,
+  OlderSpinner,
+  ScrollToBottomButton,
+  SyncErrorCallout,
+} from "./stream/overlays";
+import type { RowContext } from "./stream/rows";
+import { StreamItem } from "./stream/StreamItem";
 import { CompletedTurnFooter, WorkingIndicator } from "./stream/TurnFooter";
+import { useStreamFind } from "./stream/useStreamFind";
+import { type ListRef, type StreamScrollHandlers, useStreamScroll } from "./stream/useStreamScroll";
 
 type Colors = PluginTheme["colors"];
 
-const WEB_NEAR_BOTTOM = 64;
-const NATIVE_NEAR_BOTTOM = 32;
-const HISTORY_START_THRESHOLD = 96;
 const EMPTY_ATTACHMENTS: ComposerAttachment[] = [];
 
 export interface ChatStreamProps {
@@ -76,8 +58,6 @@ function isTurnRunning(chat: ChatState): boolean {
   return chat.agent?.status === "running" || chat.agent?.status === "initializing";
 }
 
-type ListRef = RefObject<NativeFlatList<StreamLayoutItem> | null>;
-
 function useStreamLayout(chat: ChatState, running: boolean): StreamLayout {
   const previousLayout = useRef<StreamLayout | null>(null);
   return useMemo(() => {
@@ -88,204 +68,6 @@ function useStreamLayout(chat: ChatState, running: boolean): StreamLayout {
     previousLayout.current = next;
     return next;
   }, [chat.entries, running]);
-}
-
-interface StreamScrollOptions {
-  list: ListRef;
-  inverted: boolean;
-  chat: ChatState;
-  items: readonly StreamLayoutItem[];
-}
-
-function useJumpToBottomOnSend(
-  items: readonly StreamLayoutItem[],
-  scrollToBottom: (animated: boolean) => void,
-) {
-  const lastKey = useRef<string | null>(null);
-  useEffect(() => {
-    const last = items.at(-1)?.row;
-    const key = last?.key ?? null;
-    if (key && key !== lastKey.current && last?.kind === "user" && lastKey.current !== null)
-      scrollToBottom(false);
-    lastKey.current = key;
-  }, [items, scrollToBottom]);
-}
-
-interface StreamScrollHandlers {
-  onScroll(event: NativeSyntheticEvent<NativeScrollEvent>): void;
-  onContentSizeChange(width: number, height: number): void;
-  onLayout(event: LayoutChangeEvent): void;
-}
-
-interface StreamScroll extends StreamScrollHandlers {
-  nearBottom: boolean;
-  scrollToBottom(animated: boolean): void;
-}
-
-function useStreamScroll({ list, inverted, chat, items }: StreamScrollOptions): StreamScroll {
-  const [nearBottom, setNearBottom] = useState(true);
-  const nearBottomRef = useRef(true);
-  const metrics = useRef({ offset: 0, content: 0, viewport: 0 });
-  /** Set while an older page loads on web, so content added above doesn't move the reader. */
-  const olderAnchor = useRef(false);
-
-  const updateNearBottom = useCallback((value: boolean) => {
-    nearBottomRef.current = value;
-    setNearBottom((current) => (current === value ? current : value));
-  }, []);
-
-  const scrollToBottom = useCallback(
-    (animated: boolean) => {
-      updateNearBottom(true);
-      if (inverted) list.current?.scrollToOffset({ offset: 0, animated });
-      else list.current?.scrollToEnd({ animated });
-    },
-    [inverted, list, updateNearBottom],
-  );
-
-  const maybeLoadOlder = () => {
-    const { offset, content, viewport } = metrics.current;
-    const fromStart = inverted ? content - viewport - offset : offset;
-    if (fromStart > HISTORY_START_THRESHOLD || !chat.hasOlder || chat.loadingOlder || content <= 0) return;
-    if (!inverted) olderAnchor.current = true;
-    chat.loadOlder();
-  };
-
-  const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
-    metrics.current = {
-      offset: contentOffset.y,
-      content: contentSize.height,
-      viewport: layoutMeasurement.height,
-    };
-    const distance = inverted
-      ? contentOffset.y
-      : contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    updateNearBottom(distance <= (inverted ? NATIVE_NEAR_BOTTOM : WEB_NEAR_BOTTOM));
-    maybeLoadOlder();
-  };
-
-  const holdReaderPosition = (height: number, previous: number) => {
-    const delta = height - previous;
-    if (delta === 0 || previous <= 0) return;
-    const offset = Math.max(0, metrics.current.offset + delta);
-    list.current?.scrollToOffset({ offset, animated: false });
-    metrics.current.offset = offset;
-  };
-
-  const followWebContent = (height: number, previous: number) => {
-    // Older history (and its spinner) went in above: keep the reader where they were.
-    if (olderAnchor.current && !nearBottomRef.current) holdReaderPosition(height, previous);
-    else if (nearBottomRef.current && height !== previous) list.current?.scrollToEnd({ animated: false });
-  };
-
-  const onContentSizeChange = (_width: number, height: number) => {
-    const previous = metrics.current.content;
-    metrics.current.content = height;
-    // A short page that doesn't fill the viewport never scrolls, so check the history start here too.
-    if (inverted || height <= metrics.current.viewport + HISTORY_START_THRESHOLD) maybeLoadOlder();
-    if (!inverted) followWebContent(height, previous);
-  };
-
-  const onLayout = (event: LayoutChangeEvent) => {
-    metrics.current.viewport = event.nativeEvent.layout.height;
-    if (!inverted && nearBottomRef.current) list.current?.scrollToEnd({ animated: false });
-  };
-
-  useEffect(() => {
-    if (!chat.loadingOlder) {
-      // A page that added nothing above (all duplicates) leaves no anchor to apply.
-      const timer = setTimeout(() => (olderAnchor.current = false), 500);
-      return () => clearTimeout(timer);
-    }
-  }, [chat.loadingOlder]);
-
-  useJumpToBottomOnSend(items, scrollToBottom);
-
-  return { nearBottom, scrollToBottom, onScroll, onContentSizeChange, onLayout };
-}
-
-interface StreamFindOptions {
-  list: ListRef;
-  items: readonly StreamLayoutItem[];
-  inverted: boolean;
-  findOpen: boolean;
-  chat: ChatState;
-}
-
-function useStreamFind({ list, items, inverted, findOpen, chat }: StreamFindOptions) {
-  const [query, setQuery] = useState("");
-  const [found, setFound] = useState<string | null>(null);
-  /** Pages loaded so far looking for an older match; 0 when not looking. */
-  const [olderPages, setOlderPages] = useState(0);
-  const needle = findOpen ? query.trim().toLowerCase() : "";
-  const matches = useMemo(() => findRows(items, needle), [items, needle]);
-  const position = matches.findIndex((index) => items[index]?.row.key === found);
-
-  const reveal = useCallback(
-    (itemIndex: number) => {
-      const item = items[itemIndex];
-      if (!item) return;
-      setFound(item.row.key);
-      // A first jump near the row; on the web the row then centres itself once it renders.
-      list.current?.scrollToIndex({
-        index: inverted ? items.length - 1 - itemIndex : itemIndex,
-        animated: inverted,
-        viewPosition: 0.3,
-      });
-    },
-    [items, inverted, list],
-  );
-
-  const searchedNeedle = useRef<string | null>(null);
-  useEffect(() => {
-    if (searchedNeedle.current === needle) return;
-    searchedNeedle.current = needle;
-    setOlderPages(0);
-    const newest = matches.at(-1);
-    if (newest === undefined) setFound(null);
-    else reveal(newest);
-  }, [needle, matches, reveal]);
-
-  useEffect(() => {
-    if (findOpen) return;
-    setQuery("");
-    setFound(null);
-  }, [findOpen]);
-
-  const findOlder = () => {
-    const older = position > 0 ? matches[position - 1] : undefined;
-    if (older !== undefined) reveal(older);
-    else if (needle && chat.hasOlder && !olderPages) {
-      setOlderPages(1);
-      chat.loadOlder();
-    }
-  };
-  const findNewer = () => {
-    const newer = position >= 0 ? matches[position + 1] : undefined;
-    if (newer !== undefined) reveal(newer);
-  };
-
-  const continueOlderSearch = (loaded: readonly StreamLayoutItem[]) => {
-    const current = loaded.findIndex((item) => item.row.key === found);
-    const earlier = matches.filter((index) => current === -1 || index < current).at(-1);
-    if (earlier !== undefined) {
-      setOlderPages(0);
-      reveal(earlier);
-    } else if (chat.hasOlder && olderPages < 10) {
-      setOlderPages(olderPages + 1);
-      chat.loadOlder();
-    } else setOlderPages(0);
-  };
-  const latestOlderSearch = useRef(continueOlderSearch);
-  latestOlderSearch.current = continueOlderSearch;
-
-  useEffect(() => {
-    if (!olderPages || chat.loadingOlder) return;
-    latestOlderSearch.current(items);
-  }, [olderPages, chat.loadingOlder, items]);
-
-  return { query, setQuery, found, olderPages, position, total: matches.length, findOlder, findNewer };
 }
 
 function useReadRepliesAloud(running: boolean, voice: BotVoice | undefined, latestCopy: string) {
@@ -351,34 +133,6 @@ function StreamAuxiliary({
           </View>
         </View>
       ) : null}
-    </View>
-  );
-}
-
-function OlderSpinner({ colors }: { colors: Colors }) {
-  return (
-    <View style={{ paddingVertical: 12, alignItems: "center" }}>
-      <ActivityIndicator size="small" color={colors.foregroundMuted} />
-    </View>
-  );
-}
-
-function LoadingOverlay({ colors }: { colors: Colors }) {
-  return (
-    <View
-      style={{
-        position: "absolute",
-        top: 0,
-        right: 0,
-        bottom: 0,
-        left: 0,
-        backgroundColor: colors.surface0,
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 40,
-      }}
-    >
-      <ActivityIndicator size="large" color={colors.foregroundMuted} />
     </View>
   );
 }
@@ -550,165 +304,6 @@ export function ChatStream({
       ) : null}
       {chat.agent?.archivedAt ? <ArchivedCallout colors={colors} compact={compact} /> : null}
       {chat.loading ? <LoadingOverlay colors={colors} /> : null}
-    </View>
-  );
-}
-
-const StreamItem = memo(function StreamItem({
-  item,
-  context,
-  typeVersion,
-}: {
-  item: StreamLayoutItem;
-  context: RowContext;
-  typeVersion: number;
-}) {
-  return (
-    <>
-      {/* Rows read Paseo's font sizes while rendering; a size change remounts them. */}
-      <RowFrame
-        key={typeVersion}
-        gapBelow={item.gapBelow}
-        highlight={context.highlightKey === item.row.key ? context.colors.surface2 : undefined}
-      >
-        <RowContent row={item.row} context={context} compactBottom={item.compactBottom} />
-      </RowFrame>
-      {item.footer ? (
-        <CompletedTurnFooter colors={context.colors} footer={item.footer} voice={context.voice} />
-      ) : null}
-    </>
-  );
-});
-
-function useFadeIn(visible: boolean) {
-  const opacity = useRef(new Animated.Value(visible ? 1 : 0)).current;
-  const [mounted, setMounted] = useState(visible);
-  useEffect(() => {
-    const target = visible ? 1 : 0;
-    if (visible) setMounted(true);
-    if (Platform.OS === "android") {
-      opacity.setValue(target);
-      if (!visible) setMounted(false);
-      return;
-    }
-    const animation = Animated.timing(opacity, {
-      toValue: target,
-      duration: 200,
-      useNativeDriver: Platform.OS !== "web",
-    });
-    animation.start(({ finished }) => finished && !visible && setMounted(false));
-    return () => animation.stop();
-  }, [visible, opacity]);
-  return { opacity, mounted };
-}
-
-function ScrollToBottomButton({
-  colors,
-  visible,
-  onPress,
-}: {
-  colors: Colors;
-  visible: boolean;
-  onPress(): void;
-}) {
-  const { opacity, mounted } = useFadeIn(visible);
-  if (!mounted) return null;
-  const tokens = nativeTokens(colors);
-  return (
-    <View
-      pointerEvents="box-none"
-      style={{ position: "absolute", left: 0, right: 0, bottom: 16, alignItems: "center" }}
-    >
-      <Animated.View style={{ opacity }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Scroll to bottom"
-          {...tooltip("Scroll to bottom")}
-          onPress={onPress}
-          style={{
-            width: 48,
-            height: 48,
-            borderRadius: 24,
-            backgroundColor: colors.surface2,
-            alignItems: "center",
-            justifyContent: "center",
-            shadowColor: tokens.dark ? "rgba(0, 0, 0, 0.25)" : "rgba(0, 0, 0, 0.02)",
-            shadowOffset: { width: 0, height: 2 },
-            shadowRadius: tokens.dark ? 4 : 8,
-            shadowOpacity: 1,
-            elevation: 2,
-          }}
-        >
-          <Icon name="ChevronDown" size={24} color={colors.foreground} />
-        </Pressable>
-      </Animated.View>
-    </View>
-  );
-}
-
-function SyncErrorCallout({
-  colors,
-  retrying,
-  onRetry,
-}: {
-  colors: Colors;
-  retrying: boolean;
-  onRetry(): void;
-}) {
-  return (
-    <View style={{ width: "100%", alignItems: "center", paddingHorizontal: 16, paddingTop: 8 }}>
-      <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            backgroundColor: colors.surface1,
-            borderWidth: 1,
-            borderColor: colors.statusDanger,
-            borderRadius: 16,
-            paddingVertical: 8,
-            paddingHorizontal: 16,
-          }}
-        >
-          <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>
-            Couldn't refresh agent history.
-          </Text>
-          <SecondaryButton
-            colors={colors}
-            label={retrying ? "Retrying…" : "Retry"}
-            disabled={retrying}
-            onPress={onRetry}
-          />
-        </View>
-      </View>
-    </View>
-  );
-}
-
-/** The plugin API can't unarchive an agent, so unlike Paseo there's no Unarchive button. */
-function ArchivedCallout({ colors, compact }: { colors: Colors; compact: boolean }) {
-  return (
-    <View style={{ width: "100%", alignItems: "center", paddingHorizontal: 16, paddingTop: 16 }}>
-      <View style={{ width: "100%", maxWidth: CONTENT_MAX_WIDTH }}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 12,
-            backgroundColor: colors.surface1,
-            borderWidth: 1,
-            borderColor: nativeTokens(colors).borderAccent,
-            borderRadius: 16,
-            paddingVertical: compact ? 12 : 16,
-            paddingHorizontal: compact ? 16 : 24,
-          }}
-        >
-          <Text style={{ color: colors.foregroundMuted, fontSize: ui(14) }}>This agent is archived</Text>
-        </View>
-      </View>
     </View>
   );
 }
