@@ -120,6 +120,14 @@ export class MemoryJournal {
     return (await this.load(botId)).reverse().slice(0, limit);
   }
 
+  /** Without the copies kept for undo, which only say whether it can be undone. */
+  async rows(botId: string): Promise<(Omit<JournalEntry, "before"> & { canUndo: boolean })[]> {
+    return (await this.list(botId)).map(({ before, ...entry }) => ({
+      ...entry,
+      canUndo: entry.kind === "created" || before !== null,
+    }));
+  }
+
   undo(botId: string, id: string): Promise<void> {
     return this.serial(botId, async () => {
       const entry = (await this.load(botId)).find((candidate) => candidate.id === id);

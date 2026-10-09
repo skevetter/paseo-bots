@@ -93,7 +93,9 @@ export const memoryDeleteRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-const LogDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+export const LOG_DAY = /^\d{4}-\d{2}-\d{2}$/;
+export const JOURNAL_ID = /^j-[a-z0-9]+$/;
+const LogDay = z.string().regex(LOG_DAY);
 
 /** `text` is set when `day` is given. */
 export const memoryLogRpc = defineRpc({
@@ -135,7 +137,7 @@ export const memoryJournalRpc = defineRpc({
 
 export const memoryUndoRpc = defineRpc({
   name: "bots.memory.undo",
-  input: z.object({ botId: BotId, id: z.string().regex(/^j-[a-z0-9]+$/) }),
+  input: z.object({ botId: BotId, id: z.string().regex(JOURNAL_ID) }),
   output: z.object({ ok: z.boolean() }),
 });
 

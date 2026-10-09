@@ -117,12 +117,7 @@ function handleMemory(server: PluginServerContext, journal: MemoryJournal) {
     await journal.write(botId, name, null);
     return { ok: true };
   });
-  server.handle(memoryJournalRpc, async ({ botId }) => ({
-    entries: (await journal.list(botId)).map(({ before, ...entry }) => ({
-      ...entry,
-      canUndo: entry.kind === "created" || before !== null,
-    })),
-  }));
+  server.handle(memoryJournalRpc, async ({ botId }) => ({ entries: await journal.rows(botId) }));
   server.handle(memoryUndoRpc, async ({ botId, id }) => {
     await journal.undo(botId, id);
     return { ok: true };
