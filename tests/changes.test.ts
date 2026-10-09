@@ -1002,11 +1002,23 @@ describe("library changes", () => {
     expect(off.library?.mcpServers[0]).toBe(on.library?.mcpServers[0]);
   });
 
-  it("removes an MCP server from the library and every bot that used it", () => {
-    const values = setup({ bots: [makeBot({ id: "solo", name: "Solo", mcpServerIds: ["mcp-1", "mcp-x"] })] });
+  it("removes an MCP server from the library and every bot that used it, with its always-allowed tools", () => {
+    const values = setup({
+      bots: [
+        makeBot({
+          id: "solo",
+          name: "Solo",
+          mcpServerIds: ["mcp-1", "mcp-x"],
+          alwaysAllow: ["github/search", "github/get_issue", "githubber/search", "files/read"],
+        }),
+      ],
+    });
     const next = apply([{ type: "remove_mcp_server", server: "github" }], values);
     expect(next.library?.mcpServers).toEqual([]);
-    expect(next.bots[0]?.mcpServerIds).toEqual(["mcp-x"]);
+    expect(next.bots[0]).toMatchObject({
+      mcpServerIds: ["mcp-x"],
+      alwaysAllow: ["githubber/search", "files/read"],
+    });
   });
 
   it("treats a missing library as empty", () => {

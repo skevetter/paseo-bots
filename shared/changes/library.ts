@@ -1,5 +1,5 @@
 import { type BotSettingsValues, EMPTY_LIBRARY, type McpServerConfig } from "../bot";
-import { addMcpServers, forgetItem, mcpServerTested } from "../library";
+import { addMcpServers, mcpServerTested, withoutMcpServer } from "../library";
 import { RESERVED_MCP_NAMES } from "../mcp-servers";
 import type { ApplyContext } from "./context";
 import { findServer, findSkill } from "./refs";
@@ -86,9 +86,5 @@ export function removeMcpServer(
 ): BotSettingsValues {
   const library = values.library ?? EMPTY_LIBRARY;
   const server = findServer(library, change.server);
-  return {
-    ...values,
-    library: { ...library, mcpServers: library.mcpServers.filter((entry) => entry.id !== server.id) },
-    bots: forgetItem(values.bots, "mcp", server.id),
-  };
+  return { ...values, ...withoutMcpServer(library, values.bots, server.id) };
 }

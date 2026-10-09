@@ -21,6 +21,7 @@ import {
   updateMcpServer,
   updateSkill,
   upsertSkills,
+  withoutMcpServer,
 } from "../../shared/library";
 import { skillDeleteRpc } from "../../shared/rpc";
 import { errorText } from "../native";
@@ -77,12 +78,7 @@ export function useLibraryActions(commit: CommitSettings, setTarget: SetTarget):
   };
 
   const removeServer = async (id: string) => {
-    if (
-      await save((current, currentBots) => ({
-        library: { ...current, mcpServers: current.mcpServers.filter((server) => server.id !== id) },
-        bots: forgetItem(currentBots, "mcp", id),
-      }))
-    ) {
+    if (await save((current, currentBots) => withoutMcpServer(current, currentBots, id))) {
       setTarget(null);
     }
   };

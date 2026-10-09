@@ -131,6 +131,24 @@ export function forgetItem(bots: readonly Bot[], kind: LibraryKind, id: string):
   return bots.map((bot) => setBotUses(bot, kind, id, false));
 }
 
+/** Takes a server out of the library and off every bot, with the tools it let them run without asking. */
+export function withoutMcpServer(
+  library: Library,
+  bots: readonly Bot[],
+  id: string,
+): { library: Library; bots: Bot[] } {
+  const removed = library.mcpServers.find((server) => server.id === id);
+  const prefix = `${removed?.name}/`;
+  return {
+    library: { ...library, mcpServers: library.mcpServers.filter((server) => server.id !== id) },
+    bots: forgetItem(bots, "mcp", id).map((bot) =>
+      removed && bot.alwaysAllow.some((grant) => grant.startsWith(prefix))
+        ? { ...bot, alwaysAllow: bot.alwaysAllow.filter((grant) => !grant.startsWith(prefix)) }
+        : bot,
+    ),
+  };
+}
+
 export function renameGrants(bots: readonly Bot[], from: string, to: string): Bot[] {
   if (from === to) return [...bots];
   const prefix = `${from}/`;
