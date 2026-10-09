@@ -470,3 +470,17 @@ export const commandRemoveRpc = defineRpc({
   input: z.object({ botId: BotId, id: z.string() }),
   output: z.object({ ok: z.boolean() }),
 });
+
+/** No token: the app shows where the endpoint is, and clients read the token file. */
+export const controlStatusRpc = defineRpc({
+  name: "bots.control.status",
+  input: z.object({}),
+  output: z.object({ url: z.string().nullable(), tokenFile: z.string() }),
+});
+
+/** The old token stops working at once. */
+export const controlRotateRpc = defineRpc({
+  name: "bots.control.rotate",
+  input: z.object({}),
+  output: z.object({ ok: z.boolean() }),
+});

@@ -1,18 +1,19 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { z } from "zod";
 import { type BotState, BotStateSchema, type StateSnapshot } from "../shared/bot";
 import { pluginDataPath } from "./bot-home";
 import { readParsed, writeAtomic } from "./files";
 
 const VERSION = 1;
+const EnvelopeSchema = z.object({ version: z.literal(VERSION), values: z.unknown() });
 
 export type StateWrite = ({ status: "saved" } & StateSnapshot) | { status: "conflict"; error: string };
 
 type Listener = (snapshot: StateSnapshot) => void;
 
 function parse(raw: string): StateSnapshot {
-  const envelope = JSON.parse(raw) as { version?: unknown; values?: unknown };
-  if (envelope.version !== VERSION) throw new Error(`state.json has version ${String(envelope.version)}`);
+  const envelope = EnvelopeSchema.parse(JSON.parse(raw));
   const revision = createHash("sha256").update(raw).digest("hex");
   return { revision, values: BotStateSchema.parse(envelope.values) };
 }

@@ -30,8 +30,7 @@ export class BotsHost {
   }
 
   requirePaseo(): PaseoApi {
-    if (!this.api)
-      throw new Error("paseo-bots isn't connected to Paseo yet. Open the Bots screen once and try again.");
+    if (!this.api) throw new Error("Open Paseo once since the daemon started, then try again.");
     return this.api;
   }
 

@@ -10,7 +10,7 @@ export interface ProviderModes {
 const UNATTENDED_MODE_WORDS = /(^|-)(bypass|yolo|dangerous(ly)?|full-access|allow-all)(-|$)/;
 
 /** Whether the bot's mode, or the provider's default when it has none, runs commands without asking. */
-function runsUnattended(bot: Pick<Bot, "modeId">, provider: ProviderModes | undefined): boolean {
+export function runsUnattended(bot: Pick<Bot, "modeId">, provider: ProviderModes | undefined): boolean {
   const modeId = bot.modeId ?? provider?.defaultModeId;
   if (!modeId) return false;
   const tier = provider?.modes?.find((mode) => mode.id === modeId)?.colorTier;

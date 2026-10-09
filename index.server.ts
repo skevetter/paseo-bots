@@ -13,6 +13,11 @@ import {
   renameAccount,
   setKey,
 } from "./server/composio";
+import { controlPaths } from "./server/control/files";
+import { ControlServer } from "./server/control/server";
+import { followControlSetting } from "./server/control/switch";
+import type { ControlContext } from "./server/control/tool";
+import { CONTROL_TOOLS } from "./server/control/tools";
 import { BotsHost } from "./server/host";
 import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
 import { MemoryJournal } from "./server/journal";
@@ -28,6 +33,7 @@ import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
+import { botSettings } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import {
   appsAccountsRpc,
@@ -46,6 +52,8 @@ import {
   commandAllowRpc,
   commandListRpc,
   commandRemoveRpc,
+  controlRotateRpc,
+  controlStatusRpc,
   ensureBotHomeRpc,
   exportBotRpc,
   exportTeamRpc,
@@ -177,6 +185,22 @@ function handleChatEvents(
   });
 }
 
+function handleControl(server: PluginServerContext, services: Omit<ControlContext, "settings">) {
+  const settings = server.registerSettings(botSettings);
+  const read = async () => {
+    const state = await settings.read();
+    return state.status === "ready" ? state.values : botSettings.schema.parse({});
+  };
+  const control = new ControlServer({ ...services, settings: read }, CONTROL_TOOLS);
+  const stop = followControlSetting(settings, control);
+  server.handle(controlStatusRpc, () => ({ url: control.url, tokenFile: controlPaths().tokenFile }));
+  server.handle(controlRotateRpc, async () => {
+    await control.rotate();
+    return { ok: true };
+  });
+  return stop;
+}
+
 export default function contribute(server: PluginServerContext) {
   prepareData();
   const store = new BotStore();
@@ -237,8 +261,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(importTeamRpc, importTeam);
   server.handle(uploadRpc, saveUpload);
   handleChatEvents(server, { host, journal, scheduler, commands });
+  const stopControl = handleControl(server, { host, relay, scheduler, journal, commands });
 
   return async () => {
-    await Promise.all([scheduler.stop(), relay.stop()]);
+    await Promise.all([scheduler.stop(), relay.stop(), stopControl()]);
   };
 }

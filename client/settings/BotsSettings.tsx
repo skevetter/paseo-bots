@@ -19,10 +19,11 @@ import { Button, SheetActions } from "../panel/controls";
 import { FormTextArea } from "../panel/fields";
 import { CardNote } from "../panel/rows";
 import { useBotState } from "../useBotState";
+import { ControlSection } from "./ControlSection";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];
 
-export function BotsSettings({ theme, host }: PluginSurfaceProps) {
+export function BotsSettings({ theme, host, layout }: PluginSurfaceProps) {
   const colors = theme.colors;
   const { settings, commit } = useBotState();
   if (settings.status !== "ready")
@@ -83,6 +84,7 @@ export function BotsSettings({ theme, host }: PluginSurfaceProps) {
         groups={values.groups ?? []}
         commit={commit}
       />
+      <ControlSection colors={colors} compact={layout.compact} />
     </>
   );
 }

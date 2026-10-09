@@ -1,3 +1,4 @@
+import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 
 /** Chats are found by filtering agents on this label. */
@@ -288,3 +289,15 @@ export interface StateSnapshot {
   revision: string;
   values: BotState;
 }
+
+/** Only the app writes these, so the control endpoint can't turn itself on or loosen its own rules. */
+export const botSettings = defineSettings({
+  id: "bots",
+  scope: "host",
+  version: 3,
+  schema: z.object({
+    externalControl: z.boolean().default(false),
+    allowElevated: z.boolean().default(false),
+  }),
+});
+export type ControlSettings = z.infer<typeof botSettings.schema>;

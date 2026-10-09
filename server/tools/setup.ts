@@ -1,40 +1,11 @@
 import { z } from "zod";
 import { applyChanges, resolveChanges } from "../../shared/changes/apply";
-import {
-  type AppAccountInfo,
-  type ApplyContext,
-  providerInfo,
-  readyProvider,
-} from "../../shared/changes/context";
 import { botDetails, setupOverview } from "../../shared/changes/overview";
 import { ChangesSchema } from "../../shared/changes/schema";
 import { proposalReply } from "../../shared/proposals";
-import { accounts, status } from "../composio";
-import type { BotsHost } from "../host";
+import { applyContext } from "../apply-context";
 import { createProposal } from "../proposals";
 import { defineTool } from "./mcp";
-
-async function hostContext(host: BotsHost): Promise<ApplyContext> {
-  const snapshot = await host.paseo?.providers.snapshot().catch(() => null);
-  let apps: AppAccountInfo[] | null = null;
-  if ((await status()).configured) {
-    // Accounts go by the names the user gave them, or Composio's word ids; their sign-in (an email) only matches.
-    const list = await accounts().catch(() => null);
-    apps = list
-      ? list.accounts.map((account) => ({
-          id: account.id,
-          slug: account.slug,
-          names: [account.alias, account.wordId, account.name].filter((name): name is string => !!name),
-        }))
-      : null;
-  }
-  return {
-    now: new Date().toISOString(),
-    provider: snapshot ? readyProvider(snapshot.entries) : "",
-    providers: snapshot ? providerInfo(snapshot.entries) : null,
-    accounts: apps,
-  };
-}
 
 export const getSetup = defineTool({
   name: "get_setup",
@@ -46,7 +17,7 @@ export const getSetup = defineTool({
   async run({ bot }, { host }) {
     const values = await host.values();
     if (bot) return botDetails(values, bot);
-    const context = await hostContext(host);
+    const context = await applyContext(host);
     return setupOverview(values, context.providers ?? null, context.accounts ?? null);
   },
 });
@@ -61,7 +32,7 @@ export const proposeChanges = defineTool({
   }),
   async run({ summary, changes }, { bot, agentId, host }) {
     const values = await host.values();
-    const context = await hostContext(host);
+    const context = await applyContext(host);
     const resolved = resolveChanges(changes, context);
     // A dry run finds mistakes now, while they can still be fixed; the app applies the changes for real.
     applyChanges(values, resolved, context);
