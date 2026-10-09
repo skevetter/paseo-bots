@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/bots.svg" width="512" alt="Six pixel-art bots">
+  <img src="https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/bots.svg" width="512" alt="Six pixel-art bots">
 </p>
 
 # paseo-bots
@@ -24,19 +24,19 @@ Personal bots for [Paseo](https://paseo.sh), like Grok Bot or Hermes Bots. Give 
 | | |
 | --- | --- |
 | **Bots** | **Bot settings** |
-| ![Bots](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/splash.png) | ![Bot settings](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/bot.png) |
+| ![Bots](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/splash.png) | ![Bot settings](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/bot.png) |
 | **Skills** | **MCP servers** |
-| ![Skills](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/skills.png) | ![MCP servers](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/mcp.png) |
+| ![Skills](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/skills.png) | ![MCP servers](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/mcp.png) |
 | **Connected apps** | **Teams** |
-| ![Connected apps](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/apps.png) | ![Teams](https://raw.githubusercontent.com/oliexe/paseo-bots/main/docs/teams.png) |
+| ![Connected apps](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/apps.png) | ![Teams](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/teams.png) |
 
 ## Install
 
 ```bash
-paseo plugin install npm:@oliexe/paseo-bots
+paseo plugin install git:skevetter/paseo-bots --ref v0.3.0
 ```
 
-Or paste `npm:@oliexe/paseo-bots` into **Settings → Plugins → Plugin source** in Paseo. Requires Paseo 0.11.0 or later.
+Each version is listed on the [Releases](https://github.com/skevetter/paseo-bots/releases) page. Requires Paseo 0.11.0 or later.
 
 ## Usage
 

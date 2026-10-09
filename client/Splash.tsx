@@ -11,7 +11,7 @@ import { ui } from "./typography";
 type Colors = PluginTheme["colors"];
 
 const AVATAR_SIZE = 48;
-const REPOSITORY_URL = "https://github.com/oliexe/paseo-bots";
+const REPOSITORY_URL = "https://github.com/skevetter/paseo-bots";
 
 export function Splash({ colors, background }: { colors: Colors; background?: string }) {
   const dark = nativeTokens(colors).dark;

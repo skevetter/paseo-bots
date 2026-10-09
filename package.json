@@ -1,5 +1,5 @@
 {
-  "name": "@oliexe/paseo-bots",
+  "name": "@skevetter/paseo-bots",
   "version": "0.3.0",
   "files": [
     "paseo-plugin.json",
@@ -34,13 +34,13 @@
   },
   "description": "Personal bots for Paseo: instructions, a model, memory, routines, teams, skills, MCP tools and connected apps.",
   "license": "MIT",
-  "homepage": "https://github.com/oliexe/paseo-bots#readme",
+  "homepage": "https://github.com/skevetter/paseo-bots#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/oliexe/paseo-bots.git"
+    "url": "git+https://github.com/skevetter/paseo-bots.git"
   },
   "bugs": {
-    "url": "https://github.com/oliexe/paseo-bots/issues"
+    "url": "https://github.com/skevetter/paseo-bots/issues"
   },
   "author": "Ondrej Rehacek",
   "keywords": [
