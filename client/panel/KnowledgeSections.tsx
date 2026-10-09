@@ -13,20 +13,12 @@ import { memoryDeleteRpc, memoryListRpc, memoryReadRpc, memoryWriteRpc } from ".
 import { useBotHost } from "../data";
 import { confirmDialog, errorText } from "../native";
 import type { PanelProps } from "./BotPanel";
-import {
-  Alert,
-  Button,
-  CardNote,
-  DrillRow,
-  FormTextArea,
-  InputField,
-  SectionLink,
-  SectionMeta,
-  SheetActions,
-  TextAreaField,
-} from "./controls";
+import { Button, SheetActions } from "./controls";
+import { FormTextArea, InputField, TextAreaField } from "./fields";
 import { LibraryPicker } from "./LibraryPicker";
 import { ChangesSheet, LogSheet, useDailyLog, useMemoryJournal } from "./MemoryActivity";
+import { CardNote, DrillRow, SectionLink, SectionMeta } from "./rows";
+import { Alert } from "./status";
 
 type Colors = PanelProps["colors"];
 

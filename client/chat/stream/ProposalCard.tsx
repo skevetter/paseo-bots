@@ -16,7 +16,7 @@ import { proposalAcceptRpc, proposalDismissRpc, proposalGetRpc } from "../../../
 import { scanSkillText, skillBody } from "../../../shared/skills";
 import { skillQueryKey } from "../../library/SkillPage";
 import { errorText } from "../../native";
-import { Alert } from "../../panel/controls";
+import { Alert } from "../../panel/status";
 import { ui } from "../../typography";
 import { useBotSettings } from "../../useBotSettings";
 import { CardButton } from "./buttons";

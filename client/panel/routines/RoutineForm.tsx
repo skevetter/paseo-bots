@@ -9,7 +9,8 @@ import { displayTitle, ROUTINE_LABEL } from "../../../shared/chat";
 import { type BotHost, useBotChats } from "../../data";
 import type { PaseoAgent } from "../../paseo";
 import type { PanelProps } from "../BotPanel";
-import { Button, InputField, SheetFooter, TextAreaField } from "../controls";
+import { Button, SheetFooter } from "../controls";
+import { InputField, TextAreaField } from "../fields";
 import { CadenceSection } from "./CadenceSection";
 import { useCadence } from "./cadence";
 

@@ -7,12 +7,13 @@ import type { Routine } from "../../shared/bot";
 import { routineStatusRpc } from "../../shared/rpc";
 import { useBotHost } from "../data";
 import type { PanelProps } from "./BotPanel";
-import { Alert, CardNote, DrillRow, SectionLink } from "./controls";
 import { RoutineForm } from "./routines/RoutineForm";
 import { RoutineRow } from "./routines/RoutineRow";
 import { RunsModal } from "./routines/RunsModal";
 import { recentRunsOf, runsSummary, upcomingRunsOf } from "./routines/runs";
 import { useRoutineActions } from "./routines/useRoutineActions";
+import { CardNote, DrillRow, SectionLink } from "./rows";
+import { Alert } from "./status";
 
 const ROUTINES_KEY = ["paseo-bots", "routines"];
 

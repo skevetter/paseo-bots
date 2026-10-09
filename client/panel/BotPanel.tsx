@@ -10,11 +10,13 @@ import { nativeTokens, useHover } from "../native";
 import { ui } from "../typography";
 import { tooltip } from "../ui/Tooltip";
 import { AccessSection, ModelSection, PermissionsSection } from "./AgentSections";
-import { Alert, SearchField, useCompact } from "./controls";
+import { useCompact } from "./controls";
+import { SearchField } from "./fields";
 import { IdentitySection } from "./IdentitySection";
 import { MemorySection, PlaybooksSection, SkillsSection, SoulSection } from "./KnowledgeSections";
 import { HistorySection, OverviewSection, UsageSection } from "./OverviewSections";
 import { RoutinesSection } from "./RoutinesSection";
+import { Alert } from "./status";
 
 type Colors = PluginTheme["colors"];
 

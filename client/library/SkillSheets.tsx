@@ -13,15 +13,9 @@ import {
   skillMarkdown,
 } from "../../shared/skills";
 import { errorText, MONO_FONT, MONO_PROPS } from "../native";
-import {
-  Alert,
-  Button,
-  FormTextArea,
-  InputField,
-  SheetActions,
-  SheetFooter,
-  TextAreaField,
-} from "../panel/controls";
+import { Button, SheetActions, SheetFooter } from "../panel/controls";
+import { FormTextArea, InputField, TextAreaField } from "../panel/fields";
+import { Alert } from "../panel/status";
 import { code, codeLine, ui } from "../typography";
 
 type Colors = PluginTheme["colors"];

@@ -1,7 +1,7 @@
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
 import type { PanelProps } from "../BotPanel";
-import { CardNote, DrillRow } from "../controls";
+import { CardNote, DrillRow } from "../rows";
 import { type RecentRun, runHint, runTime, UPCOMING_DAYS, type UpcomingRun } from "./runs";
 
 type Colors = PanelProps["colors"];

@@ -11,7 +11,7 @@ import { errorText } from "../native";
 import { openLibrary } from "../navigation";
 import { AppAccessSheet } from "./AppAccessSheet";
 import type { PanelProps } from "./BotPanel";
-import { CardNote, PressableRow, RowText, SectionLink, Switch } from "./controls";
+import { CardNote, PressableRow, RowText, SectionLink, Switch } from "./rows";
 
 const STATUS_HINT = {
   connected: null,

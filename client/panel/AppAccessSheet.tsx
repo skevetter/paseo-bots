@@ -17,7 +17,9 @@ import { appsToolsRpc } from "../../shared/rpc";
 import { APPS_KEY } from "../library/apps";
 import { readOnlyToolsHint } from "../library/status";
 import { errorText } from "../native";
-import { Button, CardNote, SearchField, SectionMeta, SheetActions } from "./controls";
+import { Button, SheetActions } from "./controls";
+import { SearchField } from "./fields";
+import { CardNote, SectionMeta } from "./rows";
 
 type Colors = PluginTheme["colors"];
 type Mode = "all" | "read" | "chosen";

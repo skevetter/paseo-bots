@@ -18,7 +18,8 @@ import { ToolCallDetailsContent } from "../chat/stream/details";
 import { confirmDialog, errorText, MONO_FONT, MONO_PROPS } from "../native";
 import { code, codeLine, ui } from "../typography";
 import type { PanelProps } from "./BotPanel";
-import { Button, CardNote, DrillRow, SheetActions } from "./controls";
+import { Button, SheetActions } from "./controls";
+import { CardNote, DrillRow } from "./rows";
 
 type Colors = PanelProps["colors"];
 

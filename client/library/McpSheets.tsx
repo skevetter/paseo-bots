@@ -18,7 +18,8 @@ import {
 
 import { PASEO_MCP_NAME } from "../../shared/paseo-tools";
 import { mcpSourcesRpc } from "../../shared/rpc";
-import { Button, FormTextArea, InputField, SheetFooter, TextAreaField } from "../panel/controls";
+import { Button, SheetFooter } from "../panel/controls";
+import { FormTextArea, InputField, TextAreaField } from "../panel/fields";
 import { ui } from "../typography";
 
 type Colors = PluginTheme["colors"];

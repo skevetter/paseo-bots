@@ -5,7 +5,7 @@ import { mcpServerLabel } from "../../shared/browser";
 import { type LibraryKind, mcpServerTested, mcpTarget, setBotUses } from "../../shared/library";
 import { openLibrary } from "../navigation";
 import type { PanelProps } from "./BotPanel";
-import { CardNote, PressableRow, RowText, SectionLink, Switch } from "./controls";
+import { CardNote, PressableRow, RowText, SectionLink, Switch } from "./rows";
 
 interface LibraryPickerProps extends Pick<PanelProps, "colors" | "bot" | "library" | "onPatch"> {
   kind: LibraryKind;

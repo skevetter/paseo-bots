@@ -6,7 +6,7 @@ import { CRON_PRESETS, describeCron } from "../../../shared/routines";
 import { routineWebhookRpc } from "../../../shared/rpc";
 import { confirmDialog, errorText } from "../../native";
 import type { PanelProps } from "../BotPanel";
-import { InputField } from "../controls";
+import { InputField } from "../fields";
 import { type Cadence, ONCE, WEBHOOK } from "./cadence";
 
 type Colors = PanelProps["colors"];

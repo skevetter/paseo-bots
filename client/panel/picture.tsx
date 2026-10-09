@@ -4,7 +4,8 @@ import { useState } from "react";
 import { Pressable, View } from "react-native";
 import { PALETTE_COUNT, paletteSwatch } from "../../shared/pixel";
 import { pickFileHandles, squareImage } from "../web";
-import { InputField, StackedRow } from "./controls";
+import { InputField } from "./fields";
+import { StackedRow } from "./rows";
 
 type Colors = PluginTheme["colors"];
 

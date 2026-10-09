@@ -28,16 +28,10 @@ import { errorText } from "../native";
 import type { PaseoProviderEntry } from "../paseo";
 import { AppsPicker } from "./AppsPicker";
 import type { PanelProps } from "./BotPanel";
-import {
-  AdvancedToggle,
-  CardNote,
-  DrillRow,
-  InputField,
-  SectionMeta,
-  StatusBadge,
-  TextAreaField,
-} from "./controls";
+import { InputField, TextAreaField } from "./fields";
 import { LibraryPicker } from "./LibraryPicker";
+import { AdvancedToggle, CardNote, DrillRow, SectionMeta } from "./rows";
+import { StatusBadge } from "./status";
 
 const MANAGED = "__managed__";
 /** Not an option; SettingsSelect shows a value outside its options as-is. */

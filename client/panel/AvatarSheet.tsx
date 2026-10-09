@@ -9,8 +9,10 @@ import type { Bot } from "../../shared/bot";
 import { avatarGenerateRpc, avatarKeyStatusRpc, avatarRemoveKeyRpc, avatarSetKeyRpc } from "../../shared/rpc";
 import { errorText } from "../native";
 import { squareImage } from "../web";
-import { Alert, Button, InputField, SheetActions, TextAreaField } from "./controls";
+import { Button, SheetActions } from "./controls";
+import { InputField, TextAreaField } from "./fields";
 import { PICTURE_SIZE } from "./picture";
+import { Alert } from "./status";
 
 type Colors = PluginTheme["colors"];
 

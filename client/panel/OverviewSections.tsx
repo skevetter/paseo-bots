@@ -18,7 +18,7 @@ import { useAppsCatalog, useAppsStatus } from "../library/apps";
 import { MONO_FONT, MONO_PROPS } from "../native";
 import { code, codeLine, ui } from "../typography";
 import type { PanelProps } from "./BotPanel";
-import { CardNote, DrillRow, SectionMeta } from "./controls";
+import { CardNote, DrillRow, SectionMeta } from "./rows";
 
 function useDebounced<T>(value: T, ms: number): T {
   const [debounced, setDebounced] = useState(value);

@@ -9,7 +9,8 @@ import { exportBotRpc } from "../shared/rpc";
 import { BOT_TEMPLATES, type BotTemplate } from "../shared/templates";
 import { Avatar } from "./Avatar";
 import { errorText, MONO_FONT, MONO_PROPS, nativeTokens, useHover } from "./native";
-import { Button, FormTextArea, SheetActions } from "./panel/controls";
+import { Button, SheetActions } from "./panel/controls";
+import { FormTextArea } from "./panel/fields";
 import { code, codeLine, ui } from "./typography";
 import type { MenuEntry } from "./ui/Menu";
 

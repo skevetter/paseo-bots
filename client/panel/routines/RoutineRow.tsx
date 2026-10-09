@@ -6,7 +6,8 @@ import { relativeTime } from "../../../shared/time";
 import { actionsLabel } from "../../a11y";
 import { type MenuEntry, useMenu } from "../../ui/Menu";
 import type { PanelProps } from "../BotPanel";
-import { KebabButton, PressableRow, RowText, StatusBadge } from "../controls";
+import { KebabButton, PressableRow, RowText } from "../rows";
+import { StatusBadge } from "../status";
 import { routineState, runStartError } from "./runs";
 import type { RoutineActions } from "./useRoutineActions";
 

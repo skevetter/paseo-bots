@@ -7,7 +7,7 @@ import { type AppCard, faviconUrl } from "../../shared/apps";
 import type { Bot } from "../../shared/bot";
 import { Avatar } from "../Avatar";
 import { confirmDialog, nativeTokens, useHover } from "../native";
-import { CardNote, RowText, Switch } from "../panel/controls";
+import { CardNote, RowText, Switch } from "../panel/rows";
 import { ui } from "../typography";
 import { tooltip } from "../ui/Tooltip";
 

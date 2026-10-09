@@ -8,7 +8,7 @@ import { mcpServerLabel } from "../../shared/browser";
 import { matchesQuery, mcpTarget } from "../../shared/library";
 import { errorText, nativeTokens, useHover } from "../native";
 import type { LibraryTarget } from "../navigation";
-import { SearchField } from "../panel/controls";
+import { SearchField } from "../panel/fields";
 import { ui } from "../typography";
 import { measureAnchor } from "../ui/Menu";
 import { tooltip } from "../ui/Tooltip";

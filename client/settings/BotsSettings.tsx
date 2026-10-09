@@ -14,7 +14,9 @@ import { addImportedBots } from "../../shared/library";
 import { exportTeamRpc, importTeamRpc } from "../../shared/rpc";
 import { useBotHost, useProviders } from "../data";
 import { confirmDialog, errorText } from "../native";
-import { Button, CardNote, FormTextArea, SheetActions } from "../panel/controls";
+import { Button, SheetActions } from "../panel/controls";
+import { FormTextArea } from "../panel/fields";
+import { CardNote } from "../panel/rows";
 import { useBotSettings } from "../useBotSettings";
 
 type Colors = PluginSurfaceProps["theme"]["colors"];

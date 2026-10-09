@@ -1,7 +1,7 @@
 import type { Routine } from "../../../shared/bot";
 import { upcomingRuns } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
-import type { BadgeVariant } from "../controls";
+import type { BadgeVariant } from "../status";
 
 const UPCOMING = 6;
 export const UPCOMING_DAYS = 7;

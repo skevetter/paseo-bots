@@ -4,7 +4,8 @@ import { useState } from "react";
 import { View } from "react-native";
 import type { McpServerConfig } from "../../shared/bot";
 import { BROWSER_DESCRIPTION, browserUrlOf, DEFAULT_BROWSER_URL, withBrowserUrl } from "../../shared/browser";
-import { Alert, InputField } from "../panel/controls";
+import { InputField } from "../panel/fields";
+import { Alert } from "../panel/status";
 
 type Colors = PluginTheme["colors"];
 

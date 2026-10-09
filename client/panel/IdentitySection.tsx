@@ -16,8 +16,10 @@ import { canSpeak, speak, useVoices } from "../speech";
 import { canPickFiles } from "../web";
 import { AvatarSheet } from "./AvatarSheet";
 import type { PanelProps } from "./BotPanel";
-import { Button, DrillRow, InputField, SheetActions, TextAreaField } from "./controls";
+import { Button, SheetActions } from "./controls";
+import { InputField, TextAreaField } from "./fields";
 import { ColourRow, PictureSource, pickPicture } from "./picture";
+import { DrillRow } from "./rows";
 
 const DESCRIPTION_MAX = 4000;
 

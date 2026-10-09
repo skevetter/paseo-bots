@@ -15,7 +15,8 @@ import type { Bot, BotGroup, TeamLogo as Logo } from "../../shared/bot";
 import { type TeamDraft, teamLogoOf, teamOf } from "../../shared/groups";
 import { TeamLogo } from "../Avatar";
 import { errorText, nativeTokens } from "../native";
-import { Button, InputField, SheetActions, TextAreaField } from "../panel/controls";
+import { Button, SheetActions } from "../panel/controls";
+import { InputField, TextAreaField } from "../panel/fields";
 import { ColourRow, PictureSource, pickPicture } from "../panel/picture";
 import { canPickFiles } from "../web";
 

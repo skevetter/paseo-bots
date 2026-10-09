@@ -8,7 +8,7 @@ import { BOT_LABEL, type BotSettingsValues } from "../../../shared/bot";
 import { useAppsAccounts, useAppsCatalog } from "../../library/apps";
 import { AppLogo } from "../../library/parts";
 import { errorText } from "../../native";
-import { StatusBadge } from "../../panel/controls";
+import { StatusBadge } from "../../panel/status";
 import { ui } from "../../typography";
 import { useBotSettings } from "../../useBotSettings";
 import { CardButton } from "./buttons";

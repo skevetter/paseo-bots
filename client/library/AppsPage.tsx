@@ -8,17 +8,10 @@ import type { AppCard } from "../../shared/apps";
 import { matchesQuery } from "../../shared/library";
 import { appsRemoveKeyRpc, appsSetKeyRpc } from "../../shared/rpc";
 import { errorText } from "../native";
-import {
-  Alert,
-  Button,
-  CardNote,
-  InputField,
-  RowText,
-  SearchField,
-  SectionLink,
-  SectionMeta,
-  StatusBadge,
-} from "../panel/controls";
+import { Button } from "../panel/controls";
+import { InputField, SearchField } from "../panel/fields";
+import { CardNote, RowText, SectionLink, SectionMeta } from "../panel/rows";
+import { Alert, StatusBadge } from "../panel/status";
 import { useAppsAccounts, useAppsCatalog, useAppsInvalidate, useAppsStatus } from "./apps";
 import { AppLogo, DangerZone, PageTitle } from "./parts";
 
