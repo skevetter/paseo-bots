@@ -286,6 +286,41 @@ describe("setup changes to teams, routines and presets", () => {
     expect(next.presets?.map((preset) => preset.name)).toEqual(["Scout"]);
     expect(apply([{ type: "delete_preset", preset: "scout" }], next).presets).toEqual([]);
   });
+
+  it("creates a bot from a preset with the defaults, and not from a preset and a role at once", () => {
+    const scout = makeBot({
+      id: "scout",
+      name: "Scout",
+      title: "Researcher",
+      soul: "Cite sources.",
+      avatar: { seed: "scout-face", palette: 2, shape: "square", imageUrl: null },
+      skillIds: ["weekly-report"],
+      modeId: "plan",
+    });
+    const values = setup({
+      presets: [{ ...presetFromBot(scout, NOW), id: "pr-1" }],
+      defaults: { provider: "codex", model: "gpt", modeId: null, thinkingOptionId: null, contactBots: "off" },
+    });
+    const juno = apply([{ type: "create_bot", name: "Juno", preset: "scout", title: "Analyst" }], values)
+      .bots[3];
+    expect(juno).toMatchObject({
+      name: "Juno",
+      title: "Analyst",
+      soul: "Cite sources.",
+      avatar: scout.avatar,
+      skillIds: ["weekly-report"],
+      provider: "codex",
+      model: "gpt",
+      modeId: null,
+      contactBots: "off",
+    });
+    expect(() => apply([{ type: "create_bot", name: "Juno", preset: "pr-1", role: "ops" }], values)).toThrow(
+      "Start from a role or a preset, not both.",
+    );
+    expect(describeChange(ChangeSchema.parse({ type: "create_bot", name: "Juno", preset: "Scout" }))).toBe(
+      "**New bot Juno**: starts from preset Scout",
+    );
+  });
 });
 
 describe("team membership edits", () => {

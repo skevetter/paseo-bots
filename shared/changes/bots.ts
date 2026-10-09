@@ -3,7 +3,7 @@ import { newRoutineId } from "../bot-ids";
 
 import { withoutBot } from "../groups";
 import { scheduleFrom } from "../routines";
-import { BOT_TEMPLATES, newBot } from "../templates";
+import { BOT_TEMPLATES, botFromPreset, newBot } from "../templates";
 import type { ApplyContext } from "./context";
 import {
   uniqueBotName,
@@ -17,11 +17,30 @@ import {
 import { byRef, findBot, ROUTINE_REF } from "./refs";
 import type { ChangeOf } from "./schema";
 
+/** The bot a create_bot starts from, before the defaults and its fields. */
+export function startingBot(
+  values: BotState,
+  change: Pick<ChangeOf<"create_bot">, "role" | "preset">,
+  provider: string,
+): Bot {
+  if (change.preset === undefined)
+    return newBot(
+      provider,
+      BOT_TEMPLATES.find((entry) => entry.id === change.role),
+    );
+  if (change.role !== undefined) throw new Error("Start from a role or a preset, not both.");
+  const preset = byRef(values.presets ?? [], change.preset, {
+    what: "preset",
+    id: (entry) => entry.id,
+    name: (entry) => entry.name,
+  });
+  return botFromPreset(provider, preset);
+}
+
 export function createBot(values: BotState, change: ChangeOf<"create_bot">, context: ApplyContext): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
-  const template = BOT_TEMPLATES.find((entry) => entry.id === change.role);
-  const base = newBot(defaults.provider || context.provider, template);
+  const base = startingBot(values, change, defaults.provider || context.provider);
   const same = !!defaults.provider;
   let bot: Bot = {
     ...base,

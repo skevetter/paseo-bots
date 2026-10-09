@@ -1,6 +1,5 @@
 import { copyText } from "@getpaseo/plugin/client/react-native";
 import type { LayoutRectangle } from "react-native";
-import { randomSeed } from "../shared/avatar";
 import {
   type Bot,
   type BotGroup,
@@ -12,6 +11,7 @@ import {
   type Library,
   type Preset,
 } from "../shared/bot";
+import { duplicateOf } from "../shared/bot-copy";
 import { newBotId, newGroupId } from "../shared/bot-ids";
 import { displayTitle } from "../shared/chat";
 import { saveTeam, type TeamDraft, type TeamTab, tabOf, teamTabs, withoutBot } from "../shared/groups";
@@ -109,18 +109,7 @@ async function duplicate(ctx: SurfaceContext, bot: Bot) {
   await ctx.flush();
   const { json } = await ctx.exportBot({ bot, includeMemory: false });
   const { bot: copy } = await ctx.importBot({ botId: newBotId(), json });
-  // Same library items as the original; the copy's own file only carries redacted server settings.
-  await addBot(ctx, {
-    ...copy,
-    name: `${bot.name} copy`,
-    hostId: bot.hostId,
-    cwd: bot.cwd,
-    modeId: bot.modeId,
-    alwaysAllow: bot.alwaysAllow,
-    skillIds: bot.skillIds,
-    mcpServerIds: bot.mcpServerIds,
-    avatar: { ...bot.avatar, seed: randomSeed() },
-  });
+  await addBot(ctx, duplicateOf(bot, copy));
 }
 
 async function remove(ctx: SurfaceContext, bot: Bot) {

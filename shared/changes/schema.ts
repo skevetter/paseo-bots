@@ -113,7 +113,7 @@ const BotFields = {
 
 const ROLE_IDS = BOT_TEMPLATES.map((template) => template.id) as [string, ...string[]];
 
-const CreateBot = z.object({
+export const CreateBot = z.object({
   type: z.literal("create_bot"),
   name: z.string().min(1).max(100),
   role: z
@@ -122,6 +122,7 @@ const CreateBot = z.object({
     .describe(
       `Start from a role (${BOT_TEMPLATES.map((template) => `${template.id}: ${template.title}`).join(", ")}); the other fields override it.`,
     ),
+  preset: Ref("A saved preset to start from instead of a role").optional(),
   ...BotFields,
   skills: Ids("Library skill ids to turn on.").optional(),
   mcp_servers: Ids("Library MCP servers to turn on, by name.").optional(),
@@ -129,7 +130,7 @@ const CreateBot = z.object({
   playbooks: z.array(PlaybookInput).max(20).optional(),
 });
 
-const UpdateBot = z.object({
+export const UpdateBot = z.object({
   type: z.literal("update_bot"),
   bot: Ref("The bot"),
   name: z.string().min(1).max(100).optional(),
@@ -243,7 +244,7 @@ const RemoveMcpServer = z.object({
   server: Ref("The library MCP server"),
 });
 
-const SetDefaults = z.object({
+export const SetDefaults = z.object({
   type: z.literal("set_defaults"),
   provider: z.string().max(60).optional().describe("Provider for new bots; empty picks one that's ready."),
   model: BotFields.model,

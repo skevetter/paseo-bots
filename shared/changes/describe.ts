@@ -74,11 +74,13 @@ function listPart(label: string, items: readonly string[] | undefined, suffix = 
 }
 
 function createBotText(change: ChangeOf<"create_bot">): string {
-  const role = change.role
+  const start = change.role
     ? [`starts as ${BOT_TEMPLATES.find((template) => template.id === change.role)?.title ?? change.role}`]
-    : [];
+    : change.preset
+      ? [`starts from preset ${change.preset}`]
+      : [];
   const parts = [
-    ...role,
+    ...start,
     ...fieldsText(change),
     ...listPart("skills", change.skills),
     ...listPart("MCP servers", change.mcp_servers),
