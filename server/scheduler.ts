@@ -323,10 +323,13 @@ export class RoutineScheduler {
       output: run.output,
       error: run.error,
     };
-    await this.paseo.agents
-      .ref(routine.resultsChatId)
-      .timeline.append({ type: "plugin", id: run.id, ...ROUTINE_RUN_CARD, data: { ...data } })
-      .catch((error: unknown) => console.error("paseo-bots: couldn't post a routine result", error));
+    try {
+      await this.paseo.agents
+        .ref(routine.resultsChatId)
+        .timeline.append({ type: "plugin", id: run.id, ...ROUTINE_RUN_CARD, data: { ...data } });
+    } catch (error) {
+      console.error("paseo-bots: couldn't post a routine result", error);
+    }
   }
 
   private async tick(): Promise<void> {

@@ -231,13 +231,12 @@ describe("routine runs", () => {
         makeBot({
           id: "bot-t",
           routines: [
-            routine({ id: "rt-broken", name: "Broken", resultsChatId: "gone-chat", ...due }),
+            routine({ ...due, id: "rt-broken", name: "Broken", schedule: null as never }),
             routine({ id: "rt-after", name: "After", ...due }),
           ],
         }),
       ],
       async (_host, _relay, _bot, { title }) => `chat-${title}`,
-      "gone-chat",
     );
     await vi.waitFor(async () =>
       expect((await scheduler.status()).routines["rt-after"]?.runs.map((run) => run.agentId)).toEqual([
@@ -245,6 +244,19 @@ describe("routine runs", () => {
       ]),
     );
     expect(errors).toHaveBeenCalledWith(expect.stringContaining('"Broken" (rt-broken)'), expect.any(Error));
+  });
+
+  it("reports a run as started when its results chat can't take the card", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const lost = routine({ id: "rt-lost", resultsChatId: "gone-chat", createdAt: new Date().toISOString() });
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "bot-l", routines: [lost] })],
+      async () => "lost-run-chat",
+      "gone-chat",
+    );
+    const { run } = await scheduler.runNow("bot-l", "rt-lost");
+    expect(run).toMatchObject({ status: "running", agentId: "lost-run-chat" });
+    expect(errors).toHaveBeenCalledWith("paseo-bots: couldn't post a routine result", expect.any(Error));
   });
 
   it("finishes a run whose turn ends before the run is recorded", async () => {
