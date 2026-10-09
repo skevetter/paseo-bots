@@ -39,6 +39,10 @@ type SavedRecord = RoutineRecord | LegacyState | null;
 const recordsPath = () => join(pluginDataPath(), "routines.json");
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
+const SECRET = /^[a-f0-9]{48}$/;
+/** A secret edited by hand to another length or type can't be compared, so it's replaced. */
+const isSecret = (value: unknown): value is string => typeof value === "string" && SECRET.test(value);
+
 /** Older routines.json entries kept only the last run; hand-edited ones may hold nulls. */
 function upgrade(entry: SavedRecord): RoutineRecord {
   if (!entry || typeof entry !== "object") return { ...EMPTY_RECORD, runs: [] };
@@ -203,12 +207,12 @@ export class RoutineScheduler {
 
   async webhookUrl(routineId: string, rotate = false): Promise<{ url: string }> {
     const secret = await this.hooks(async () => {
-      const hooks = await readJson<Record<string, string>>(hooksPath(), {});
-      if (!hooks[routineId] || rotate) {
-        hooks[routineId] = randomBytes(24).toString("hex");
-        await writeJson(hooksPath(), hooks, 0o600);
-      }
-      return hooks[routineId];
+      const hooks = await readJson<Record<string, unknown>>(hooksPath(), {});
+      const saved = hooks[routineId];
+      if (isSecret(saved) && !rotate) return saved;
+      const fresh = randomBytes(24).toString("hex");
+      await writeJson(hooksPath(), { ...hooks, [routineId]: fresh }, 0o600);
+      return fresh;
     });
     const port = await this.relay.start();
     return { url: `http://127.0.0.1:${port}/hooks/${routineId}/${secret}` };
@@ -495,8 +499,8 @@ export class RoutineScheduler {
     secret: string,
   ): Promise<{ bot: Bot; routine: Routine } | HookReply> {
     const notFound: HookReply = { status: 404, body: { error: "not found" } };
-    const expected = (await readJson<Record<string, string>>(hooksPath(), {}))[routineId];
-    if (!expected || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
+    const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
+    if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
     const values = await this.host.values();
     const bot = values?.bots.find(
       (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),

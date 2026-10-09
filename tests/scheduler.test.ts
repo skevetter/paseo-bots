@@ -389,6 +389,21 @@ describe("the routine scheduler's saved state", () => {
     const saved = JSON.parse(await readFile(join(pluginDataPath(), "webhooks.json"), "utf8"));
     expect(first.url.endsWith(`/${saved["rt-race"]}`)).toBe(true);
   });
+
+  it("replaces a saved webhook secret of the wrong length or type instead of failing on it", async () => {
+    await writeState("webhooks.json", JSON.stringify({ "rt-short": "abc123", "rt-num": 42 }));
+    const { scheduler, relay } = await startScheduler(
+      [makeBot({ id: "bot-sec", routines: [webhook({ id: "rt-short" }), webhook({ id: "rt-num" })] })],
+      async () => "hook-chat",
+    );
+    const guess = `http://127.0.0.1:${await relay.start()}/hooks/rt-short/${"a".repeat(48)}`;
+    expect((await hook(guess))[0]).toBe(404);
+    for (const id of ["rt-short", "rt-num"]) {
+      const { url } = await scheduler.webhookUrl(id);
+      expect(url).toMatch(new RegExp(`/hooks/${id}/[a-f0-9]{48}$`));
+      expect(await hook(url, "event")).toEqual([202, { status: "running", chat: "hook-chat" }]);
+    }
+  });
 });
 
 const fresh = () => new Date().toISOString();
