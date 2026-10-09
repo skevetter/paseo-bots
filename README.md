@@ -4,31 +4,17 @@
 
 # paseo-bots
 
-Personal bots for [Paseo](https://paseo.sh), like Grok Bot or Hermes Bots. Give each bot instructions, a model, memory, skills and tools, then chat with it in its own workspace or let it run routines.
+paseo-bots is a [Paseo](https://paseo.sh) plugin for personal bots. You chat with a bot in its workspace, or a routine runs it on a schedule or from a webhook.
 
-## Core Features
+This repository is a fork of [oliexe/paseo-bots](https://github.com/oliexe/paseo-bots).
 
-| Feature | Description |
-| --- | --- |
-| **Bots** | Instructions, provider and model, host, approval mode and an avatar. Start blank or from a role such as Email triage or Researcher, or ask a bot to set them up. |
-| **Memory** | Each bot keeps a `MEMORY.md` it updates as it learns, and a daily log of its chats. |
-| **Routines** | Runs on a schedule, such as every weekday at 9:00, or when its webhook is called. |
-| **Teams** | Put bots on a team with a Chief of Staff, who takes your requests and hands parts to the others. Each team gets a tab and a pixel-art logo. |
-| **Skills & Tools** | One library of skills and MCP servers, switched on per bot. Import skills from GitHub and MCP servers from Claude Code, Claude Desktop or Cursor. |
-| **Learning** | Send `/learn` after a task and the bot writes it up as a skill. |
-| **Connected apps** | 1,000+ apps such as Gmail, Slack and Notion through [Composio](https://composio.dev), with several named accounts per app. |
-| **Paseo tools** | Bots can start other agents, open workspaces, set up schedules and use the browser. |
+## Features
 
-## Screenshots
-
-| | |
-| --- | --- |
-| **Bots** | **Bot settings** |
-| ![Bots](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/splash.png) | ![Bot settings](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/bot.png) |
-| **Skills** | **MCP servers** |
-| ![Skills](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/skills.png) | ![MCP servers](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/mcp.png) |
-| **Connected apps** | **Teams** |
-| ![Connected apps](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/apps.png) | ![Teams](https://raw.githubusercontent.com/skevetter/paseo-bots/main/docs/teams.png) |
+- **Bots**: instructions, a model, an approval mode, an avatar and a `MEMORY.md`. A bot can propose setup changes on a card you apply.
+- **Routines**: a prompt that runs on a schedule, once, or when its webhook gets a `POST`.
+- **Teams**: a Chief of Staff hands parts of your requests to its teammates.
+- **Skills & Tools**: one library of skills and MCP servers, turned on per bot.
+- **Connected apps**: 1,000+ apps through your own [Composio](https://composio.dev) account. A local relay holds the API key and keeps each bot to its apps, tools and accounts.
 
 ## Install
 
@@ -36,78 +22,44 @@ Personal bots for [Paseo](https://paseo.sh), like Grok Bot or Hermes Bots. Give 
 paseo plugin install git:skevetter/paseo-bots --ref v0.4.0
 ```
 
-Each version is listed on the [Releases](https://github.com/skevetter/paseo-bots/releases) page. Requires Paseo 0.11.0 or later.
+The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](https://github.com/skevetter/paseo-bots/releases) lists each version.
 
 ## Usage
 
-### Bots
+1. Open **Bots** in Paseo's sidebar and press **New bot**.
+2. Start blank, from a role, from a preset, or from a bot or team file under **Import**.
+3. Chat with the bot. The panel button at the top right of a chat opens its settings.
+4. Press **Skills & Tools** below the bot list to add skills, MCP servers and apps. Give them to a bot under its **Skills** and **Access** settings.
 
-1. Open **Bots** in Paseo's sidebar and press **New bot**. Start blank, from a role, from one of your presets, or paste a bot or team file under **Import**.
-2. Chat with it. Every chat is a thread in the bot's workspace; **Open in Paseo** in a chat's menu shows it in Paseo's own view.
-3. Open its settings with the panel button at the top right of a chat, or **Open bot settings** in the bot's menu. **Identity** holds the name, avatar and voice, **Soul** its standing instructions, **Model** the provider and model, and **Permissions** the approval mode.
+An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts on its provider's default approval mode, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
 
-Bots can do the setting up too. Ask one in a chat, for example "Create a research team of three bots with Scout as Chief of Staff", and it shows every change on one card; **Apply changes** makes them. A bot can create, edit and delete bots, teams, routines, library skills and MCP servers, and change what new bots start with. Each bot's earlier settings stay under **History** in its settings.
+## The Browser preset and its risk
 
-### Memory
+The library has a built-in **Browser** MCP server. It runs [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) against a Chromium browser you use, such as Chrome, Brave or Edge.
 
-A bot updates its `MEMORY.md` when it learns something worth keeping, for example when you say "Remember that I prefer short answers". New chats start with it.
+A bot with this server acts as you on every site where that browser is signed in. It can read your mail, send messages and buy things. A web page can carry text that steers the bot to do something you did not ask for.
 
-In the bot's settings, **Memory** shows `MEMORY.md` and its topic files, which you can edit, a **Daily log** of its chats, and **Changes**, where **Undo** puts a file back the way it was.
+The preset is off for every bot. Importing a bot or team file does not turn it on. To use it:
 
-### Routines
+1. Start the browser with `--remote-debugging-port=9222`. While that port is open, any program on your computer can control the browser.
+2. Set **Browser address** if you use another port.
+3. Press **Test and turn on**, and give the server to one bot under **Access**.
 
-1. In the bot's settings, open **Routines** and press **New routine**.
-2. Give it a name and a prompt. The prompt is the first message of each run.
-3. Pick when it repeats: a preset such as **Weekdays 9:00** or your own cron expression, **Once**, or **When its webhook is called**.
-4. To collect results in one place, pick a chat under **Post results to**. Each run still gets its own chat.
+A separate browser profile without your main accounts limits the damage.
 
-Bots can propose routines too: ask in a chat, then press **Create routine** on the card. A webhook routine's URL is under **Copy webhook URL** in its menu; `POST` to it from this computer.
+## What this fork changes
 
-### Teams
+Compared with oliexe/paseo-bots 0.2.0, this fork:
 
-1. Press **Team map** at the bottom of the bot list, then **New team**.
-2. Name the team, switch on its members, pick a **Lead** as its Chief of Staff, and add shared instructions for every member. The team gets a pixel-art logo; **Reroll** draws another, or use your own picture.
-3. Send your requests to the Chief of Staff. It hands parts of the work to its teammates.
-
-With teams, the Bots screen gets a tab for each team, and **Other bots** for bots without one (a menu on phones); **+** next to the tabs adds a team, and right-clicking a tab edits it. A team file carries your bots and their teams: find it in **Settings → Plugins**, under **Bots** in the paseo-bots menu.
-
-Whether a bot may ask others for help is set in its settings under **Permissions → Contact other bots**: **Ask first**, **Allowed** or **Off**.
-
-### Skills & Tools
-
-Press **Skills & Tools** at the bottom of the bot list.
-
-- **Skills**: press **+** to import skills from GitHub (`owner/repo`, a folder or a `SKILL.md` link) or write a new one. Open an imported skill and press **Review** to turn it on.
-- **MCP servers**: press **+**, then **New server**, or **Import config** to pick up the servers set up in Claude Code, Claude Desktop or Cursor. Press **Test and turn on** on the server's page.
-- **Browser (your Chromium browser)**: a built-in MCP server that runs [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) against the Chrome, Brave or other Chromium browser you already use. A bot with it acts as you on every site you're signed in to, so it's off for every bot until you give it to one. Start the browser with `--remote-debugging-port=9222`, set **Browser address** if you use another port, and press **Test and turn on**. An existing server that runs `chrome-devtools-mcp` takes its place instead of a second entry.
-
-Then give them to a bot in its settings: skills under **Skills**, MCP servers under **Access**.
-
-### Learning
-
-After a task, send `/learn` in the chat, or `/learn <what to focus on>`. The bot writes up what worked as a skill and shows it as a card; press **Save skill** to add it to Skills & Tools and turn it on for that bot.
-
-### Connected apps
-
-Connected apps run on your own Composio account.
-
-1. Create a project at [platform.composio.dev](https://platform.composio.dev) and copy its API key (it starts with `ak_`).
-2. In Paseo, open **Bots**, then **Skills & Tools** at the bottom of the bot list.
-3. Next to **Connected apps**, press **+**, paste the key and press **Connect**.
-4. Find an app, press **Connect** and finish signing in in your browser.
-5. Switch the app on for a bot under the bot's **Access** settings, or on the app's page.
-
-To add a second account of an app, such as a work and a personal Gmail, open the app's page and press **Connect** next to **Add another account**. Bots pick an account by its name.
-
-When a bot needs an app that isn't connected, its chat shows a card: press **Sign in**, finish on Composio's page, then **Continue**. Signing in from the card also switches the app on for that bot.
-
-To limit what a bot does with an app, open the app under the bot's **Access** settings: allow all of its tools, only the read-only ones, or the ones you choose, and keep the bot to one account. The relay refuses anything else, and turns off Composio's remote workbench for bots with limits, since code there could run any app's tools.
-
-The key stays on the Paseo host and never reaches the agents: bots reach Composio through a local relay that only lets each bot use the apps you switched on for it.
-
-### Paseo tools
-
-Bots get Paseo's own tools, so you can ask one in a chat to start other agents, open workspaces and terminals, set up schedules or use the browser. A bot's **Access** settings show whether they're on, and **Turn on** there switches them on for every agent on the host.
+- targets the Paseo 0.11 plugin SDK, with its own screen and sidebar items;
+- shows proposal and sign-in cards for ACP providers such as Hermes and omp;
+- adds the Browser preset;
+- writes state files through a temporary file and sets an unreadable file aside;
+- checks each relay token before it reads a request, and bounds request sizes;
+- keeps routine history through corrupt files, missed runs and failing routines;
+- shows loading and error states for apps, MCP server tests and routine runs;
+- labels icon buttons for screen readers;
+- lints with Biome and releases from this repository with semantic-release.
 
 ## Development
 
@@ -116,7 +68,6 @@ npm ci
 npm run lint
 npm run typecheck
 npm test
-npm run coverage
 ```
 
-The plugin's client code runs on React, React Native and React Query supplied by the Paseo host, so `react`, `react-native`, `@types/react` and `typescript` follow the versions Paseo ships. Paseo 0.11.1 ships React 19.1.0, React Native 0.81.5, TypeScript 5.9.3 and `@tanstack/react-query` 5.90.21 (`@getpaseo/plugin` 0.11.1 declares peers `react ~19.1.0` and `react-native >=0.81.5`). The plugin's newer React Query dev dependency is only for types, so it must not use APIs the host's 5.90 lacks. Dependabot leaves `react`, `react-native` and `@types/react` alone and keeps `typescript` on 5.x.
+Paseo supplies React 19.1, React Native 0.81 and React Query 5.90 at runtime. Use no newer React Query API.
