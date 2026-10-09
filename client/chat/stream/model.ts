@@ -170,15 +170,17 @@ function toolCallRow(base: RowBase, item: StreamItem, { name, status, detail }: 
   };
 }
 
-function appendToolCall(builder: RowBuilder, entry: StreamEntry, base: RowBase): void {
+/** What one entry adds: a row, task entries to fold into the task rows, or nothing. */
+type EntryRows = StreamRow | TaskEntry[] | null;
+
+function toolCallRows(entry: StreamEntry, base: RowBase): EntryRows {
   const item = entry.item;
   const name = toolCallName({ name: String(item.name ?? ""), metadata: item.metadata });
   const status = toolStatus(item.status);
   const detail = (item.detail ?? { type: "unknown", input: null, output: null }) as ToolCallDetail;
-  if (isHiddenToolCall(name, status) || isHiddenTaskTool(name, entry.provider)) return;
+  if (isHiddenToolCall(name, status) || isHiddenTaskTool(name, entry.provider)) return null;
   const tasks = extractTaskEntriesFromToolCall(name, detail.type === "unknown" ? detail.input : null);
-  if (tasks) appendTodo(builder, entry, tasks);
-  else builder.rows.push(toolCallRow(base, item, { name, status, detail }));
+  return tasks ?? toolCallRow(base, item, { name, status, detail });
 }
 
 function userRow(base: RowBase, item: StreamItem): StreamRow {
@@ -244,26 +246,43 @@ function entryRow(base: RowBase, entry: StreamEntry, streaming: boolean): Stream
   }
 }
 
-function appendEntry(builder: RowBuilder, entry: StreamEntry, streaming: boolean): void {
+function deriveEntryRows(entry: StreamEntry, streaming: boolean): EntryRows {
   const item = entry.item;
   const base = { key: `e${entry.seqStart}`, turnId: entry.turnId, timestamp: toTime(entry.timestamp) };
-  if (item.type === "tool_call") {
-    appendToolCall(builder, entry, base);
-  } else if (item.type === "todo") {
-    appendTodo(builder, entry, Array.isArray(item.items) ? (item.items as TaskEntry[]) : []);
-  } else {
-    const row = entryRow(base, entry, streaming);
-    if (row) builder.rows.push(row);
+  if (item.type === "tool_call") return toolCallRows(entry, base);
+  if (item.type === "todo") return Array.isArray(item.items) ? (item.items as TaskEntry[]) : [];
+  return entryRow(base, entry, streaming);
+}
+
+/**
+ * A re-sent entry is a new object, so an entry's rows can be reused: unchanged rows keep their
+ * identity and retainLayout needn't compare them. Rows from here must never be mutated.
+ */
+const entryRowsCache = new WeakMap<StreamEntry, EntryRows>();
+
+function entryRows(entry: StreamEntry, streaming: boolean): EntryRows {
+  if (streaming) return deriveEntryRows(entry, true);
+  let rows = entryRowsCache.get(entry);
+  if (rows === undefined) {
+    rows = deriveEntryRows(entry, false);
+    entryRowsCache.set(entry, rows);
   }
+  return rows;
+}
+
+function appendEntry(builder: RowBuilder, entry: StreamEntry, streaming: boolean): void {
+  const rows = entryRows(entry, streaming);
+  if (Array.isArray(rows)) appendTodo(builder, entry, rows);
+  else if (rows) builder.rows.push(rows);
 }
 
 // FlatList keys must be unique even if a provider reuses a call id.
-function makeKeysUnique(rows: readonly StreamRow[]): void {
+function makeKeysUnique(rows: StreamRow[]): void {
   const seen = new Set<string>();
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
     let key = row.key;
     for (let n = 1; seen.has(key); n++) key = `${row.key}#${n}`;
-    row.key = key;
+    if (key !== row.key) rows[index] = { ...row, key };
     seen.add(key);
   }
 }

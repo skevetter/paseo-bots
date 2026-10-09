@@ -125,6 +125,32 @@ describe("buildRows", () => {
         .map((row) => (row as Extract<StreamRow, { kind: "thought" }>).loading),
     ).toEqual([false, true]);
   });
+
+  it("reuses the rows of unchanged entries when a chunk streams in", () => {
+    const done = [user("hi"), tool("Bash", { type: "shell", command: "ls" }), assistant("one")];
+    const partial = assistant("tw");
+    const first = buildRows([...done, partial], true);
+    const grown = {
+      ...partial,
+      seqEnd: partial.seqEnd + 1,
+      item: { type: "assistant_message", text: "two" },
+    };
+    const second = buildRows([...done, grown], true);
+    expect(second.slice(0, 3)).toEqual(first.slice(0, 3));
+    for (const [index, row] of second.slice(0, 3).entries()) expect(row).toBe(first[index]);
+    expect(second[3]).toMatchObject({ kind: "assistant", text: "two", phase: "streaming" });
+    expect(buildRows([...done, grown], false)[3]).toMatchObject({ phase: "complete" });
+  });
+
+  it("suffixes reused call ids the same way on every build", () => {
+    const calls = [
+      entry({ type: "tool_call", callId: "c", name: "Read", status: "completed", detail: { type: "read" } }),
+      entry({ type: "tool_call", callId: "c", name: "Read", status: "completed", detail: { type: "read" } }),
+    ];
+    expect(buildRows(calls, false).map((row) => row.key)).toEqual(["tool:c", "tool:c#1"]);
+    expect(buildRows(calls, false).map((row) => row.key)).toEqual(["tool:c", "tool:c#1"]);
+    expect(buildRows(calls.slice(1), false).map((row) => row.key)).toEqual(["tool:c"]);
+  });
 });
 
 describe("buildRows row kinds", () => {
