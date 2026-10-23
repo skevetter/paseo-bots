@@ -24,6 +24,8 @@ export class OperationConflictError extends Error {
 export interface OperationScope {
   now: string;
   operationId: string;
+  /** Supplied by the authoritative store, not by the request. */
+  revision?: string;
 }
 
 export type OperationOutcome = {
@@ -59,6 +61,14 @@ export interface OperationChange {
   values: BotState;
   notes?: readonly string[];
   skill?: SkillPublication;
+  fleet?: ApplicationReceipt["fleet"];
+}
+
+export function assertOperationCapacity(values: BotState): void {
+  const receipts = values.receipts ?? [];
+  const pending = new Set(values.pendingOperations ?? []);
+  if (receipts.length >= MAX_RECEIPTS && receipts.every((receipt) => pending.has(receipt.operationId)))
+    throw new Error("All application receipts are unresolved. Recover them before applying more changes.");
 }
 
 /** Refuse before running the callback if saving it would evict unresolved work. */
@@ -119,6 +129,7 @@ export function applyOperation(
     createdCount: created.length,
     notes: [...(done.notes ?? [])],
     ...(done.skill ? { skill: done.skill } : {}),
+    ...(done.fleet ? { fleet: done.fleet } : {}),
   };
   return {
     status: "applied",

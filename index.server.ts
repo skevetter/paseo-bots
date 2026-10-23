@@ -19,6 +19,7 @@ import { ControlServer } from "./server/control/server";
 import { followControlSetting } from "./server/control/switch";
 import type { ControlContext } from "./server/control/tool";
 import { CONTROL_TOOLS } from "./server/control/tools";
+import { applyFleetChange, listFleet, previewFleetChange, revertFleetChange } from "./server/fleet";
 import { BotsHost } from "./server/host";
 import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
 import { applyImportedBots } from "./server/imports";
@@ -46,6 +47,7 @@ import { saveUpload } from "./server/uploads";
 import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import { importsApplyRpc } from "./shared/imports";
+import { fleetApplyRpc, fleetListRpc, fleetPreviewRpc, fleetRevertRpc } from "./shared/fleet";
 import {
   appsAccountsRpc,
   appsCatalogRpc,
@@ -132,6 +134,24 @@ function handlePolicies(server: PluginServerContext, host: BotsHost) {
     host.attach(context.paseo);
     const { snapshot, resolution } = await resolveForBot(host, { bot: botId, routineId, taskClass });
     return { revision: snapshot.revision, resolution };
+  });
+}
+function handleFleet(server: PluginServerContext, host: BotsHost, scheduler: RoutineScheduler) {
+  server.handle(fleetListRpc, async (_input, context) => {
+    host.attach(context.paseo);
+    return listFleet(host, (await scheduler.status()).routines);
+  });
+  server.handle(fleetPreviewRpc, (input, context) => {
+    host.attach(context.paseo);
+    return previewFleetChange(host, input);
+  });
+  server.handle(fleetApplyRpc, (input, context) => {
+    host.attach(context.paseo);
+    return applyFleetChange(host, input);
+  });
+  server.handle(fleetRevertRpc, (input, context) => {
+    host.attach(context.paseo);
+    return revertFleetChange(host, input);
   });
 }
 
@@ -286,6 +306,7 @@ export default function contribute(server: PluginServerContext) {
   );
   handleMemory(server, journal);
   handlePolicies(server, host);
+  handleFleet(server, host, scheduler);
   handleSkillsAndApps(server);
   server.handle(mountRpc, async ({ botId, agentId }) => {
     const bot = await host.bot(botId);

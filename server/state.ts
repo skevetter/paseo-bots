@@ -5,6 +5,7 @@ import { z } from "zod";
 import { type BotState, BotStateSchema, type StateSnapshot } from "../shared/bot";
 import {
   applyOperation,
+  assertOperationCapacity,
   checkedReceipt,
   completeOperation,
   type Operation,
@@ -52,6 +53,19 @@ function withHostOwned(current: BotState, next: BotState): BotState {
 
 const sha256 = (data: string) => createHash("sha256").update(data).digest("hex");
 
+/** The resulting receipt revision is derived, so only that field is excluded from content identity. */
+function stateRevision(values: BotState): string {
+  const normalized = {
+    ...values,
+    ...(values.receipts
+      ? {
+          receipts: values.receipts.map(({ newRevision: _derived, ...receipt }) => receipt),
+        }
+      : {}),
+  };
+  return sha256(JSON.stringify({ version: VERSION, values: normalized }));
+}
+
 type Parsed = { current: StateSnapshot } | { legacy: { raw: string; values: BotState } };
 
 function parse(raw: string): Parsed {
@@ -62,7 +76,7 @@ function parse(raw: string): Parsed {
   const values = BotStateSchema.parse(envelope.values);
   return envelope.version === LEGACY_VERSION
     ? { legacy: { raw, values } }
-    : { current: { revision: sha256(raw), values } };
+    : { current: { revision: stateRevision(values), values } };
 }
 
 /** Where the version 1 file is kept when it moves to version 2. */
@@ -121,13 +135,24 @@ export class BotStore {
    */
   apply(
     operation: Operation,
-    run: (values: BotState, scope: OperationScope) => OperationChange,
+    run: (values: BotState, scope: OperationScope) => OperationChange | Promise<OperationChange>,
   ): Promise<OperationResult> {
     return this.serial(async () => {
       const current = await this.load();
-      const outcome = applyOperation(current.values, operation, run);
-      const snapshot = outcome.status === "replayed" ? current : await this.persist(outcome.values);
-      return { status: outcome.status, receipt: outcome.receipt, snapshot };
+      const earlier = checkedReceipt(current.values, operation);
+      if (earlier) return { status: "replayed", receipt: earlier, snapshot: current };
+      assertOperationCapacity(current.values);
+      const change = await run(current.values, {
+        now: operation.at,
+        operationId: operation.id,
+        revision: current.revision,
+      });
+      const outcome = applyOperation(current.values, operation, () => change);
+      if (change.fleet) outcome.receipt.originalRevision = current.revision;
+      const snapshot = await this.persist(outcome.values);
+      const receipt = snapshot.values.receipts?.find((entry) => entry.operationId === operation.id);
+      if (!receipt) throw new Error(`Operation ${operation.id} has no persisted receipt.`);
+      return { status: outcome.status, receipt, snapshot };
     });
   }
 
@@ -182,9 +207,13 @@ export class BotStore {
   }
 
   private async persist(values: BotState): Promise<StateSnapshot> {
-    const raw = JSON.stringify({ version: VERSION, values: BotStateSchema.parse(values) });
+    const parsed = BotStateSchema.parse(values);
+    const revision = stateRevision(parsed);
+    for (const receipt of parsed.receipts ?? [])
+      if (receipt.originalRevision && !receipt.newRevision) receipt.newRevision = revision;
+    const raw = JSON.stringify({ version: VERSION, values: parsed });
     await writeAtomic(this.path, raw, 0o600);
-    const snapshot = { revision: sha256(raw), values: BotStateSchema.parse(JSON.parse(raw).values) };
+    const snapshot = { revision, values: parsed };
     for (const listener of this.listeners) listener(snapshot);
     return snapshot;
   }

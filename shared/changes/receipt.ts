@@ -1,4 +1,30 @@
 import { z } from "zod";
+import { BotPolicySchema } from "../policies";
+
+/** Only execution overrides are retained, never tool configs, app accounts or credentials. */
+export const FleetSettingsSchema = z.object({
+  provider: z.string(),
+  model: z.string().nullable(),
+  thinkingOptionId: z.string().nullable(),
+  policy: BotPolicySchema.optional(),
+  updatedAt: z.string(),
+});
+export type FleetSettings = z.infer<typeof FleetSettingsSchema>;
+
+const FleetAuditSchema = z.object({
+  appliedOperationId: z.string().optional(),
+  rows: z
+    .array(
+      z.object({
+        botId: z.string(),
+        before: FleetSettingsSchema,
+        after: FleetSettingsSchema,
+        afterHash: z.string(),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
 
 /** At most 200 receipts; unresolved operations pin theirs. If all are pinned, new operations refuse. */
 export const MAX_RECEIPTS = 200;
@@ -27,5 +53,8 @@ export const ReceiptSchema = z.object({
   createdCount: z.number().int().default(0),
   notes: z.array(z.string()).default([]),
   skill: SkillPublicationSchema.optional(),
+  originalRevision: z.string().min(1).optional(),
+  newRevision: z.string().min(1).optional(),
+  fleet: FleetAuditSchema.optional(),
 });
 export type ApplicationReceipt = z.infer<typeof ReceiptSchema>;
