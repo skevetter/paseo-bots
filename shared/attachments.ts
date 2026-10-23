@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { prefixedId } from "./uuid";
 
 // The wire types mirror Paseo's `images` and AgentAttachment.
@@ -66,6 +67,28 @@ type WireImage = { data: string; mimeType: string };
 export type WireAttachment =
   | { type: "text"; mimeType: "text/plain"; title: string; text: string }
   | { type: "uploaded_file"; id: string; fileName: string; mimeType: string; size: number; path: string };
+
+export const WireImageSchema = z.strictObject({
+  data: z.string(),
+  mimeType: z.string(),
+}) satisfies z.ZodType<WireImage>;
+
+export const WireAttachmentSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    type: z.literal("text"),
+    mimeType: z.literal("text/plain"),
+    title: z.string(),
+    text: z.string(),
+  }),
+  z.strictObject({
+    type: z.literal("uploaded_file"),
+    id: z.string(),
+    fileName: z.string(),
+    mimeType: z.string(),
+    size: z.number().nonnegative(),
+    path: z.string(),
+  }),
+]) satisfies z.ZodType<WireAttachment>;
 
 export function toWire(attachments: readonly ComposerAttachment[]): {
   images: WireImage[];
