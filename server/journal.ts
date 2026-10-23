@@ -13,8 +13,6 @@ import { MAIN_MEMORY, memoryFilePath, memoryFolder } from "./memory";
 
 const KEEP = 200;
 const MAX_BEFORE_BYTES = 512 * 1024;
-// A turn whose end event never arrived would otherwise keep every later change of that bot ambiguous.
-const ACTIVE_TURN_TTL_MS = 6 * 60 * 60 * 1000;
 
 type Chat = { id: string; title: string };
 
@@ -43,7 +41,6 @@ type Who = Pick<JournalEntry, "actor" | "via" | "chat" | "chats">;
 
 interface ActiveTurn {
   turnId: string | null;
-  since: number;
 }
 
 /** One bot's running chats and what the files held when they were last compared. */
@@ -137,8 +134,6 @@ export class MemoryJournal {
       watch = { seen: null, active: new Map(), window: new Map() };
       this.watches.set(botId, watch);
     }
-    for (const [agentId, turn] of watch.active)
-      if (Date.now() - turn.since > ACTIVE_TURN_TTL_MS) watch.active.delete(agentId);
     return watch;
   }
 
@@ -156,7 +151,7 @@ export class MemoryJournal {
         watch.seen = current;
         watch.window.clear();
       }
-      watch.active.set(chat.id, { turnId, since: Date.now() });
+      watch.active.set(chat.id, { turnId });
       watch.window.set(chat.id, chat.title);
     });
   }
