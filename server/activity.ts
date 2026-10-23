@@ -9,10 +9,11 @@ import type { RoutineScheduler } from "./scheduler";
 export async function turnStarted(
   host: BotsHost,
   journal: MemoryJournal,
-  { agent }: PluginLifecycleEvents["agent.turn_started"],
+  { agent, turnId }: PluginLifecycleEvents["agent.turn_started"],
 ): Promise<void> {
   const botId = await host.botIdOf(agent.id);
-  if (botId) await journal.begin(botId);
+  if (botId)
+    await journal.begin(botId, { id: agent.id, title: agent.title?.trim() || "Untitled chat" }, turnId);
 }
 
 export async function turnEnded(
@@ -25,7 +26,7 @@ export async function turnEnded(
   if (!chat) return;
   const { botId } = chat;
   const title = chat.title?.trim() || agent.title?.trim() || "Untitled chat";
-  await journal.end(botId, { id: agent.id, title });
+  await journal.end(botId, { id: agent.id, title }, turnId);
   const { reply, tools } = lastTurn(timeline);
   if (chat.routineId) await scheduler.finished(chat.routineId, agent.id, { outcome, reply, turnId });
   // The daily log is what later reviews read, so only a task turn that reached an end belongs in it.

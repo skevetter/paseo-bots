@@ -17,9 +17,13 @@ const memoryList = defineControlTool({
   async run({ bot }, context) {
     const { id } = await botByRef(context, bot);
     const memory = await listMemory(id);
+    const { injected } = memory;
     const names = memory.files.map((file) => `${file.name} (${file.lines} lines)`).join(", ");
+    const left = injected.truncation
+      ? ` ${injected.omittedLines} lines (${injected.omittedBytes} bytes) are left out: over the ${injected.truncation} cap.`
+      : "";
     return result(
-      `${names}. Injected: ${memory.injectedLines} lines, ${memory.injectedBytes} bytes.`,
+      `${names}. Injected: ${injected.includedLines} of ${injected.totalLines} lines, ${injected.includedBytes} of ${injected.totalBytes} bytes.${left}`,
       memory,
     );
   },
@@ -99,7 +103,8 @@ const memoryJournal = defineControlTool({
     const { id } = await botByRef(context, bot);
     const entries = await context.journal.rows(id);
     const lines = entries.map(
-      (entry) => `${entry.id}: ${entry.kind} ${entry.file} by ${entry.actor} at ${entry.at}`,
+      (entry) =>
+        `${entry.id}: ${entry.kind} ${entry.file} by ${entry.actor === "ambiguous" ? "an unclear source (overlapping chats or the person)" : entry.actor} at ${entry.at}`,
     );
     return result(lines.length ? lines.join("\n") : "No memory changes yet.", { entries });
   },

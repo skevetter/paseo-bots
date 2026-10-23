@@ -1,7 +1,7 @@
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { listMemory, memoryFilePath } from "../server/memory";
+import { injectedMemory, listMemory, memoryFilePath } from "../server/memory";
 import {
   journalSummary,
   lastTurn,
@@ -117,6 +117,7 @@ describe("search helpers", () => {
       actor: "bot" as const,
       via: "chat" as const,
       chat: { title: "x" },
+      chats: [],
       kind: "edited" as const,
       added: 2,
       removed: 0,
@@ -233,11 +234,11 @@ describe("memory journal", () => {
     await mkdir(join(main, ".."), { recursive: true });
     await writeFile(main, "# Memory\n- likes tea\n");
 
-    await journal.begin("bot-j");
+    await journal.begin("bot-j", { id: "chat-1", title: "Setup" }, "t1");
     await writeFile(main, "# Memory\n- likes tea\n- works Mon-Fri\n");
     await mkdir(join(main, "..", "memory"), { recursive: true });
     await writeFile(memoryFilePath("bot-j", "clients.md"), "# Clients\n");
-    await journal.end("bot-j", { id: "chat-1", title: "Setup" });
+    await journal.end("bot-j", { id: "chat-1", title: "Setup" }, "t1");
 
     let entries = await journal.list("bot-j");
     expect(entries.map((entry) => [entry.file, entry.actor, entry.kind, entry.added, entry.removed])).toEqual(
@@ -250,7 +251,7 @@ describe("memory journal", () => {
 
     // Changed outside the app between turns.
     await writeFile(main, "# Memory\n");
-    await journal.begin("bot-j");
+    await journal.begin("bot-j", { id: "chat-2", title: "Later" }, "t2");
     entries = await journal.list("bot-j");
     expect(entries[0]).toMatchObject({ file: "MEMORY.md", actor: "you", via: "disk", removed: 2 });
 
@@ -295,6 +296,27 @@ describe("memory list", () => {
 
     const listed = await listMemory("bot-l");
     expect(listed.files.map((file) => file.name)).toEqual(["MEMORY.md", "notes.md"]);
+  });
+
+  it("reports what an oversized MEMORY.md loses, and injects only what fits", async () => {
+    await topicFolder("bot-big");
+    const text = `${Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+    await writeFile(memoryFilePath("bot-big", "MEMORY.md"), text);
+
+    const listed = await listMemory("bot-big");
+    expect(listed.files[0]).toMatchObject({ name: "MEMORY.md", lines: 300 });
+    expect(listed.injected).toMatchObject({
+      truncation: "lines",
+      totalLines: 300,
+      includedLines: 200,
+      omittedLines: 100,
+      maxLines: 200,
+      maxBytes: 24_000,
+    });
+    expect(memoryListRpc.output.safeParse(listed).success).toBe(true);
+    const injected = await injectedMemory("bot-big");
+    expect(injected.text.split("\n")).toHaveLength(200);
+    expect(injected.text.endsWith("line 200")).toBe(true);
   });
 });
 
