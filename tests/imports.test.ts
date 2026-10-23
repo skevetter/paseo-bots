@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { applyImportedBots } from "../server/imports";
 import { BotStore } from "../server/state";
-import type { ImportedBot } from "../shared/library";
+import type { ImportedEntry } from "../server/share";
 import { INHERITABLE, PolicySchema, resolveBot } from "../shared/policies";
 import { makeBot, NOW, useTempPaseoHome } from "./helpers";
 
-function importedEntry(): ImportedBot {
+function importedEntry(): ImportedEntry {
   const policy = PolicySchema.parse({
     id: "pol-portable",
     revision: 1,
