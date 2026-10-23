@@ -51,6 +51,8 @@ export interface BotSidebarProps {
   /** With no bots at all, show the splash instead of the empty state. */
   splash?: boolean;
   bottomInset: number;
+  query: string;
+  onQueryChange(query: string): void;
   onToggle(botId: string): void;
   onTogglePinnedSection(): void;
   onShowArchived(): void;

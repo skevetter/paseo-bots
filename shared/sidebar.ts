@@ -111,3 +111,41 @@ export function moveKey(keys: readonly string[], key: string, delta: -1 | 1): st
   next[target] = key;
   return next;
 }
+
+/** Case-insensitive substring match; a blank query matches every name. */
+export function matchesName(name: string, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  return needle === "" || name.toLowerCase().includes(needle);
+}
+
+/** Pinned items lead the sidebar; each group keeps the order it was given. */
+export function splitByPin<T extends { pinned: boolean }>(
+  items: readonly T[],
+): { pinned: T[]; unpinned: T[] } {
+  return {
+    pinned: items.filter((item) => item.pinned),
+    unpinned: items.filter((item) => !item.pinned),
+  };
+}
+
+export function swapEntries<T extends { id: string }>(items: readonly T[], idA: string, idB: string): T[] {
+  const indexA = items.findIndex((item) => item.id === idA);
+  const indexB = items.findIndex((item) => item.id === idB);
+  if (indexA === -1 || indexB === -1) return [...items];
+  const next = [...items];
+  next[indexA] = items[indexB] as T;
+  next[indexB] = items[indexA] as T;
+  return next;
+}
+
+/** Neighbour within the item's own pin group, so a move never crosses the pinned divider. */
+export function neighbourInGroup<T extends { id: string; pinned: boolean }>(
+  shown: readonly T[],
+  id: string,
+  delta: -1 | 1,
+): T | null {
+  const item = shown.find((entry) => entry.id === id);
+  if (!item) return null;
+  const peers = shown.filter((entry) => entry.pinned === item.pinned);
+  return peers[peers.indexOf(item) + delta] ?? null;
+}

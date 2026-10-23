@@ -93,6 +93,8 @@ export interface ScreenState {
   setRenaming: Setter<Bot | null>;
   exporting: Bot | null;
   setExporting: Setter<Bot | null>;
+  botQuery: string;
+  setBotQuery: Setter<string>;
 }
 
 export interface ListUiState {
@@ -203,6 +205,7 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
   const [libraryView, setLibraryView] = useState<LibraryViewState | null>(null);
   const [renaming, setRenaming] = useState<Bot | null>(null);
   const [exporting, setExporting] = useState<Bot | null>(null);
+  const [botQuery, setBotQuery] = useState("");
 
   useEffect(() => {
     if (takeNewBotRequest(params)) setCreating(true);
@@ -227,6 +230,8 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
     setRenaming,
     exporting,
     setExporting,
+    botQuery,
+    setBotQuery,
   };
 }
 
