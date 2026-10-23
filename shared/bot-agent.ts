@@ -34,11 +34,21 @@ export interface PluginServers {
   tools?: McpServerConfig | null;
 }
 
+/** Serialized execution config, independent of the host SDK's types. May contain relay credentials. */
+export interface BotAgentConfig {
+  provider: string;
+  modeId?: string;
+  thinkingOptionId?: string;
+  systemPrompt: string;
+  mcpServers?: Record<string, McpServerConfig>;
+  toolPolicy?: { preapproved: { kind: "mcp"; server: string; tool: string }[] };
+}
+
 /** The SDK needs an explicit model, so bots on "provider default" pass the resolved default in. */
 export function buildAgentConfig(
   bot: Bot,
   agent: { library: Library; model: string; systemPrompt: string; plugin?: PluginServers },
-) {
+): BotAgentConfig {
   const { library, model, systemPrompt, plugin = {} } = agent;
   const mcpServers: Record<string, McpServerConfig> = {
     ...mcpServersRecord(botMcpServers(bot, library)),
