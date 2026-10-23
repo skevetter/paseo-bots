@@ -2,19 +2,22 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
-import type { Bot, Routine } from "../shared/bot";
+import type { Bot, BotState, Routine } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import { decide } from "../shared/routines";
 import { ROUTINE_RUN_CARD, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
-import type { Trigger } from "../shared/runs";
+import { providerTurnId, type Trigger } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
 import { pluginDataPath } from "./bot-home";
 import { readJson, writeJson } from "./files";
 import type { BotsHost } from "./host";
+import { LegacyRoutineRunner } from "./legacy-routines";
 import { readBody } from "./mcp-http";
 import type { PaseoApi } from "./paseo";
 import type { Relay } from "./relay";
 import { type CoordinatorOptions, RunCoordinator } from "./run-coordinator";
+import { type ReplayRequest, RequestConflictError, requestHashOf, requestKey } from "./run-requests";
+import { displayRecords } from "./run-store";
 
 const TICK_MS = 30_000;
 const WEBHOOK_BODY_MAX = 256 * 1024;
@@ -54,12 +57,14 @@ export function runPrompt(routine: Routine, event?: WebhookEvent): string {
 }
 
 interface RunRequest {
+  state: BotState;
   bot: Bot;
   routine: Routine;
   trigger: Trigger;
   due: Date;
   event?: WebhookEvent;
   requestId?: string;
+  requestHash?: string;
 }
 
 interface HookReply {
@@ -81,11 +86,33 @@ function webhookReply(run: RoutineRun): { code: number; state: "running" | "skip
   return { code: 500, state: "failed" };
 }
 
+function hookRunReply(run: RoutineRun): HookReply {
+  const { code, state } = webhookReply(run);
+  return {
+    status: code,
+    body: {
+      status: state,
+      ...(run.agentId && !run.skipped ? { chat: run.agentId } : {}),
+      ...(run.error ? { error: run.error } : {}),
+    },
+  };
+}
+
 function webhookIdentity(value: unknown): { requestId?: string } | { error: string } {
   if (value === undefined) return {};
   if (typeof value !== "string" || value.length < 1 || value.length > 200)
     return { error: "Idempotency-Key must contain 1 to 200 characters." };
   return { requestId: value };
+}
+
+function requestDigest(request: RunRequest, requestId: string): string {
+  if (request.event)
+    return requestHashOf({ body: request.event.body, contentType: request.event.contentType });
+  return requestHashOf({
+    botId: request.bot.id,
+    routineId: request.routine.id,
+    ...(request.trigger === "schedule" ? { scheduledFor: request.due.toISOString() } : { requestId }),
+  });
 }
 
 type Queue = <T>(task: () => Promise<T>) => Promise<T>;
@@ -107,6 +134,7 @@ export class RoutineScheduler {
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
   readonly coordinator: RunCoordinator;
+  private readonly legacy: LegacyRoutineRunner;
 
   constructor(
     private readonly host: BotsHost,
@@ -114,6 +142,7 @@ export class RoutineScheduler {
     options: CoordinatorOptions = {},
   ) {
     this.coordinator = new RunCoordinator(host, relay, options);
+    this.legacy = new LegacyRoutineRunner(host, relay, this.coordinator, options);
     this.detach = host.onAttach(() => {
       if (this.timer) return;
       this.timer = setInterval(() => void this.tick(), TICK_MS);
@@ -136,18 +165,32 @@ export class RoutineScheduler {
     this.timer = undefined;
     this.detach();
     await this.ticking;
+    await this.legacy.stop();
     await this.coordinator.stop();
   }
 
   async status() {
     await this.coordinator.ready();
     const { routines } = await this.coordinator.store.read();
-    return { scheduler: this.running, routines, readiness: this.coordinator.readiness };
+    return {
+      scheduler: this.running,
+      routines: displayRecords(routines),
+      readiness: this.coordinator.readiness,
+    };
   }
 
   async runNow(botId: string, routineId: string, requestId = newUuid()): Promise<{ run: RoutineRun }> {
-    const { bot, routine } = await this.find(botId, routineId);
-    return { run: await this.run({ bot, routine, trigger: "manual", due: new Date(), requestId }) };
+    const requestHash = requestHashOf({ botId, routineId, requestId });
+    const existing = await this.coordinator.findRequest({
+      botId,
+      routineId,
+      trigger: "manual",
+      requestId,
+      requestHash,
+    });
+    if (existing) return { run: existing };
+    const target = await this.find(botId, routineId);
+    return { run: await this.run({ ...target, trigger: "manual", due: new Date(), requestId, requestHash }) };
   }
 
   async webhookUrl(routineId: string, rotate = false): Promise<{ url: string }> {
@@ -169,35 +212,64 @@ export class RoutineScheduler {
     agentId: string,
     { outcome, reply, turnId = null }: { outcome: PluginTurnOutcome; reply: string; turnId?: string | null },
   ): Promise<void> {
-    const run = await this.coordinator.finished(agentId, {
+    const managed = await this.coordinator.finished(agentId, {
       kind: outcome.kind,
       reply,
       turnId,
       error: turnError(outcome),
       routineId,
     });
+    const run =
+      managed ??
+      (await this.legacy.finished(routineId, agentId, {
+        executionStatus: outcome.kind,
+        taskOutcome: "unknown",
+        output: reply.trim().slice(0, 400) || null,
+        error: turnError(outcome),
+        endedAt: new Date().toISOString(),
+        providerTurnId: providerTurnId(turnId),
+      }));
     const routine = (await this.host.bots())
       .flatMap((bot) => bot.routines)
       .find((entry) => entry.id === routineId);
     if (run && routine) await this.postCard(routine, run);
   }
 
-  private async find(botId: string, routineId: string): Promise<{ bot: Bot; routine: Routine }> {
-    const bot = await this.host.bot(botId);
+  private async find(
+    botId: string,
+    routineId: string,
+  ): Promise<Pick<RunRequest, "bot" | "routine" | "state">> {
+    const state = structuredClone(await this.host.values());
+    const bot = state.bots.find((entry) => entry.id === botId);
     const routine = bot?.routines.find((entry) => entry.id === routineId);
     if (!bot || !routine) throw new Error("Routine not found.");
-    return { bot, routine };
+    return { bot, routine, state };
   }
 
-  /** Scheduler produces an occurrence; the coordinator owns all launch and recovery decisions. */
+  /** Only explicitly opted-in bots use managed admission and its enforcement. */
   private async run(request: RunRequest): Promise<RoutineRun> {
-    const run = await this.coordinator.admit({
-      ...request,
-      requestId: request.requestId ?? newUuid(),
-      prompt: runPrompt(request.routine, request.event),
-      title: request.routine.name,
-      labels: { [ROUTINE_LABEL]: request.routine.id },
+    const requestId = request.requestId ?? newUuid();
+    const requestHash = request.requestHash ?? requestDigest(request, requestId);
+    const prior = await this.coordinator.findRequest({
+      botId: request.bot.id,
+      routineId: request.routine.id,
+      trigger: request.trigger,
+      requestId,
+      requestHash,
+      due: request.due,
     });
+    if (prior) return prior;
+    const input = { ...request, requestId, requestHash, prompt: runPrompt(request.routine, request.event) };
+    const seconds = request.routine.runtime?.deadlineSeconds;
+    const run =
+      request.bot.executionMode === "managed"
+        ? await this.coordinator.admit({
+            ...input,
+            title: request.routine.name,
+            labels: { [ROUTINE_LABEL]: request.routine.id },
+            deadlineAt: seconds === undefined ? undefined : request.due.getTime() + seconds * 1000,
+          })
+        : await this.legacy.run(input);
     await this.postCard(request.routine, run);
     return run;
   }
@@ -242,20 +314,26 @@ export class RoutineScheduler {
   }
 
   private async tickBots(): Promise<void> {
-    const values = await this.host.values();
+    const values = structuredClone(await this.host.values());
     const { routines } = await this.status();
     const now = new Date();
     for (const bot of values.bots) {
       if (bot.archived || bot.hostId) continue;
       for (const routine of bot.routines)
-        await this.tickRoutine(bot, routine, routines[routine.id]?.lastRunAt ?? null, now);
+        await this.tickRoutine({ bot, state: values }, routine, routines[routine.id]?.lastRunAt ?? null, now);
     }
   }
 
-  private async tickRoutine(bot: Bot, routine: Routine, lastRunAt: string | null, now: Date): Promise<void> {
+  private async tickRoutine(
+    target: Pick<RunRequest, "state" | "bot">,
+    routine: Routine,
+    lastRunAt: string | null,
+    now: Date,
+  ): Promise<void> {
     try {
       const decision = decide(routine, lastRunAt, now);
-      if (decision.action === "run") await this.run({ bot, routine, trigger: "schedule", due: decision.due });
+      if (decision.action === "run")
+        await this.run({ ...target, routine, trigger: "schedule", due: decision.due });
       else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
     } catch (error) {
       console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
@@ -281,53 +359,99 @@ export class RoutineScheduler {
     routineId: string,
     secret: string,
   ): Promise<HookReply> {
-    if (request.method !== "POST") return { status: 405, body: { error: "Use POST." } };
-    const target = await this.webhookTarget(routineId, secret);
-    if ("status" in target) return target;
-    const now = Date.now();
-    if (this.throttled(routineId, now))
-      return { status: 429, body: { error: "Too many calls this minute." } };
-    const identity = webhookIdentity(request.headers["idempotency-key"]);
-    if ("error" in identity) return { status: 400, body: { error: identity.error } };
-    const requestId = identity.requestId;
-    let body: string;
+    const identity = await this.authorizeWebhook(request, routineId, secret);
+    if ("status" in identity) return identity;
+    const { requestId } = identity;
+    const replay = await this.knownWebhook(routineId, requestId);
+    const target = replay ? null : await this.webhookTarget(routineId);
+    if (target && "status" in target) return target;
+    const event = await this.readWebhookEvent(request);
+    if ("status" in event) return event;
+    if (replay)
+      return this.replayWebhook({
+        ...replay,
+        requestHash: requestHashOf({ body: event.body, contentType: event.contentType }),
+      });
+    if (!target) throw new Error("Webhook target is unavailable; launch refused.");
+    return this.runWebhook({
+      ...target,
+      trigger: "webhook",
+      due: new Date(event.receivedAt),
+      event,
+      requestId,
+    });
+  }
+
+  private async knownWebhook(
+    routineId: string,
+    requestId?: string,
+  ): Promise<Pick<ReplayRequest, "routineId" | "trigger" | "requestId"> | null> {
+    if (!requestId) return null;
+    const input = { routineId, trigger: "webhook" as const, requestId };
+    const { coordinator } = await this.coordinator.store.read();
+    return coordinator.occurrences[requestKey(input)] ? input : null;
+  }
+
+  private async readWebhookEvent(request: IncomingMessage): Promise<WebhookEvent | HookReply> {
     try {
-      body = await readBody(request, WEBHOOK_BODY_MAX);
+      return {
+        body: await readBody(request, WEBHOOK_BODY_MAX),
+        contentType: request.headers["content-type"] ?? null,
+        receivedAt: new Date().toISOString(),
+      };
     } catch {
       return { status: 413, body: { error: `Send at most ${WEBHOOK_BODY_MAX / 1024} KB.` } };
     }
-    const event: WebhookEvent = {
-      body,
-      contentType: request.headers["content-type"] ?? null,
-      receivedAt: new Date(now).toISOString(),
-    };
-    const run = await this.run({ ...target, trigger: "webhook", due: new Date(now), event, requestId });
-    const { code, state } = webhookReply(run);
-    return {
-      status: code,
-      body: {
-        status: state,
-        ...(run.agentId && !run.skipped ? { chat: run.agentId } : {}),
-        ...(run.error ? { error: run.error } : {}),
-      },
-    };
+  }
+
+  private async runWebhook(request: RunRequest): Promise<HookReply> {
+    try {
+      return hookRunReply(await this.run(request));
+    } catch (error) {
+      if (error instanceof RequestConflictError) return { status: 409, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  private async replayWebhook(input: ReplayRequest): Promise<HookReply> {
+    try {
+      const run = await this.coordinator.findRequest(input);
+      if (!run) throw new Error("Webhook receipt is unavailable; replay refused.");
+      return hookRunReply(run);
+    } catch (error) {
+      if (error instanceof RequestConflictError) return { status: 409, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  private async authorizeWebhook(
+    request: IncomingMessage,
+    routineId: string,
+    secret: string,
+  ): Promise<{ requestId?: string } | HookReply> {
+    if (request.method !== "POST") return { status: 405, body: { error: "Use POST." } };
+    const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
+    if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret)))
+      return { status: 404, body: { error: "not found" } };
+    const identity = webhookIdentity(request.headers["idempotency-key"]);
+    if ("error" in identity) return { status: 400, body: { error: identity.error } };
+    if (this.throttled(routineId, Date.now()))
+      return { status: 429, body: { error: "Too many calls this minute." } };
+    return identity;
   }
 
   private async webhookTarget(
     routineId: string,
-    secret: string,
-  ): Promise<{ bot: Bot; routine: Routine } | HookReply> {
+  ): Promise<Pick<RunRequest, "bot" | "routine" | "state"> | HookReply> {
     const notFound: HookReply = { status: 404, body: { error: "not found" } };
-    const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
-    if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
-    const values = await this.host.values();
-    const bot = values.bots.find(
+    const state = structuredClone(await this.host.values());
+    const bot = state.bots.find(
       (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),
     );
     const routine = bot?.routines.find((entry) => entry.id === routineId);
     if (!bot || !routine || routine.schedule.kind !== "webhook") return notFound;
     if (!routine.enabled) return { status: 409, body: { error: "The routine is paused." } };
-    return { bot, routine };
+    return { bot, routine, state };
   }
 
   private throttled(routineId: string, now: number): boolean {

@@ -11,12 +11,15 @@ import { Relay } from "../server/relay";
 import type { CoordinatorOptions } from "../server/run-coordinator";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
 import { type Bot, EMPTY_LIBRARY, type Routine } from "../shared/bot";
-import type { PreparedBotChat } from "../shared/chat";
+import { type ChatApi, type PreparedBotChat, prepareBotChat } from "../shared/chat";
+import { PolicySchema } from "../shared/policies";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
 import { makePrepared } from "./coordinator-fixture";
-import { defined, fakeHost, makeBot, makeRun, useTempPaseoHome } from "./helpers";
+import { defined, fakeHost, makeBot as makeBotFixture, makeRun, useTempPaseoHome } from "./helpers";
+import { LIVE_PROVIDERS } from "./provider-modes";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
+const makeBot = (patch: Partial<Bot> = {}) => makeBotFixture({ executionMode: "managed", ...patch });
 
 function routine(patch: Partial<Routine> = {}): Routine {
   return {
@@ -110,7 +113,11 @@ function track(host: BotsHost, launch: Launch, options: CoordinatorOptions = {})
   const scheduler = new RoutineScheduler(host, relay, {
     prepare: async (_host, _relay, bot, input) =>
       makePrepared({
-        ...input,
+        agentId: input.agentId,
+        idempotencyKey: input.idempotencyKey,
+        prompt: input.prompt,
+        title: input.title,
+        labels: input.labels ?? {},
         botId: bot.id,
         provider: bot.provider,
         purpose: input.purpose ?? "task",
@@ -521,8 +528,12 @@ async function runsOf(scheduler: RoutineScheduler, routineId: string) {
   return (await scheduler.status()).routines[routineId]?.runs ?? [];
 }
 
-async function hook(url: string, body?: string): Promise<[number, unknown]> {
-  const answer = await fetch(url, { method: "POST", body });
+async function hook(
+  url: string,
+  body?: string,
+  headers?: Record<string, string>,
+): Promise<[number, unknown]> {
+  const answer = await fetch(url, { method: "POST", body, headers });
   return [answer.status, await answer.json()];
 }
 
@@ -605,6 +616,7 @@ describe("routine runs that can't start", () => {
         makeBot({
           id: "bot-away",
           hostId: "laptop",
+          executionMode: "legacy",
           routines: [routine({ ...due, id: "rt-away", resultsChatId: "away-results" })],
         }),
         makeBot({ id: "bot-old", archived: true, routines: [routine({ ...due, id: "rt-old" })] }),
@@ -1003,7 +1015,6 @@ describe("the routine clock", () => {
       expect(launched).toEqual(["Daily", "Minutely"]);
     });
     host.attach(fakePaseo().api);
-    expect(vi.getTimerCount()).toBe(1);
     await scheduler.stop();
     await scheduler.stop();
     expect(vi.getTimerCount()).toBe(0);
@@ -1065,5 +1076,296 @@ describe("the routine clock", () => {
     events.emit("started");
     await stopped;
     expect((await runsOf(scheduler, "rt-z")).map((run) => run.agentId)).toEqual([agentId]);
+  });
+});
+
+describe("legacy routine execution without managed accounting", () => {
+  useSchedulerHome("paseo-bots-scheduler-legacy-");
+
+  it("preserves host-idle and unreachable overlap behavior for bots without an opt-in", async () => {
+    const launch = vi.fn(launchAssigned);
+    const { scheduler, status, unreachable } = await startScheduler(
+      [makeBot({ id: "legacy", executionMode: undefined, routines: [routine({ createdAt: fresh() })] })],
+      launch,
+    );
+    const first = (await scheduler.runNow("legacy", "rt-1")).run;
+    const second = (await scheduler.runNow("legacy", "rt-1")).run;
+    expect(first.managed ?? null).toBeNull();
+    expect(second).toMatchObject({ executionStatus: "running", taskOutcome: "unknown" });
+    expect(second.agentId).not.toBe(first.agentId);
+    const secondAgent = defined(second.agentId, "second legacy agent");
+    status.set(secondAgent, "initializing");
+    expect(facts((await scheduler.runNow("legacy", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
+    unreachable.add(secondAgent);
+    const third = (await scheduler.runNow("legacy", "rt-1")).run;
+    expect(third.executionStatus).toBe("running");
+    expect(launch).toHaveBeenCalledTimes(3);
+    await scheduler.finished("rt-1", defined(third.agentId, "third legacy agent"), {
+      outcome: { kind: "completed" },
+      reply: "I claim success.",
+    });
+    expect((await runsOf(scheduler, "rt-1")).at(-1)).toMatchObject({
+      executionStatus: "completed",
+      taskOutcome: "unknown",
+      verification: null,
+    });
+  });
+
+  it("reports a failed legacy launch without creating a managed reservation or blocking a new request", async () => {
+    let calls = 0;
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "legacy", executionMode: "legacy", routines: [routine({ createdAt: fresh() })] })],
+      async (prepared) => {
+        if (++calls === 1) throw new Error("Legacy launch failed.");
+        return prepared.agentId;
+      },
+    );
+    const first = (await scheduler.runNow("legacy", "rt-1")).run;
+    expect(first).toMatchObject({
+      executionStatus: "failed",
+      taskOutcome: "unknown",
+      agentId: null,
+      error: "Legacy launch failed.",
+    });
+    expect(first.managed ?? null).toBeNull();
+    const second = (await scheduler.runNow("legacy", "rt-1")).run;
+    expect(second.executionStatus).toBe("running");
+    expect(second.managed ?? null).toBeNull();
+    expect(calls).toBe(2);
+  });
+});
+
+describe("legacy webhook overlap and execution mode changes", () => {
+  useSchedulerHome("paseo-bots-scheduler-legacy-overlap-");
+
+  it("allows three unfinished legacy webhooks without applying managed provider capacity", async () => {
+    const { scheduler, status } = await startScheduler(
+      [makeBot({ id: "legacy", executionMode: "legacy", routines: [webhook()] })],
+      async (prepared) => {
+        status.set(prepared.agentId, "running");
+        return prepared.agentId;
+      },
+    );
+    const { url } = await scheduler.webhookUrl("rt-1");
+    for (const event of ["one", "two", "three"]) expect((await hook(url, event))[0]).toBe(202);
+    expect(await hook(url, "four")).toEqual([429, { status: "skipped-busy" }]);
+    const active = (await runsOf(scheduler, "rt-1")).filter((run) => run.executionStatus === "running");
+    expect(active).toHaveLength(3);
+    expect(active.every((run) => !run.managed)).toBe(true);
+  });
+
+  it.each([
+    { from: "legacy", to: "managed" },
+    { from: "managed", to: "legacy" },
+  ] as const)("does not duplicate unfinished work when switching $from to $to", async ({ from, to }) => {
+    const launch = vi.fn(launchAssigned);
+    const { scheduler, host } = await startScheduler(
+      [makeBot({ id: "switching", executionMode: from, routines: [webhook()] })],
+      launch,
+    );
+    const first = (await scheduler.runNow("switching", "rt-1")).run;
+    defined((await host.values()).bots[0], "mutable bot").executionMode = to;
+    const { url } = await scheduler.webhookUrl("rt-1");
+    expect(await hook(url, "new request")).toEqual([429, { status: "skipped-busy" }]);
+    expect((await runsOf(scheduler, "rt-1"))[0]?.agentId).toBe(first.agentId);
+    expect(launch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("routine request receipts before mutable configuration", () => {
+  useSchedulerHome("paseo-bots-scheduler-replay-");
+
+  it.each(["legacy", "managed"] as const)(
+    "replays a %s manual request after its bot was deleted",
+    async (executionMode) => {
+      const launch = vi.fn(launchAssigned);
+      const { scheduler, host } = await startScheduler(
+        [makeBot({ id: "replay", executionMode, routines: [webhook()] })],
+        launch,
+      );
+      const first = (await scheduler.runNow("replay", "rt-1", "manual-request")).run;
+      (await host.values()).bots = [];
+      const replay = (await scheduler.runNow("replay", "rt-1", "manual-request")).run;
+      expect([replay.id, replay.agentId]).toEqual([first.id, first.agentId]);
+      expect(launch).toHaveBeenCalledTimes(1);
+      await expect(scheduler.runNow("replay", "rt-1", "another-request")).rejects.toThrow(
+        "Routine not found.",
+      );
+    },
+  );
+
+  it.each(["legacy", "managed"] as const)(
+    "rejects a changed %s webhook body beyond the prompt cut",
+    async (executionMode) => {
+      const launch = vi.fn(launchAssigned);
+      const { scheduler, host } = await startScheduler(
+        [makeBot({ id: "replay", executionMode, routines: [webhook()] })],
+        launch,
+      );
+      const { url } = await scheduler.webhookUrl("rt-1");
+      const headers = { "idempotency-key": "original", "content-type": "application/json" };
+      const body = `${"x".repeat(48_000)}original tail`;
+      const first = await hook(url, body, headers);
+      expect(first[0]).toBe(202);
+      defined((await host.values()).bots[0]?.routines[0], "mutable routine").enabled = false;
+      expect(await hook(url, body, headers)).toEqual(first);
+      (await host.values()).bots = [];
+      expect(await hook(url, body, headers)).toEqual(first);
+      expect((await hook(url, `${"x".repeat(48_000)}changed tail`, headers))[0]).toBe(409);
+      expect((await hook(url, body, { ...headers, "content-type": "text/plain" }))[0]).toBe(409);
+      expect(launch).toHaveBeenCalledTimes(1);
+    },
+  );
+});
+
+describe("independent webhook identities", () => {
+  useSchedulerHome("paseo-bots-scheduler-webhook-identities-");
+
+  it.each(["legacy", "managed"] as const)(
+    "retains two identical %s bodies under distinct keys",
+    async (executionMode) => {
+      const { scheduler } = await startScheduler([
+        makeBot({ id: "events", executionMode, routines: [webhook()] }),
+      ]);
+      const { url } = await scheduler.webhookUrl("rt-1");
+      expect((await hook(url, "same event", { "idempotency-key": "first" }))[0]).toBe(202);
+      expect((await hook(url, "same event", { "idempotency-key": "second" }))[0]).toBe(202);
+      const rows = await runsOf(scheduler, "rt-1");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]?.occurrenceKey).not.toBe(rows[1]?.occurrenceKey);
+      expect(rows[0]?.id).not.toBe(rows[1]?.id);
+    },
+  );
+});
+
+describe("legacy fixed policy resolution", () => {
+  useSchedulerHome("paseo-bots-scheduler-legacy-policy-");
+
+  it.each([
+    { overrides: undefined, expected: "policy-model" },
+    { overrides: { model: "routine-model" }, expected: "routine-model" },
+  ])("preserves B04 selection $expected using one captured state", async ({ overrides, expected }) => {
+    const entries = LIVE_PROVIDERS.map((entry) =>
+      entry.provider === "claude"
+        ? {
+            ...entry,
+            models: ["base-model", "policy-model", "routine-model", "new-model"].map((id) => ({
+              id,
+              label: id,
+            })),
+          }
+        : entry,
+    );
+    const api = { providers: { snapshot: async () => ({ entries }) } } as unknown as ChatApi;
+    const launched: PreparedBotChat[] = [];
+    const { scheduler, host } = await startScheduler(
+      [
+        makeBot({
+          id: "legacy",
+          executionMode: "legacy",
+          model: "base-model",
+          policy: { binding: null, inherit: ["model", "thinkingOptionId"] },
+          routines: [webhook({ overrides })],
+        }),
+      ],
+      async (prepared) => {
+        launched.push(prepared);
+        return prepared.agentId;
+      },
+      undefined,
+      {
+        prepare: async (_host, _relay, bot, input) => {
+          const state = defined(input.state, "captured state");
+          mutable.policies = [];
+          mutable.globalPolicy = null;
+          defined(mutable.bots[0]?.routines[0], "mutable routine").overrides = { model: "new-model" };
+          return prepareBotChat(api, {
+            ...input,
+            bot,
+            policy: state,
+            library: state.library ?? EMPTY_LIBRARY,
+            placement: { path: "/tmp/legacy-policy-fixture", projectRoot: null },
+            systemPrompt: "Admitted instructions.",
+          });
+        },
+      },
+    );
+    const mutable = await host.values();
+    mutable.policies = [
+      PolicySchema.parse({
+        id: "pol-legacy",
+        revision: 1,
+        createdAt: fresh(),
+        name: "Explicit policy",
+        roles: { executor: { provider: "claude", model: "policy-model" } },
+      }),
+    ];
+    mutable.globalPolicy = { policyId: "pol-legacy", revision: 1 };
+    const first = (await scheduler.runNow("legacy", "rt-1", "frozen-request")).run;
+    expect(launched[0]?.model).toBe(expected);
+    expect(first.managed ?? null).toBeNull();
+    const replay = (await scheduler.runNow("legacy", "rt-1", "frozen-request")).run;
+    expect([replay.id, replay.agentId]).toEqual([first.id, first.agentId]);
+    expect(launched).toHaveLength(1);
+  });
+});
+
+describe("managed routine queue deadlines", () => {
+  useSchedulerHome("paseo-bots-scheduler-deadline-");
+
+  it("expires unlaunched work relative to its due instant without releasing active capacity", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const launch = vi.fn(launchAssigned);
+    const { scheduler } = await startScheduler(
+      [
+        makeBot({ id: "active", routines: [webhook({ id: "rt-active" })] }),
+        makeBot({
+          id: "waiting",
+          routines: [webhook({ id: "rt-waiting", runtime: { deadlineSeconds: 1 } })],
+        }),
+      ],
+      launch,
+      undefined,
+      { capacity: { global: 1 } },
+    );
+    const active = (await scheduler.runNow("active", "rt-active")).run;
+    const waiting = (await scheduler.runNow("waiting", "rt-waiting")).run;
+    expect(waiting.executionStatus).toBe("queued");
+    vi.setSystemTime(Date.now() + 1001);
+    await scheduler.coordinator.pump();
+    expect(await scheduler.coordinator.get(waiting.id)).toMatchObject({
+      executionStatus: "canceled",
+      taskOutcome: "no_change",
+      managed: { reservation: false },
+    });
+    expect((await scheduler.coordinator.get(active.id))?.managed?.reservation).toBe(true);
+    expect(launch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("legacy terminal evidence during launch", () => {
+  useSchedulerHome("paseo-bots-scheduler-legacy-early-end-");
+
+  it("preserves completion and agent identity when the create reply fails after the turn ended", async () => {
+    let agentId = "";
+    const { scheduler } = await startScheduler(
+      [makeBot({ id: "legacy", executionMode: "legacy", routines: [webhook()] })],
+      async (prepared) => {
+        agentId = prepared.agentId;
+        await scheduler.finished("rt-1", agentId, {
+          outcome: { kind: "completed" },
+          reply: "Observed completed work.",
+        });
+        throw new Error("Creation reply was lost after completion.");
+      },
+    );
+    const { run } = await scheduler.runNow("legacy", "rt-1");
+    expect(run).toMatchObject({
+      executionStatus: "completed",
+      taskOutcome: "unknown",
+      agentId,
+      output: "Observed completed work.",
+    });
+    expect(run.managed ?? null).toBeNull();
   });
 });

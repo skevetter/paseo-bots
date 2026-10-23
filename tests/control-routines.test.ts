@@ -10,7 +10,9 @@ import { defined, makeBot, useTempPaseoHome } from "./helpers";
 const running: { stop(): Promise<void> }[] = [];
 
 async function control() {
-  const started = await startControl(ROUTINE_TOOLS, { bots: [makeBot({ id: "bot-a", name: "Inbox" })] });
+  const started = await startControl(ROUTINE_TOOLS, {
+    bots: [makeBot({ id: "bot-a", name: "Inbox", executionMode: "managed" })],
+  });
   running.push(started);
   return started;
 }

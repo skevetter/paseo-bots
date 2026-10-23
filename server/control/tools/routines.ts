@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Bot, Routine } from "../../../shared/bot";
 import { byRef, findBot, ROUTINE_REF } from "../../../shared/changes/refs";
-import type { Change } from "../../../shared/changes/schema";
+import { type Change, DeadlineSeconds } from "../../../shared/changes/schema";
 import { describeSchedule, nextRun, ScheduleInput } from "../../../shared/routines";
 import { describeRun } from "../../../shared/runs";
 import { SchedulePolicySchema } from "../../../shared/schedule-policy";
@@ -43,6 +43,7 @@ function summary(bot: Bot, routine: Routine, lastRunAt: string | null) {
     enabled: routine.enabled,
     nextRun: next?.toISOString() ?? null,
     resultsChatId: routine.resultsChatId,
+    deadlineSeconds: routine.runtime?.deadlineSeconds ?? null,
   };
 }
 
@@ -122,11 +123,23 @@ const create = defineControlTool({
     schedule: ScheduleInput,
     schedule_policy: SchedulePolicySchema.optional(),
     results_chat_id: ResultsChat,
+    deadline_seconds: DeadlineSeconds,
   }),
-  async run({ bot: ref, name, instructions, schedule, schedule_policy, results_chat_id }, context) {
+  async run(
+    { bot: ref, name, instructions, schedule, schedule_policy, results_chat_id, deadline_seconds },
+    context,
+  ) {
     const bot = await botByRef(context, ref);
     const done = await change(context, `Add routine ${name}`, [
-      { type: "add_routine", bot: bot.id, name, instructions, schedule, schedulePolicy: schedule_policy },
+      {
+        type: "add_routine",
+        bot: bot.id,
+        name,
+        instructions,
+        schedule,
+        schedulePolicy: schedule_policy,
+        deadline_seconds,
+      },
     ]);
     if (done.pending) return done.pending;
     const known = new Set(bot.routines.map((entry) => entry.id));
@@ -152,6 +165,7 @@ const update = defineControlTool({
     schedule_policy: SchedulePolicySchema.optional(),
     enabled: z.boolean().optional().describe("false pauses it."),
     results_chat_id: ResultsChat,
+    deadline_seconds: DeadlineSeconds,
   }),
   async run({ bot: botRef, routine: ref, results_chat_id, schedule_policy, ...fields }, context) {
     const { bot, routine } = await routineByRef(context, botRef, ref);

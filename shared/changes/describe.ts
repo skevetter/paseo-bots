@@ -43,6 +43,7 @@ function avatarText(avatar: z.infer<typeof AvatarInput>): string {
 
 function settingsText(fields: BotFieldValues): string[] {
   const parts: string[] = [];
+  if (fields.execution_mode !== undefined) parts.push(`${fields.execution_mode} execution`);
   if (fields.contact_bots !== undefined)
     parts.push(
       {
@@ -127,6 +128,7 @@ function updateRoutineText(change: ChangeOf<"update_routine">): string {
         ]
       : []),
     ...(change.enabled !== undefined ? [change.enabled ? "resumed" : "paused"] : []),
+    ...(change.deadline_seconds === undefined ? [] : [`managed deadline ${change.deadline_seconds}s`]),
   ];
   return `**${change.bot}**: routine "${change.routine}" ${parts.join("; ") || "unchanged"}`;
 }
@@ -189,7 +191,7 @@ export function describeChange(change: Change): string {
     case "delete_bot":
       return `**Delete bot ${change.bot}**; its chats stay in Paseo's history`;
     case "add_routine":
-      return `**${change.bot}**: new routine "${change.name}", ${scheduleText(change.schedule, change.schedulePolicy)}`;
+      return `**${change.bot}**: new routine "${change.name}", ${scheduleText(change.schedule, change.schedulePolicy)}${change.deadline_seconds === undefined ? "" : `; managed deadline ${change.deadline_seconds}s`}`;
     case "update_routine":
       return updateRoutineText(change);
     case "delete_routine":

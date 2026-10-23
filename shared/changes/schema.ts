@@ -62,6 +62,10 @@ const AppInput = z.object({
 });
 
 const BotFields = {
+  execution_mode: z
+    .enum(["legacy", "managed"])
+    .optional()
+    .describe("Explicitly opt into managed execution on this host; omitted preserves legacy execution."),
   title: z.string().max(200).optional().describe("One line: what the bot does."),
   description: z
     .string()
@@ -160,6 +164,13 @@ export const UpdateBot = z.object({
 
 const DeleteBot = z.object({ type: z.literal("delete_bot"), bot: Ref("The bot") });
 
+export const DeadlineSeconds = z
+  .number()
+  .int()
+  .positive()
+  .optional()
+  .describe("Managed queue deadline in seconds from the intended occurrence, including queue time.");
+
 const AddRoutine = z.object({
   type: z.literal("add_routine"),
   bot: Ref("The bot that runs it"),
@@ -171,6 +182,7 @@ const AddRoutine = z.object({
     .describe("What to do on each run, written so it works without this chat."),
   schedule: ScheduleInput,
   schedulePolicy: SchedulePolicySchema.optional(),
+  deadline_seconds: DeadlineSeconds,
 });
 
 const UpdateRoutine = z.object({
@@ -182,6 +194,7 @@ const UpdateRoutine = z.object({
   schedule: ScheduleInput.optional(),
   schedulePolicy: SchedulePolicySchema.optional(),
   enabled: z.boolean().optional().describe("false pauses it."),
+  deadline_seconds: DeadlineSeconds,
 });
 
 const DeleteRoutine = z.object({

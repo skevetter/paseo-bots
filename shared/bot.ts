@@ -129,6 +129,8 @@ const RoutineSchema = z.object({
       overlap: OverlapSchema.optional(),
       resourceIds: z.array(z.string().min(1).max(200)).max(100).optional(),
       capacity: CapacityLimitsSchema.partial().optional(),
+      /** Queue expiry, measured from the intended occurrence time; managed execution only. */
+      deadlineSeconds: z.number().int().positive().optional(),
     })
     .optional(),
 });
@@ -160,43 +162,50 @@ const BotVoiceSchema = z.object({
 });
 export type BotVoice = z.infer<typeof BotVoiceSchema>;
 
-export const BotSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  title: z.string().default(""),
-  description: z.string().default(""),
-  avatar: BotAvatarSchema,
-  /** Daemon server id; null means the host that stores the bot. */
-  hostId: z.string().nullable().default(null),
-  provider: z.string(),
-  model: z.string().nullable().default(null),
-  /** Paseo mode: the provider's approval level. */
-  modeId: z.string().nullable().default(null),
-  thinkingOptionId: z.string().nullable().default(null),
-  /** Standing instructions, placed right after the persona in the system prompt. */
-  soul: z.string().default(""),
-  mcpServerIds: z.array(z.string()).default([]),
-  /** Exact MCP tool grants ("server/tool"). */
-  alwaysAllow: z.array(z.string()).default([]),
-  skillIds: z.array(z.string()).default([]),
-  /** Composio toolkit slugs. */
-  apps: z.array(z.string()).default([]),
-  /** An app without a rule allows every tool and account. */
-  appRules: z.record(z.string(), AppRuleSchema).default({}),
-  voice: BotVoiceSchema.default({ name: null, readReplies: false }),
-  /** ask: the user approves each request; allow: freely; off: never. */
-  contactBots: z.enum(["ask", "allow", "off"]).default("ask"),
-  routines: z.array(RoutineSchema).default([]),
-  playbooks: z.array(PlaybookSchema).default([]),
-  /** Null means the shared managed folder on the storing host. */
-  cwd: z.string().nullable().default(null),
-  pinned: z.boolean().default(false),
-  archived: z.boolean().default(false),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  /** The bot's own policy and which of its settings it inherits; none means every setting is its own. */
-  policy: BotPolicySchema.optional(),
-});
+export const BotSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    title: z.string().default(""),
+    description: z.string().default(""),
+    avatar: BotAvatarSchema,
+    /** Daemon server id; null means the host that stores the bot. */
+    hostId: z.string().nullable().default(null),
+    /** Missing preserves fixed-model execution without managed accounting or enforcement. */
+    executionMode: z.enum(["legacy", "managed"]).optional(),
+    provider: z.string(),
+    model: z.string().nullable().default(null),
+    /** Paseo mode: the provider's approval level. */
+    modeId: z.string().nullable().default(null),
+    thinkingOptionId: z.string().nullable().default(null),
+    /** Standing instructions, placed right after the persona in the system prompt. */
+    soul: z.string().default(""),
+    mcpServerIds: z.array(z.string()).default([]),
+    /** Exact MCP tool grants ("server/tool"). */
+    alwaysAllow: z.array(z.string()).default([]),
+    skillIds: z.array(z.string()).default([]),
+    /** Composio toolkit slugs. */
+    apps: z.array(z.string()).default([]),
+    /** An app without a rule allows every tool and account. */
+    appRules: z.record(z.string(), AppRuleSchema).default({}),
+    voice: BotVoiceSchema.default({ name: null, readReplies: false }),
+    /** ask: the user approves each request; allow: freely; off: never. */
+    contactBots: z.enum(["ask", "allow", "off"]).default("ask"),
+    routines: z.array(RoutineSchema).default([]),
+    playbooks: z.array(PlaybookSchema).default([]),
+    /** Null means the shared managed folder on the storing host. */
+    cwd: z.string().nullable().default(null),
+    pinned: z.boolean().default(false),
+    archived: z.boolean().default(false),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    /** The bot's own policy and which of its settings it inherits; none means every setting is its own. */
+    policy: BotPolicySchema.optional(),
+  })
+  .refine((bot) => bot.executionMode !== "managed" || !bot.hostId, {
+    path: ["executionMode"],
+    message: "Managed execution is not supported for bots on another host.",
+  });
 export type Bot = z.infer<typeof BotSchema>;
 
 const HistoryEntrySchema = z.object({ botId: z.string(), at: z.string(), snapshot: BotSchema });
