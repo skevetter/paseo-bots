@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
-import { SETUP_PROMPT, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
+import { launchPreparedBotChat, prepareBotChat, SETUP_PROMPT, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
 import type { PolicyState } from "../shared/policies";
 import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
@@ -499,11 +499,12 @@ function useStartChat({ bot, library, policy, host, onStarted }: StartChatOption
     // The plugin's tools and connected apps go through this host's relay, so only bots here get them.
     const agentId = newUuid();
     const plugin = host.isLocal ? await mountServers({ botId: bot.id, agentId }) : {};
-    const id = await startBotChat(host.api, {
+    const prepared = await prepareBotChat(host.api, {
       bot,
       library,
       policy,
-      ...(host.isLocal ? { agentId } : {}),
+      agentId,
+      idempotencyKey: `paseo-bots:${agentId}`,
       plugin,
       placement,
       prompt: message.text,
@@ -512,6 +513,7 @@ function useStartChat({ bot, library, policy, host, onStarted }: StartChatOption
       attachments: message.attachments,
       clientMessageId: message.messageId,
     });
+    const id = await launchPreparedBotChat(host.api, prepared);
     await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "chats", host.key, bot.id] });
     onStarted(id);
   };
