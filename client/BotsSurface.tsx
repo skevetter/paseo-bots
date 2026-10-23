@@ -131,6 +131,8 @@ function renderSidebar(ctx: SurfaceContext): ReactElement {
       touch={layout.compact || layout.platform !== "web"}
       splash={layout.compact}
       bottomInset={ctx.bottomInset}
+      query={ctx.botQuery}
+      onQueryChange={ctx.setBotQuery}
       onToggle={(botId) =>
         updateUi((current) => ({
           ...current,

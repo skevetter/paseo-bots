@@ -18,7 +18,7 @@ import { saveTeam, type TeamDraft, type TeamTab, tabOf, teamTabs, withoutBot } f
 import { fitColumns } from "../shared/layout";
 import { addImportedBots } from "../shared/library";
 import { applyDefaults, presetFromBot } from "../shared/presets";
-import { moveKey } from "../shared/sidebar";
+import { matchesName, moveKey, neighbourInGroup, swapEntries } from "../shared/sidebar";
 import { type BotTemplate, botFromPreset, newBot } from "../shared/templates";
 import { fullTimeline } from "../shared/timeline";
 import { chatTranscript } from "../shared/transcript";
@@ -132,13 +132,6 @@ async function remove(ctx: SurfaceContext, bot: Bot) {
   });
 }
 
-function swapEntries<T extends { id: string }>(entries: readonly T[], first: string, second: string): T[] {
-  const a = entries.find((entry) => entry.id === first);
-  const b = entries.find((entry) => entry.id === second);
-  if (!a || !b) return [...entries];
-  return entries.map((entry) => (entry === a ? b : entry === b ? a : entry));
-}
-
 function withSwappedMembers(group: BotGroup, first: string, second: string): BotGroup {
   return {
     ...group,
@@ -159,13 +152,11 @@ function moveInTeam(ctx: SurfaceContext, group: BotGroup, botId: string, neighbo
 }
 
 function moveBot(ctx: SurfaceContext, bot: Bot, delta: -1 | 1): (() => void) | undefined {
-  const shown = ctx.openTab?.bots ?? ctx.listed;
-  const index = shown.findIndex((entry) => entry.id === bot.id);
-  const neighbour = shown[index + delta];
-  if (index === -1 || !neighbour) return undefined;
+  const shown = (ctx.openTab?.bots ?? ctx.listed).filter((entry) => matchesName(entry.name, ctx.botQuery));
+  const neighbour = neighbourInGroup(shown, bot.id, delta);
+  if (!neighbour) return undefined;
   const group = ctx.openTab?.group;
   if (group) return moveInTeam(ctx, group, bot.id, neighbour.id);
-  if (neighbour.pinned !== bot.pinned) return undefined;
   return () =>
     void ctx.commit((values) => ({ ...values, bots: swapEntries(values.bots, bot.id, neighbour.id) }));
 }

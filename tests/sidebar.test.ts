@@ -3,8 +3,18 @@ import { newBotScreen, takeNewBotRequest } from "../client/intent";
 import { pixelAvatar } from "../shared/avatar";
 import { BotListUiSchema, BotStateSchema, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { darkBackground } from "../shared/pixel";
-import { aggregateBuckets, applyStoredOrdering, chatBucket, moveKey, orderChats } from "../shared/sidebar";
-import { defined } from "./helpers";
+import {
+  aggregateBuckets,
+  applyStoredOrdering,
+  chatBucket,
+  matchesName,
+  moveKey,
+  neighbourInGroup,
+  orderChats,
+  splitByPin,
+  swapEntries,
+} from "../shared/sidebar";
+import { defined, makeBot } from "./helpers";
 
 describe("chatBucket", () => {
   const base = { status: "idle", pendingPermissions: [], requiresAttention: false, attentionReason: null };
@@ -153,5 +163,52 @@ describe("New bot from the Command Center", () => {
     expect(takeNewBotRequest(params ?? {})).toBe(false);
     expect(takeNewBotRequest({})).toBe(false);
     expect(takeNewBotRequest({ newBot: "later" })).toBe(true);
+  });
+});
+
+describe("bot name search", () => {
+  it("matches names as case-insensitive substrings", () => {
+    expect(matchesName("Inbox Bot", "BOX")).toBe(true);
+    expect(matchesName("Inbox", "  inb ")).toBe(true);
+    expect(matchesName("Inbox", "outbox")).toBe(false);
+  });
+
+  it("matches every name for a blank query", () => {
+    expect(matchesName("Inbox", "   ")).toBe(true);
+  });
+});
+
+describe("bot pin grouping", () => {
+  it("splits pinned bots from unpinned ones, keeping each group's order", () => {
+    const bots = [
+      makeBot({ id: "a", pinned: false }),
+      makeBot({ id: "b", pinned: true }),
+      makeBot({ id: "c", pinned: false }),
+      makeBot({ id: "d", pinned: true }),
+    ];
+    const { pinned, unpinned } = splitByPin(bots);
+    expect(pinned.map((bot) => bot.id)).toEqual(["b", "d"]);
+    expect(unpinned.map((bot) => bot.id)).toEqual(["a", "c"]);
+  });
+});
+
+describe("bot reordering", () => {
+  const bot = (id: string, pinned: boolean) => makeBot({ id, name: id, pinned });
+
+  it("only moves a bot past a neighbour in its own pin group", () => {
+    const shown = [bot("p1", true), bot("p2", true), bot("u1", false), bot("u2", false)];
+    expect(neighbourInGroup(shown, "p2", 1)).toBeNull();
+    expect(neighbourInGroup(shown, "u1", -1)).toBeNull();
+    expect(defined(neighbourInGroup(shown, "u2", -1)).id).toBe("u1");
+  });
+
+  it("keeps hidden bots in their slots and survives a state round trip", () => {
+    const all = [bot("a", false), bot("hidden", false), bot("b", false)];
+    const shown = all.filter((entry) => entry.id !== "hidden");
+    const neighbour = defined(neighbourInGroup(shown, "b", -1));
+    const moved = swapEntries(all, "b", neighbour.id);
+    expect(moved.map((entry) => entry.id)).toEqual(["b", "hidden", "a"]);
+    const restored = BotStateSchema.parse({ bots: JSON.parse(JSON.stringify(moved)), history: [] });
+    expect(restored.bots.map((entry) => entry.id)).toEqual(["b", "hidden", "a"]);
   });
 });

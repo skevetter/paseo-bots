@@ -1,5 +1,5 @@
 import { Icon } from "@getpaseo/plugin/client/react-native";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { Bot, BotListUi } from "../../shared/bot";
 import { SIDEBAR_GROUP_LIMIT } from "../../shared/sidebar";
@@ -14,7 +14,7 @@ import type { BotSidebarProps, ChatMenuContext } from "./types";
 
 const PINNED_MENU: ChatMenuContext = { siblings: [], pinned: true };
 
-interface PinnedChat {
+export interface PinnedChat {
   chatId: string;
   bot: Bot;
 }
@@ -22,6 +22,7 @@ interface PinnedChat {
 type PinnedProps = BotSidebarProps & {
   pins: readonly PinnedChat[];
   tokens: NativeTokens;
+  children?: ReactNode;
 };
 
 export function resolvePins(
@@ -35,7 +36,7 @@ export function resolvePins(
 }
 
 export function PinnedSection(props: PinnedProps) {
-  const { colors, pins, ui: listUi, touch, onTogglePinnedSection } = props;
+  const { colors, pins, ui: listUi, touch, onTogglePinnedSection, children } = props;
   const collapsed = listUi.pinnedCollapsed;
   const [expanded, setExpanded] = useState(false);
   const visible = expanded ? pins : pins.slice(0, SIDEBAR_GROUP_LIMIT);
@@ -74,6 +75,7 @@ export function PinnedSection(props: PinnedProps) {
           {pins.length > SIDEBAR_GROUP_LIMIT ? (
             <ShowMoreRow colors={colors} expanded={expanded} onPress={() => setExpanded(!expanded)} />
           ) : null}
+          {children}
         </>
       )}
     </View>
