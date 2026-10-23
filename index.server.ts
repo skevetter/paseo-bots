@@ -44,6 +44,7 @@ import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
+import { lastTurn } from "./shared/activity";
 import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import { fleetApplyRpc, fleetListRpc, fleetPreviewRpc, fleetRevertRpc } from "./shared/fleet";
@@ -96,6 +97,10 @@ import {
   routineRunNowRpc,
   routineStatusRpc,
   routineWebhookRpc,
+  runsCancelRpc,
+  runsGetRpc,
+  runsListRpc,
+  runsReconcileRpc,
   skillDeleteRpc,
   skillImportRpc,
   skillReadRpc,
@@ -152,6 +157,26 @@ function handleFleet(server: PluginServerContext, host: BotsHost, scheduler: Rou
   server.handle(fleetRevertRpc, (input, context) => {
     host.attach(context.paseo);
     return revertFleetChange(host, input);
+  });
+}
+
+function handleRuns(server: PluginServerContext, host: BotsHost, scheduler: RoutineScheduler) {
+  const coordinator = scheduler.coordinator;
+  server.handle(runsListRpc, (input, context) => {
+    host.attach(context.paseo);
+    return coordinator.list(input);
+  });
+  server.handle(runsGetRpc, async ({ runId }, context) => {
+    host.attach(context.paseo);
+    return { run: await coordinator.get(runId) };
+  });
+  server.handle(runsCancelRpc, ({ runId }, context) => {
+    host.attach(context.paseo);
+    return coordinator.cancel(runId);
+  });
+  server.handle(runsReconcileRpc, ({ runId }, context) => {
+    host.attach(context.paseo);
+    return coordinator.reconcile(runId);
   });
 }
 
@@ -243,6 +268,14 @@ function handleChatEvents(
     await turnEnded(host, journal, scheduler, event).catch((error: unknown) =>
       console.error("paseo-bots: couldn't record a turn", error),
     );
+    await scheduler.coordinator
+      .finished(event.agent.id, {
+        kind: event.outcome.kind,
+        turnId: event.turnId,
+        reply: lastTurn(event.timeline).reply,
+        error: event.outcome.kind === "failed" ? event.outcome.error.message : null,
+      })
+      .catch((error: unknown) => console.error("paseo-bots: couldn't settle managed chat", error));
   });
 }
 
@@ -290,7 +323,7 @@ export default function contribute(server: PluginServerContext) {
 
   server.handle(helloRpc, (_input, context) => {
     attach(context);
-    return { scheduler: scheduler.running };
+    return { scheduler: scheduler.running, readiness: scheduler.coordinator.readiness };
   });
   server.handle(stateReadRpc, (_input, context) => {
     attach(context);
@@ -326,9 +359,10 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     return routineStatusResponse(await scheduler.status());
   });
-  server.handle(routineRunNowRpc, async ({ botId, routineId }, context) => {
+  handleRuns(server, host, scheduler);
+  server.handle(routineRunNowRpc, async ({ botId, routineId, requestId }, context) => {
     attach(context);
-    const { run } = await scheduler.runNow(botId, routineId);
+    const { run } = await scheduler.runNow(botId, routineId, requestId);
     return { run: routineRunResponse(run) };
   });
   server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));

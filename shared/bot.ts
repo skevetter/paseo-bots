@@ -1,6 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { MAX_RECEIPTS, ReceiptSchema } from "./changes/receipt";
+import { CapacityLimitsSchema, OverlapSchema } from "./managed-runs";
 import { BotPolicySchema, PolicyBindingSchema, PolicySchema, RoutineOverridesSchema } from "./policies";
 import { SchedulePolicySchema } from "./schedule-policy";
 
@@ -122,6 +123,14 @@ const RoutineSchema = z.object({
   overrides: RoutineOverridesSchema.optional(),
   /** A permission, apart from the overrides: a mode this routine's runs start in, which may only ask more than the bot's. */
   modeId: z.string().min(1).optional(),
+  /** Opaque resource IDs participate in admission, never inferred from instructions. */
+  runtime: z
+    .object({
+      overlap: OverlapSchema.optional(),
+      resourceIds: z.array(z.string().min(1).max(200)).max(100).optional(),
+      capacity: CapacityLimitsSchema.partial().optional(),
+    })
+    .optional(),
 });
 export type Routine = z.infer<typeof RoutineSchema>;
 

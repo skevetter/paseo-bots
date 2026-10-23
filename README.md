@@ -127,17 +127,25 @@ unknown execution, not a verified task failure. Never use `status` for verificat
 The webhook HTTP reply is unchanged (`running`, `skipped-busy` or `failed`); it reports admission, not
 the eventual outcome. Internal and persisted run records have no `status` field.
 
+Managed launches now use durable occurrence identity, frozen restricted execution artifacts and capacity
+reservations before agent creation. Unknown host effects retain their reservation and are never
+automatically restarted. See [coordinator contracts, limits and recovery](docs/run-coordinator.md).
+
 Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
-verification. A read does not rewrite the file. The first save of an unversioned `routines.json` copies
-it once to `routines.json.pre-run-store`, then atomically writes `{ version: 1, routines }`.
-Unsupported versioned files stay in place: reads and writes fail explicitly until a compatible plugin
-is installed or an operator restores a supported backup. Only corrupt files are set aside automatically.
+verification. A read does not rewrite the file. First save of unversioned history preserves it once as
+`routines.json.pre-run-store`; first save of version-1 history preserves `routines.json.v1.bak`.
+New writes use `{ version: 2, routines, coordinator }`. Unsupported future versions and unreadable
+coordinator metadata stay in place and refuse access. Only corrupt old-format files are set aside automatically.
 
 To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
 starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
 A fresh installation has no pre-migration backup. Without a restored old-format file, 1.3.0 cannot
 interpret the new envelope. Outbound RPC compatibility is not on-disk downgrade compatibility, and
 results-chat cards written with the new fields are not guaranteed to render in the older plugin.
+To return to the prior version-1 RunStore release, stop Paseo and restore `routines.json.v1.bak`.
+Restoring history does not undo external effects; preserve current artifacts and reconcile uncertain
+operations before admitting new work. A stale coordinator lock requires explicit manual recovery after
+checking that its recorded owner process is no longer running.
 
 ## Development
 
