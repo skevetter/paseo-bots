@@ -4,14 +4,29 @@ import { type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { applyChanges } from "../shared/changes/apply";
 import type { ProviderInfo } from "../shared/changes/context";
 import { changeIds } from "../shared/changes/ids";
-import { findReceipt, type Operation, type OperationScope } from "../shared/changes/operation";
+import {
+  checkedReceipt,
+  findReceipt,
+  type Operation,
+  type OperationChange,
+  OperationConflictError,
+  type OperationScope,
+} from "../shared/changes/operation";
 import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { addImportedBots, setBotUses, updateSkill, upsertSkills } from "../shared/library";
 import type { Proposal } from "../shared/proposals";
+import { parseSkillFrontmatter } from "../shared/skills";
 import { pluginDataPath } from "./bot-home";
 import type { CommandAllowlist } from "./commands";
 import { readParsed, writeJson } from "./files";
-import { discardStagedSkills, publishStagedSkill, stageSkill } from "./library";
+import {
+  discardStagedSkills,
+  publishStagedSkill,
+  SkillPublicationConflictError,
+  sha256,
+  skillSha,
+  stageSkill,
+} from "./library";
 import { newOperation } from "./operations";
 import type { BotStore } from "./state";
 
@@ -20,7 +35,7 @@ const KEEP = 200;
 type NewProposal = Pick<Proposal, "botId" | "agentId" | "kind" | "data"> & Partial<Pick<Proposal, "origin">>;
 
 export interface AcceptServices {
-  store: Pick<BotStore, "read" | "apply">;
+  store: Pick<BotStore, "read" | "apply" | "reconcileOperation" | "completeOperation">;
   commands: Pick<CommandAllowlist, "add">;
   /** The host's providers, which pick new bots' approval modes. */
   providers?: readonly ProviderInfo[] | null;
@@ -59,7 +74,13 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function save(proposals: Proposal[]): Promise<void> {
-  await writeJson(storePath(), { proposals: proposals.slice(-KEEP) }, 0o600);
+  const retained = [...proposals];
+  while (retained.length > KEEP) {
+    const oldest = retained.findIndex((proposal) => proposal.status !== "pending");
+    if (oldest === -1) throw new Error("Too many pending proposals. Resolve one before creating more.");
+    retained.splice(oldest, 1);
+  }
+  await writeJson(storePath(), { proposals: retained }, 0o600);
 }
 
 export function createProposal(input: NewProposal): Promise<Proposal> {
@@ -144,11 +165,14 @@ function withSkill(values: BotState, botId: string, skill: AcceptedSkill, now: s
 
 /** The proposal's id names its operation, so accepting it again is the same operation. */
 function operationFor(proposal: Proposal): Operation {
-  return newOperation({
-    id: proposal.id,
-    kind: proposal.kind,
-    body: { kind: proposal.kind, botId: proposal.botId, data: proposal.data },
-  });
+  return {
+    ...newOperation({
+      id: proposal.id,
+      kind: proposal.kind,
+      body: { kind: proposal.kind, botId: proposal.botId, data: proposal.data },
+    }),
+    pending: true,
+  };
 }
 
 interface Applied {
@@ -156,26 +180,59 @@ interface Applied {
   receipt: ApplicationReceipt | null;
 }
 
+async function reconcileSkill(
+  proposal: Extract<Proposal, { kind: "skill" }>,
+  store: AcceptServices["store"],
+): Promise<void> {
+  await store.reconcileOperation(operationFor(proposal), (values, receipt) =>
+    publishStagedSkill(
+      proposal.id,
+      { id: proposal.data.name, text: proposal.data.text },
+      receipt,
+      values.library?.skills.find((skill) => skill.id === proposal.data.name)?.reviewedSha,
+    ),
+  );
+}
+
+async function applySkill(
+  proposal: Extract<Proposal, { kind: "skill" }>,
+  services: AcceptServices,
+): Promise<Applied> {
+  const { store, guard = () => {} } = services;
+  const operation = operationFor(proposal);
+  const receipt = checkedReceipt((await store.read()).values, operation);
+  const { name, text } = proposal.data;
+  const skill = { id: name, description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+  let saved = receipt;
+  if (!saved) {
+    guard(proposal, (await store.read()).values);
+    const previousSha = await skillSha(name);
+    await stageSkill(operation.id, text);
+    saved = (
+      await store.apply(operation, (values, scope) => {
+        guard(proposal, values);
+        return {
+          values: withSkill(values, proposal.botId, skill, scope.now),
+          skill: { id: name, sha: skill.sha, previousSha },
+        };
+      })
+    ).receipt;
+  }
+  await reconcileSkill(proposal, store);
+  return { skill, receipt: saved };
+}
+
 async function apply(proposal: Proposal, services: AcceptServices): Promise<Applied> {
   const { store, commands, providers, guard = () => {} } = services;
   const operation = operationFor(proposal);
-  const run = (change: (values: BotState, scope: OperationScope) => { values: BotState; notes?: string[] }) =>
+  const run = (change: (values: BotState, scope: OperationScope) => OperationChange) =>
     store.apply(operation, (values, scope) => {
       guard(proposal, values);
       return change(values, scope);
     });
   switch (proposal.kind) {
-    case "skill": {
-      guard(proposal, (await store.read()).values);
-      const { name, text } = proposal.data;
-      const skill = { id: name, ...(await stageSkill(operation.id, text)) };
-      // A refusal or a crash leaves the staged file for the next attempt or the recovery to clear.
-      const { receipt } = await run((values, scope) => ({
-        values: withSkill(values, proposal.botId, skill, scope.now),
-      }));
-      await publishStagedSkill(operation.id, name, text);
-      return { skill, receipt };
-    }
+    case "skill":
+      return applySkill(proposal, services);
     case "routine":
       return {
         skill: null,
@@ -220,8 +277,10 @@ export function acceptProposal(
 ): Promise<{ proposal: Proposal; skill?: AcceptedSkill; receipt?: ApplicationReceipt }> {
   return serial(async () => {
     const { skill, receipt } = await apply(pending(await load(), id), services);
+    const proposal = await resolve(id, "accepted");
+    if (receipt) await services.store.completeOperation(operationFor(proposal));
     return {
-      proposal: await resolve(id, "accepted"),
+      proposal,
       ...(skill ? { skill } : {}),
       ...(receipt ? { receipt } : {}),
     };
@@ -231,34 +290,41 @@ export function acceptProposal(
 export interface Recovery {
   /** Proposals whose changes were saved but which were still pending, now accepted. */
   accepted: string[];
-  /** Pending proposals whose operation id was saved with other content; accepting them reports it. */
+  /** Identity or publication conflicts; pending work and its staged files remain available. */
   conflicts: string[];
   /** Skill files staged by an operation that never saved its changes. */
   discarded: string[];
 }
 
-/** A pending proposal whose changes were saved only needs its file published and its mark. */
-async function finish(proposal: Proposal, values: BotState, recovery: Recovery): Promise<void> {
-  const receipt = proposal.status === "pending" ? findReceipt(values, proposal.id) : undefined;
-  if (!receipt) return;
-  if (receipt.bodyHash !== operationFor(proposal).bodyHash) {
+/** Publication conflicts leave the proposal and its pin intact for explicit reconciliation. */
+async function finish(proposal: Proposal, store: AcceptServices["store"], recovery: Recovery): Promise<void> {
+  if (proposal.status === "dismissed") return;
+  const { values } = await store.read();
+  if (!findReceipt(values, proposal.id)) return;
+  const operation = operationFor(proposal);
+  try {
+    checkedReceipt(values, operation);
+    if (proposal.status === "pending") {
+      if (proposal.kind === "skill") await reconcileSkill(proposal, store);
+      await resolve(proposal.id, "accepted");
+      recovery.accepted.push(proposal.id);
+    }
+    await store.completeOperation(operation);
+  } catch (error) {
+    if (!(error instanceof OperationConflictError || error instanceof SkillPublicationConflictError))
+      throw error;
     recovery.conflicts.push(proposal.id);
-    return;
   }
-  if (proposal.kind === "skill")
-    await publishStagedSkill(proposal.id, proposal.data.name, proposal.data.text);
-  await resolve(proposal.id, "accepted");
-  recovery.accepted.push(proposal.id);
 }
 
 /** Run at startup, before anything accepts a proposal. Finishes what a crash left half done. */
-export function recoverProposals(store: Pick<BotStore, "read">): Promise<Recovery> {
+export function recoverProposals(store: AcceptServices["store"]): Promise<Recovery> {
   return serial(async () => {
-    const { values } = await store.read();
     const recovery: Recovery = { accepted: [], conflicts: [], discarded: [] };
-    for (const proposal of await load()) await finish(proposal, values, recovery);
-    // Nothing else is accepting a proposal now, so what is still staged never saved its changes.
-    recovery.discarded = await discardStagedSkills(() => false);
+    for (const proposal of await load()) await finish(proposal, store, recovery);
+    const { values } = await store.read();
+    // A receipt proves committed work, even when its proposal has changed or vanished.
+    recovery.discarded = await discardStagedSkills((id) => !!findReceipt(values, id));
     return recovery;
   });
 }

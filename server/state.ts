@@ -4,10 +4,14 @@ import { z } from "zod";
 import { type BotState, BotStateSchema, type StateSnapshot } from "../shared/bot";
 import {
   applyOperation,
+  checkedReceipt,
+  completeOperation,
   type Operation,
+  type OperationChange,
   type OperationOutcome,
   type OperationScope,
 } from "../shared/changes/operation";
+import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { pluginDataPath } from "./bot-home";
 import { readParsed, writeAtomic } from "./files";
 
@@ -26,8 +30,12 @@ type Listener = (snapshot: StateSnapshot) => void;
 
 /** Receipts are the host's: a change or a client's whole-state write can neither forge nor drop them. */
 function withReceiptsOf(current: BotState, next: BotState): BotState {
-  const { receipts: _dropped, ...rest } = next;
-  return current.receipts ? { ...rest, receipts: current.receipts } : rest;
+  const { receipts: _dropped, pendingOperations: _pending, ...rest } = next;
+  return {
+    ...rest,
+    ...(current.receipts ? { receipts: current.receipts } : {}),
+    ...(current.pendingOperations ? { pendingOperations: current.pendingOperations } : {}),
+  };
 }
 
 function parse(raw: string): StateSnapshot {
@@ -72,13 +80,35 @@ export class BotStore {
    */
   apply(
     operation: Operation,
-    run: (values: BotState, scope: OperationScope) => { values: BotState; notes?: readonly string[] },
+    run: (values: BotState, scope: OperationScope) => OperationChange,
   ): Promise<OperationResult> {
     return this.serial(async () => {
       const current = await this.load();
       const outcome = applyOperation(current.values, operation, run);
       const snapshot = outcome.status === "replayed" ? current : await this.persist(outcome.values);
       return { status: outcome.status, receipt: outcome.receipt, snapshot };
+    });
+  }
+
+  /** Keep configuration writes queued until publication has compared the current state and live file. */
+  reconcileOperation(
+    operation: Operation,
+    reconcile: (values: BotState, receipt: ApplicationReceipt) => Promise<void>,
+  ): Promise<void> {
+    return this.serial(async () => {
+      const { values } = await this.load();
+      const receipt = checkedReceipt(values, operation);
+      if (!receipt) throw new Error(`Operation ${operation.id} has no receipt.`);
+      await reconcile(values, receipt);
+    });
+  }
+
+  /** Release only after the caller's acceptance mark is durable; a crash before this is safe to retry. */
+  completeOperation(operation: Operation): Promise<StateSnapshot> {
+    return this.serial(async () => {
+      const current = await this.load();
+      const values = completeOperation(current.values, operation);
+      return values === current.values ? current : this.persist(values);
     });
   }
 
