@@ -4,6 +4,7 @@ import { MCP_NAME } from "../mcp-servers";
 
 import { PALETTE_COUNT } from "../pixel";
 import { ScheduleInput } from "../routines";
+import { SchedulePolicySchema } from "../schedule-policy";
 import { BOT_TEMPLATES } from "../templates";
 
 const Ref = (what: string) => z.string().min(1).max(100).describe(`${what}: its name or id.`);
@@ -169,6 +170,7 @@ const AddRoutine = z.object({
     .max(20_000)
     .describe("What to do on each run, written so it works without this chat."),
   schedule: ScheduleInput,
+  schedulePolicy: SchedulePolicySchema.optional(),
 });
 
 const UpdateRoutine = z.object({
@@ -178,6 +180,7 @@ const UpdateRoutine = z.object({
   name: z.string().min(1).max(80).optional(),
   instructions: z.string().min(1).max(20_000).optional(),
   schedule: ScheduleInput.optional(),
+  schedulePolicy: SchedulePolicySchema.optional(),
   enabled: z.boolean().optional().describe("false pauses it."),
 });
 

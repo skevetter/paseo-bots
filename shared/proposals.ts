@@ -2,6 +2,7 @@ import { z } from "zod";
 import { ImportedBotSchema, RoutineScheduleSchema, TeamFileTeamSchema } from "./bot";
 import { botToolName } from "./bot-tools";
 import { ChangeSchema } from "./changes/schema";
+import { SchedulePolicySchema } from "./schedule-policy";
 import { toolCallName } from "./tool-name";
 
 const ProposalBase = z.object({
@@ -23,6 +24,7 @@ const RoutineProposalSchema = z.object({
   name: z.string(),
   prompt: z.string(),
   schedule: RoutineScheduleSchema,
+  schedulePolicy: SchedulePolicySchema.optional(),
   resultsChatId: z.string().nullable(),
 });
 
