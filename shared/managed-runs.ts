@@ -50,11 +50,61 @@ export const ManagedRunSchema = z.object({
     .nullable(),
   cancelRequested: z.boolean(),
   coalescedInto: z.string().nullable(),
+  requestHash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+  admissionOrder: z.number().int().nonnegative().safe().optional(),
+  admittedAt: z.number().int().nonnegative().safe().optional(),
+  launchIntent: z.boolean().optional(),
+  deadlineAt: z.number().int().nonnegative().safe().nullable().optional(),
+  firstReservedAt: z.number().int().nonnegative().safe().nullable().optional(),
+  maxRunSeconds: z.number().int().positive().nullable().optional(),
+  cancelError: z.string().nullable().optional(),
+  result: ArtifactRefSchema.optional(),
+  evidence: z
+    .object({
+      artifact: ArtifactRefSchema,
+      source: z.enum(["lifecycle", "timeline"]),
+      replyComplete: z.boolean(),
+      timelineComplete: z.boolean(),
+      observedAt: z.number(),
+    })
+    .optional(),
+  evidencePins: z.array(z.string()).optional(),
+  hostCreatedAt: z.number().optional(),
 });
 export type ManagedRun = z.infer<typeof ManagedRunSchema>;
+export const SessionOpeningSchema = z.object({
+  sessionEpoch: z.number().int().nonnegative().safe(),
+  requestId: z.string(),
+  executionId: z.string(),
+  workspaceId: z.string().nullable(),
+  provider: z.string(),
+  cwd: z.string(),
+  reason: z.enum(["create", "resume", "refresh", "import"]),
+  state: z.enum(["pending", "active"]),
+  openedAt: z.number(),
+  activeAt: z.number().nullable(),
+});
+export type SessionOpening = z.infer<typeof SessionOpeningSchema>;
 export const CoordinatorStateSchema = z.object({
   occurrences: z.record(z.string(), z.string()),
   circuits: z.record(z.string(), CircuitStateSchema),
+  requests: z
+    .record(
+      z.string(),
+      z.object({
+        runId: z.string(),
+        recordId: z.string(),
+        botId: z.string(),
+        requestHash: z.string().nullable(),
+        mode: z.enum(["legacy", "managed"]),
+      }),
+    )
+    .default({}),
+  admissionOrder: z.number().int().nonnegative().safe().default(0),
+  sessions: z.record(z.string(), z.array(SessionOpeningSchema)).default({}),
 });
 export type CoordinatorState = z.infer<typeof CoordinatorStateSchema>;
 export type HostReadiness = "waiting_for_host_api" | "reconciling" | "ready" | "stopped";

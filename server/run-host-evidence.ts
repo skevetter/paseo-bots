@@ -17,6 +17,7 @@ export interface HostTimelineEvidence {
   gap: boolean;
   staleCursor: boolean;
   hasNewer: boolean;
+  hasOlder?: boolean;
   entries: { seqEnd: number; item: { type: string; clientMessageId?: string; text?: string } }[];
 }
 export interface HostRunEvidence {

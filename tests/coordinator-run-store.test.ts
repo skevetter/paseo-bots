@@ -2,12 +2,11 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Relay } from "../server/relay";
-import { RunCoordinator } from "../server/run-coordinator";
-import { appendRun, emptyRecord, RunStore } from "../server/run-store";
+import { appendRun, displayRecords, emptyRecord, RunStore } from "../server/run-store";
+import { CoordinatorStateSchema } from "../shared/managed-runs";
 import type { RoutineRun } from "../shared/rpc";
 import { occurrenceKeyOf } from "../shared/runs";
-import { defined, fakeHost, makeRun } from "./helpers";
+import { defined, makeRun } from "./helpers";
 
 let directory: string;
 let path: string;
@@ -48,51 +47,57 @@ function terminalReservation(executionStatus: "completed" | "failed" | "canceled
 }
 
 describe("coordinator history version migration", () => {
-  it("preserves exact v1 bytes on first v2 write and retains both backups through reopen", async () => {
-    const historic = makeRun("historic");
-    const original = `${JSON.stringify(
-      {
-        version: 1,
-        routines: { rt: { lastRunAt: historic.scheduledFor, runs: [historic] } },
-      },
-      null,
-      "\t",
-    )}\n\n`;
-    const preStoreBackup = '{"legacy":"original unversioned history"}\n';
-    await writeFile(path, original);
-    await writeFile(`${path}.pre-run-store`, preStoreBackup);
-    const store = new RunStore(path);
-    const before = await store.read();
-    expect(defined(before.routines.rt).runs).toEqual([historic]);
-    expect(await readFile(path, "utf8")).toBe(original);
-    await expect(stat(`${path}.v1.bak`)).rejects.toMatchObject({ code: "ENOENT" });
-    const added = makeRun("after-migration");
-    await store.updateState(({ routines, coordinator }) => {
-      appendRun(defined(routines.rt), added);
-      coordinator.occurrences[added.occurrenceKey] = added.id;
-      coordinator.circuits.omp = { failures: 2, openUntil: 12345, probe: false };
-    });
-    expect(await readFile(`${path}.v1.bak`, "utf8")).toBe(original);
-    expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(preStoreBackup);
-    const reopened = new RunStore(path);
-    const migrated = await reopened.read();
-    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(2);
-    expect(defined(migrated.routines.rt).runs).toEqual([historic, added]);
-    expect(migrated.coordinator).toEqual({
-      occurrences: { [historic.occurrenceKey]: historic.id, [added.occurrenceKey]: added.id },
-      circuits: { omp: { failures: 2, openUntil: 12345, probe: false } },
-    });
-    await reopened.updateState(({ coordinator }) => {
-      coordinator.circuits.omp = { failures: 0, openUntil: 0, probe: false };
-    });
-    expect(await readFile(`${path}.v1.bak`, "utf8")).toBe(original);
-    expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(preStoreBackup);
-    expect((await new RunStore(path).read()).coordinator.circuits.omp).toEqual({
-      failures: 0,
-      openUntil: 0,
-      probe: false,
-    });
-  });
+  it.each([1, 2])(
+    "backs up exact v%i bytes before v3 and preserves older backups through reopen",
+    async (version) => {
+      const historic = makeRun("historic");
+      const original = `${JSON.stringify(
+        {
+          version,
+          routines: { rt: { lastRunAt: historic.scheduledFor, runs: [historic] } },
+          ...(version === 2 ? { coordinator: { occurrences: {}, circuits: {} } } : {}),
+        },
+        null,
+        "\t",
+      )}\n\n`;
+      const preStoreBackup = '{"legacy":"original unversioned history"}\n';
+      await writeFile(path, original);
+      await writeFile(`${path}.pre-run-store`, preStoreBackup);
+      const store = new RunStore(path);
+      const before = await store.read();
+      expect(defined(before.routines.rt).runs).toEqual([historic]);
+      expect(await readFile(path, "utf8")).toBe(original);
+      await expect(stat(`${path}.v${version}.bak`)).rejects.toMatchObject({ code: "ENOENT" });
+      const added = makeRun("after-migration");
+      await store.updateState(({ routines, coordinator }) => {
+        appendRun(defined(routines.rt), added);
+        coordinator.occurrences[added.occurrenceKey] = added.id;
+        coordinator.circuits.omp = { failures: 2, openUntil: 12345, probe: false };
+      });
+      expect(await readFile(`${path}.v${version}.bak`, "utf8")).toBe(original);
+      expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(preStoreBackup);
+      const reopened = new RunStore(path);
+      const migrated = await reopened.read();
+      expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+      expect(defined(migrated.routines.rt).runs).toEqual([historic, added]);
+      expect(migrated.coordinator).toEqual(
+        CoordinatorStateSchema.parse({
+          occurrences: { [historic.occurrenceKey]: historic.id, [added.occurrenceKey]: added.id },
+          circuits: { omp: { failures: 2, openUntil: 12345, probe: false } },
+        }),
+      );
+      await reopened.updateState(({ coordinator }) => {
+        coordinator.circuits.omp = { failures: 0, openUntil: 0, probe: false };
+      });
+      expect(await readFile(`${path}.v${version}.bak`, "utf8")).toBe(original);
+      expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(preStoreBackup);
+      expect((await new RunStore(path).read()).coordinator.circuits.omp).toEqual({
+        failures: 0,
+        openUntil: 0,
+        probe: false,
+      });
+    },
+  );
 });
 
 describe("unreadable managed execution safety", () => {
@@ -114,13 +119,22 @@ describe("unreadable managed execution safety", () => {
 });
 
 describe("coordinator history retention", () => {
-  it("keeps every uncertain execution and reservation in addition to the latest 30 terminal runs", async () => {
+  it("retains all detailed evidence while projecting only 30 unprotected terminal display rows", async () => {
     const protectedRuns = [
       ...(
         ["queued", "reserved", "starting", "running", "waiting_for_user", "verifying", "unknown"] as const
       ).map((executionStatus) => makeRun(`protected-${executionStatus}`, { executionStatus, endedAt: null })),
       ...(["completed", "failed", "canceled"] as const).map(terminalReservation),
     ];
+    const pinned = makeRun("candidate-evidence", {
+      managed: {
+        ...defined(terminalReservation("completed").managed),
+        requestId: "candidate-evidence",
+        reservation: false,
+        evidencePins: ["candidate-1"],
+      },
+    });
+    protectedRuns.push(pinned);
     const terminalRuns = Array.from({ length: 45 }, (_, index) =>
       makeRun(`terminal-${index}`, {
         executionStatus: (["completed", "failed", "canceled"] as const)[index % 3],
@@ -136,12 +150,20 @@ describe("coordinator history retention", () => {
       }
     });
     const reopened = await new RunStore(path).read();
-    expect(defined(reopened.routines.rt).runs).toEqual([...protectedRuns, ...terminalRuns.slice(15)]);
+    expect(defined(reopened.routines.rt).runs).toEqual([
+      ...terminalRuns.slice(0, 10),
+      ...protectedRuns,
+      ...terminalRuns.slice(10),
+    ]);
+    const display = displayRecords(reopened.routines);
+    expect(defined(display.rt).runs).toEqual([...protectedRuns, ...terminalRuns.slice(15)]);
+    defined(display.rt).runs[0] = makeRun("consumer-edit");
+    expect(defined(reopened.routines.rt).runs[10]).toEqual(protectedRuns[0]);
   });
 });
 
 describe("retained occurrence identity", () => {
-  it("refuses a scheduled occurrence after its terminal run was pruned and the process reopened", async () => {
+  it("keeps an old scheduled occurrence retrievable after its display row is hidden and index rebuilt", async () => {
     const due = new Date("2026-10-01T09:00:00.000Z");
     const historic = makeRun("original-occurrence", {
       trigger: "schedule",
@@ -164,23 +186,16 @@ describe("retained occurrence identity", () => {
     });
     const reopened = new RunStore(path);
     const before = await reopened.read();
-    expect(defined(before.routines.rt).runs.map((run) => run.id)).toEqual(
+    expect(defined(displayRecords(before.routines).rt).runs.map((run) => run.id)).toEqual(
       Array.from({ length: 30 }, (_, index) => `later-${index + 1}`),
     );
     expect(before.coordinator.occurrences[historic.occurrenceKey]).toBe(historic.id);
     const savedBytes = await readFile(path, "utf8");
-    const host = fakeHost([]);
-    const coordinator = new RunCoordinator(host, new Relay(host, []), { store: reopened });
-    try {
-      await expect(coordinator.recordMissed("rt", due, new Date("2026-10-02T09:00:00.000Z"))).rejects.toThrow(
-        "replay refused",
-      );
-      expect(await readFile(path, "utf8")).toBe(savedBytes);
-      const after = await new RunStore(path).read();
-      expect(after.routines).toEqual(before.routines);
-      expect(after.coordinator.occurrences).toEqual(before.coordinator.occurrences);
-    } finally {
-      await coordinator.stop();
-    }
+    await reopened.rebuildIndex();
+    expect(await reopened.get(historic.id)).toEqual(historic);
+    expect((await reopened.list({ routineId: "rt", limit: 100 })).runs.map((run) => run.id).sort()).toEqual(
+      [historic.id, ...Array.from({ length: 31 }, (_, index) => `later-${index}`)].sort(),
+    );
+    expect(await readFile(path, "utf8")).toBe(savedBytes);
   });
 });

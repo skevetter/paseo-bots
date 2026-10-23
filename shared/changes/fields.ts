@@ -70,11 +70,17 @@ function workingFolder(value: string | null): string | null {
   return folder;
 }
 
+function withExecutionMode(bot: Bot, mode: Bot["executionMode"]): Bot {
+  if (mode === undefined) return bot;
+  if (mode === "managed" && bot.hostId)
+    throw new Error("Managed execution is not supported for bots on another host.");
+  return { ...bot, executionMode: mode };
+}
+
 export function withFields(bot: Bot, fields: BotFieldValues, context: ChangeContext): Bot {
-  const next: Bot = withAgent(
-    { ...bot, avatar: withAvatar(bot.avatar, fields.avatar, context.ids) },
-    fields,
-    context,
+  const next = withExecutionMode(
+    withAgent({ ...bot, avatar: withAvatar(bot.avatar, fields.avatar, context.ids) }, fields, context),
+    fields.execution_mode,
   );
   if (fields.title !== undefined) next.title = oneLine(fields.title);
   if (fields.description !== undefined) next.description = fields.description.trim();

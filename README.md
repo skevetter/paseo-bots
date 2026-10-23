@@ -127,15 +127,21 @@ unknown execution, not a verified task failure. Never use `status` for verificat
 The webhook HTTP reply is unchanged (`running`, `skipped-busy` or `failed`); it reports admission, not
 the eventual outcome. Internal and persisted run records have no `status` field.
 
-Managed launches now use durable occurrence identity, frozen restricted execution artifacts and capacity
-reservations before agent creation. Unknown host effects retain their reservation and are never
-automatically restarted. See [coordinator contracts, limits and recovery](docs/run-coordinator.md).
+Managed execution is explicit opt-in (`executionMode: "managed"`, or `execution_mode` through control
+changes); absent mode remains legacy. Both preserve existing policy bindings and routine overrides.
+Managed launches use durable occurrence/request identity, frozen restricted artifacts, deferred start
+intent, deadlines and capacity reservations before creation. Unknown host effects retain their
+reservation and are never automatically restarted. Provider-session generations are numeric and
+persisted per actual agent, not plugin processes; history reads do not create sessions. See
+[coordinator contracts, limits and recovery](docs/run-coordinator.md).
 
 Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
 verification. A read does not rewrite the file. First save of unversioned history preserves it once as
-`routines.json.pre-run-store`; first save of version-1 history preserves `routines.json.v1.bak`.
-New writes use `{ version: 2, routines, coordinator }`. Unsupported future versions and unreadable
-coordinator metadata stay in place and refuse access. Only corrupt old-format files are set aside automatically.
+`routines.json.pre-run-store`; first upgrades from version 1/2 preserve `routines.json.v1.bak` /
+`routines.json.v2.bak`. New writes use `{version:3,routines,coordinator}` and retain complete detailed
+history; the ordinary 30-terminal view is only a display projection. Unsupported future versions and
+malformed managed metadata stay in place and refuse access. Only corrupt old-format files are set
+aside automatically.
 
 To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
 starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
@@ -143,6 +149,8 @@ A fresh installation has no pre-migration backup. Without a restored old-format 
 interpret the new envelope. Outbound RPC compatibility is not on-disk downgrade compatibility, and
 results-chat cards written with the new fields are not guaranteed to render in the older plugin.
 To return to the prior version-1 RunStore release, stop Paseo and restore `routines.json.v1.bak`.
+To return to the prior version-2 coordinator, preserve current metadata/artifacts and restore
+`routines.json.v2.bak`; older readers cannot safely strip new intents, evidence or session generations.
 Restoring history does not undo external effects; preserve current artifacts and reconcile uncertain
 operations before admitting new work. A stale coordinator lock requires explicit manual recovery after
 checking that its recorded owner process is no longer running.
