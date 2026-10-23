@@ -220,6 +220,7 @@ export class RoutineScheduler {
       prompt,
       title: routine.name,
       labels: { [ROUTINE_LABEL]: routine.id },
+      routineId: routine.id,
     });
   }
 

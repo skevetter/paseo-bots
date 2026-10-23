@@ -17,6 +17,7 @@ import type { ProviderModesById } from "../shared/bot-checks";
 import { patchSavedBot, pushHistory } from "../shared/bot-history";
 
 import type { ImportedBot } from "../shared/library";
+import { patchBotOverrides } from "../shared/policies";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
 import {
   type BotHost,
@@ -298,7 +299,7 @@ function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
           ? latest.current.values.bots.find((bot) => bot.id === botId)
           : undefined);
       return base
-        ? { ...current, [botId]: { ...base, ...patch, updatedAt: new Date().toISOString() } }
+        ? { ...current, [botId]: patchBotOverrides(base, { ...patch, updatedAt: new Date().toISOString() }) }
         : current;
     });
     clearTimeout(saveTimer.current);
@@ -312,7 +313,7 @@ function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
   /** Patches any unsaved draft too, so autosave can't undo the change. */
   const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
     setDrafts((current) =>
-      current[botId] ? { ...current, [botId]: { ...current[botId], ...patch } } : current,
+      current[botId] ? { ...current, [botId]: patchBotOverrides(current[botId], patch) } : current,
     );
     return commit((values) => patchSavedBot(values, botId, patch, recordHistory));
   };

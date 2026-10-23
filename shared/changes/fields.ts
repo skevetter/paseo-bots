@@ -4,6 +4,7 @@ import type { Bot, BotAvatar, BotState, Library } from "../bot";
 import { pushHistory } from "../bot-history";
 
 import { setBotUses } from "../library";
+import { patchBotOverrides } from "../policies";
 import { type ApplyContext, accountId, type ChangeContext, carriedThinking, checkAgent } from "./context";
 import type { ChangeIds } from "./ids";
 import { findServer, findSkill } from "./refs";
@@ -81,7 +82,11 @@ export function withFields(bot: Bot, fields: BotFieldValues, context: ChangeCont
   if (fields.contact_bots !== undefined) next.contactBots = fields.contact_bots;
   if (fields.working_folder !== undefined) next.cwd = workingFolder(fields.working_folder);
   if (fields.pinned !== undefined) next.pinned = fields.pinned;
-  return next;
+  return patchBotOverrides(next, {
+    ...(fields.provider !== undefined ? { provider: next.provider } : {}),
+    ...(fields.model !== undefined ? { model: next.model } : {}),
+    ...(fields.thinking !== undefined ? { thinkingOptionId: next.thinkingOptionId } : {}),
+  });
 }
 
 export function withLibraryItems(

@@ -19,8 +19,8 @@ export interface AppAccountInfo {
   names: string[];
 }
 
-/** The fields of Paseo's provider snapshot entry that changes need. */
-interface ProviderEntry {
+/** The fields of Paseo's provider snapshot entry that changes and policies need. */
+export interface ProviderEntry {
   provider: string;
   enabled: boolean;
   status: string;

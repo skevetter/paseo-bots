@@ -1,6 +1,7 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
 import { MAX_RECEIPTS, ReceiptSchema } from "./changes/receipt";
+import { BotPolicySchema, PolicyBindingSchema, PolicySchema, RoutineOverridesSchema } from "./policies";
 
 /** Chats are found by filtering agents on this label. */
 export const BOT_LABEL = "paseo-bots.bot";
@@ -114,6 +115,10 @@ const RoutineSchema = z.object({
   /** Gets a card for each run; runs themselves always get their own chat. */
   resultsChatId: z.string().nullable().default(null),
   createdAt: z.string(),
+  /** Execution fields this routine's runs use instead of the bot's; see shared/policies.ts. */
+  overrides: RoutineOverridesSchema.optional(),
+  /** A permission, apart from the overrides: a mode this routine's runs start in, which may only ask more than the bot's. */
+  modeId: z.string().min(1).optional(),
 });
 export type Routine = z.infer<typeof RoutineSchema>;
 
@@ -177,6 +182,8 @@ export const BotSchema = z.object({
   archived: z.boolean().default(false),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** The bot's own policy and which of its settings it inherits; none means every setting is its own. */
+  policy: BotPolicySchema.optional(),
 });
 export type Bot = z.infer<typeof BotSchema>;
 
@@ -222,6 +229,8 @@ export const BotGroupSchema = z.object({
   instructions: z.string().default(""),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** The policy every bot on the team inherits. */
+  policy: PolicyBindingSchema.nullable().optional(),
 });
 export type BotGroup = z.infer<typeof BotGroupSchema>;
 
@@ -294,6 +303,10 @@ export const BotStateSchema = z.object({
   receipts: z.array(ReceiptSchema).optional(),
   /** Pins receipts until proposal acceptance and file publication have been reconciled. */
   pendingOperations: z.array(z.string()).max(MAX_RECEIPTS).optional(),
+  /** Every revision of every policy; only the host writes these, see BotStore. */
+  policies: z.array(PolicySchema).optional(),
+  /** The policy every bot inherits from. */
+  globalPolicy: PolicyBindingSchema.nullable().optional(),
 });
 export type BotState = z.infer<typeof BotStateSchema>;
 

@@ -1,6 +1,8 @@
 import type { WireAttachment } from "./attachments";
 import { BOT_LABEL, type Bot, type Library } from "./bot";
 import { buildAgentConfig, defaultModelId, type PluginServers } from "./bot-agent";
+import { type ProviderEntry, providerInfo } from "./changes/context";
+import { launchSettings, type PolicyState, resolveBot, snapshotCapabilities, usesPolicy } from "./policies";
 import { PURPOSE_LABEL, type Purpose } from "./runs";
 
 /** Carries the routine id. */
@@ -66,9 +68,7 @@ export interface ChatApi {
     }): Promise<WorkspaceHandle>;
   };
   readonly providers: {
-    snapshot(): Promise<{
-      entries: { provider: string; models?: { id: string; isDefault?: boolean; isSelectable?: boolean }[] }[];
-    }>;
+    snapshot(): Promise<{ entries: ProviderEntry[] }>;
   };
 }
 
@@ -120,6 +120,10 @@ export async function syncBotWorkspaceTitle(api: ChatApi, bot: Bot, placement: B
 export interface StartChatInput {
   bot: Bot;
   library: Library;
+  /** What the bot's provider, model, mode and thinking level resolve from; every path that starts a chat passes it. */
+  policy: PolicyState;
+  /** The routine this chat runs, whose overrides apply. */
+  routineId?: string;
   /** The chat's agent id, picked in advance so its tools URL can name it. */
   agentId?: string;
   plugin?: PluginServers;
@@ -136,9 +140,30 @@ export interface StartChatInput {
   clientMessageId?: string;
 }
 
+/** A bot with a model of its own and no policy needs no snapshot, as before. Policies fail closed on lookup failure. */
+async function providerEntries(api: ChatApi, input: StartChatInput): Promise<ProviderEntry[] | null> {
+  const { bot, policy, routineId } = input;
+  if (bot.model !== null && !usesPolicy(policy, bot, routineId)) return null;
+  return (await api.providers.snapshot()).entries;
+}
+
 export async function startBotChat(api: ChatApi, input: StartChatInput): Promise<string> {
-  const { bot } = input;
-  const model = bot.model ?? (await resolveDefaultModel(api, bot.provider));
+  const entries = await providerEntries(api, input);
+  const providers = entries ? providerInfo(entries) : null;
+  const launch = launchSettings(
+    resolveBot(input.policy, input.bot, {
+      routineId: input.routineId,
+      providers,
+      capabilities: providers ? snapshotCapabilities(providers, null) : undefined,
+    }),
+  );
+  const bot = {
+    ...input.bot,
+    provider: launch.provider,
+    modeId: launch.modeId,
+    thinkingOptionId: launch.thinkingOptionId,
+  };
+  const model = launch.model ?? defaultModel(entries, launch.provider);
   const workspace = await ensureBotWorkspace(api, bot, input.placement);
   const agent = await workspace.agents.create({
     ...(input.agentId ? { agentId: input.agentId } : {}),
@@ -158,9 +183,8 @@ export async function startBotChat(api: ChatApi, input: StartChatInput): Promise
   return agent.id;
 }
 
-async function resolveDefaultModel(api: ChatApi, provider: string): Promise<string> {
-  const snapshot = await api.providers.snapshot();
-  const entry = snapshot.entries.find((candidate) => candidate.provider === provider);
+function defaultModel(entries: readonly ProviderEntry[] | null, provider: string): string {
+  const entry = entries?.find((candidate) => candidate.provider === provider);
   const model = defaultModelId(entry?.models ?? []);
   if (!model) throw new Error(`${provider} has no models available. Pick a model in the bot's settings.`);
   return model;

@@ -141,7 +141,7 @@ describe("the store applying an operation", () => {
     expect((await store.read()).values.receipts).toBeUndefined();
     await store.update((values) => ({ ...values, bots: [makeBot()] }));
     const saved = JSON.parse(await readFile(path, "utf8"));
-    expect(saved.version).toBe(1);
+    expect(saved.version).toBe(2);
     expect(saved.values).not.toHaveProperty("receipts");
   });
 });

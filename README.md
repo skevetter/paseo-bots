@@ -15,6 +15,7 @@ This repository is a fork of [oliexe/paseo-bots](https://github.com/oliexe/paseo
 - **Teams**: a Chief of Staff hands parts of your requests to its teammates.
 - **Skills & Tools**: one library of skills and MCP servers, turned on per bot.
 - **Connected apps**: 1,000+ apps through your own [Composio](https://composio.dev) account. A local relay holds the API key and keeps each bot to its apps, tools and accounts.
+- **Runtime policies**: versioned execution settings with global/team/bot inheritance and per-field sources. Policies are opt-in through the RPC API; read them with MCP `policies_list`, `policies_get` and `policy_resolve`. See [policy contracts and rollback](docs/policies.md).
 
 ## Install
 
@@ -92,6 +93,7 @@ Compared with oliexe/paseo-bots 0.2.0, this fork:
 - shows proposal and sign-in cards for ACP providers such as Hermes and omp;
 - adds the Browser preset;
 - writes state files through a temporary file and sets an unreadable file aside;
+- preserves a version-1 config backup and checksum before migrating policies to envelope version 2; future config versions refuse reads and writes rather than starting empty;
 - checks each relay token before it reads a request, and bounds request sizes;
 - keeps routine history through corrupt files, missed runs and failing routines;
 - records whether a routine run finished apart from whether its task worked, and shows a finished run as not verified until something checks it;

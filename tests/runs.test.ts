@@ -217,6 +217,7 @@ describe("the purpose a chat is started with", () => {
     await startBotChat(api, {
       bot: makeBot({ model: "m" }),
       library: EMPTY_LIBRARY,
+      policy: {},
       placement: { path: "/bots/inbox", projectRoot: null },
       prompt: "p",
       systemPrompt: "s",

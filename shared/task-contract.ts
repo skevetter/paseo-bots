@@ -6,6 +6,10 @@ import { z } from "zod";
 
 const Name = z.string().regex(/^[a-z][a-z0-9_.-]{0,63}$/, "Use lowercase letters, digits, . _ and -");
 
+/** Policies name the task classes they allow and the capabilities they need in the same words contracts do. */
+export const TaskClassSchema = Name;
+export const CapabilityNameSchema = Name;
+
 /** The approved verifier and the digest of the definition it was approved at. */
 export const VerifierRefSchema = z.strictObject({
   id: Name,
@@ -52,7 +56,7 @@ const repeats = (values: readonly string[]) => values.length !== new Set(values)
 
 const ContractShape = z.strictObject({
   version: z.literal(1),
-  taskClass: Name,
+  taskClass: TaskClassSchema,
   goal: z.string().min(1).max(4000),
   requiredInputs: z.array(InputSchema).max(50),
   /** A JSON Schema document the output must satisfy; null when the task has no machine-checkable shape. */

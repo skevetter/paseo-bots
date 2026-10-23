@@ -12,6 +12,7 @@ import {
   TeamFileTeamSchema,
 } from "./bot";
 import { MemoryBudgetStatsSchema } from "./memory-budget";
+import { PolicyBodySchema, PolicyIdSchema, PolicySchema, ReferrerSchema, ResolutionSchema } from "./policies";
 import { ProposalSchema } from "./proposals";
 import {
   AttemptIdSchema,
@@ -31,6 +32,7 @@ import {
   TRIGGERS,
   VerificationSchema,
 } from "./runs";
+import { TaskClassSchema } from "./task-contract";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
 /** "MEMORY.md" or a topic file such as "projects.md" (stored under memory/). */
@@ -65,6 +67,55 @@ export const stateWriteRpc = defineRpc({
     z.object({ status: z.literal("saved"), revision: z.string(), values: BotStateSchema }),
     z.object({ status: z.literal("conflict"), error: z.string() }),
   ]),
+});
+
+/** The newest revision of each policy, with the state revision a save must name. */
+export const policiesListRpc = defineRpc({
+  name: "bots.policies.list",
+  input: z.object({}),
+  output: z.object({ revision: z.string(), policies: z.array(PolicySchema) }),
+});
+
+/** `revision` left out is the newest. `revisions` lists the ones that exist. */
+export const policiesGetRpc = defineRpc({
+  name: "bots.policies.get",
+  input: z.object({ id: PolicyIdSchema, revision: z.number().int().min(1).optional() }),
+  output: z.object({ policy: PolicySchema.nullable(), revisions: z.array(z.number().int()) }),
+});
+
+/**
+ * Saves over the state `revision`; a newer one answers "conflict". Without an `id` it makes a policy at
+ * revision 1; with one it adds the next immutable revision, even when the body is unchanged.
+ */
+export const policiesSaveRpc = defineRpc({
+  name: "bots.policies.save",
+  input: z.object({ revision: z.string(), id: PolicyIdSchema.optional(), policy: PolicyBodySchema }),
+  output: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("saved"), revision: z.string(), policy: PolicySchema }),
+    z.object({ status: z.literal("conflict"), error: z.string() }),
+  ]),
+});
+
+/** Refused, with who still uses it, while any bot, team or the global setting is bound to the policy. */
+export const policiesDeleteRpc = defineRpc({
+  name: "bots.policies.delete",
+  input: z.object({ revision: z.string(), id: PolicyIdSchema }),
+  output: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("deleted"), revision: z.string() }),
+    z.object({ status: z.literal("conflict"), error: z.string() }),
+    z.object({ status: z.literal("referenced"), referrers: z.array(ReferrerSchema) }),
+  ]),
+});
+
+/** What a bot, or one of its routines, runs with, and which layer each setting came from. */
+export const policyResolveRpc = defineRpc({
+  name: "bots.policy.resolve",
+  input: z.object({
+    botId: BotId,
+    routineId: z.string().optional(),
+    taskClass: TaskClassSchema.optional(),
+  }),
+  output: z.object({ revision: z.string(), resolution: ResolutionSchema }),
 });
 
 const PromptSectionSchema = z.object({ title: z.string(), text: z.string() });

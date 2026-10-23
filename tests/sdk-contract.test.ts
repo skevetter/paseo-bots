@@ -187,6 +187,7 @@ describe("startBotChat over the real SDK", () => {
     const id = await startBotChat(chatApi, {
       bot,
       library: EMPTY_LIBRARY,
+      policy: {},
       agentId: "0b9f7c1e-4a2d-4f3b-9e6a-7c8d1e2f3a4b",
       placement: { path: "/work", projectRoot: null },
       prompt: "hello",

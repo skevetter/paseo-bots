@@ -26,6 +26,7 @@ import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } fr
 import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
+import { deletePolicy, getPolicy, listPolicies, resolveForBot, savePolicy } from "./server/policies";
 import { systemPrompt } from "./server/prompt";
 import {
   acceptProposal,
@@ -79,6 +80,11 @@ import {
   memoryUndoRpc,
   memoryWriteRpc,
   mountRpc,
+  policiesDeleteRpc,
+  policiesGetRpc,
+  policiesListRpc,
+  policiesSaveRpc,
+  policyResolveRpc,
   proposalAcceptRpc,
   proposalDismissRpc,
   proposalGetRpc,
@@ -112,6 +118,19 @@ function prepareData() {
   void ensureBotsHome()
     .then(migrateBotSkills)
     .catch((error: unknown) => console.error("paseo-bots: couldn't prepare the Bots folder", error));
+}
+
+function handlePolicies(server: PluginServerContext, host: BotsHost) {
+  const { store } = host;
+  server.handle(policiesListRpc, () => listPolicies(store));
+  server.handle(policiesGetRpc, (input) => getPolicy(store, input));
+  server.handle(policiesSaveRpc, (input) => savePolicy(store, input));
+  server.handle(policiesDeleteRpc, (input) => deletePolicy(store, input));
+  server.handle(policyResolveRpc, async ({ botId, routineId, taskClass }, context) => {
+    host.attach(context.paseo);
+    const { snapshot, resolution } = await resolveForBot(host, { bot: botId, routineId, taskClass });
+    return { revision: snapshot.revision, resolution };
+  });
 }
 
 function handleMemory(server: PluginServerContext, journal: MemoryJournal) {
@@ -247,6 +266,7 @@ export default function contribute(server: PluginServerContext) {
     systemPrompt(input, await host.library(), context.paseo, await host.values()),
   );
   handleMemory(server, journal);
+  handlePolicies(server, host);
   handleSkillsAndApps(server);
   server.handle(mountRpc, async ({ botId, agentId }) => {
     const bot = await host.bot(botId);

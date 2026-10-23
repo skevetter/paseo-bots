@@ -14,7 +14,10 @@ export class BotsHost {
   private readonly listeners = new Set<Listener>();
 
   constructor(
-    readonly store: Pick<BotStore, "read" | "update" | "apply" | "reconcileOperation" | "completeOperation">,
+    readonly store: Pick<
+      BotStore,
+      "read" | "update" | "apply" | "edit" | "reconcileOperation" | "completeOperation"
+    >,
   ) {}
 
   attach(paseo: PaseoApi): void {
