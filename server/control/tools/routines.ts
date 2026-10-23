@@ -4,6 +4,7 @@ import { byRef, findBot, ROUTINE_REF } from "../../../shared/changes/refs";
 import type { Change } from "../../../shared/changes/schema";
 import { describeSchedule, nextRun, ScheduleInput } from "../../../shared/routines";
 import { describeRun } from "../../../shared/runs";
+import { routineRunResponse } from "../../routine-responses";
 import {
   applyOrPropose,
   BotRef,
@@ -202,7 +203,7 @@ const runNow = defineControlTool({
     const { bot, routine } = await routineByRef(context, botRef, ref);
     const { run } = await context.scheduler.runNow(bot.id, routine.id);
     const detail = run.error ? `: ${run.error}` : "";
-    return result(`${routine.name}: ${describeRun(run).label}${detail}.`, { run });
+    return result(`${routine.name}: ${describeRun(run).label}${detail}.`, { run: routineRunResponse(run) });
   },
 });
 
@@ -214,10 +215,10 @@ const status = defineControlTool({
   async run(_input, context) {
     const { scheduler, routines } = await context.scheduler.status();
     const last = Object.fromEntries(
-      Object.entries(routines).map(([id, record]) => [
-        id,
-        { lastRunAt: record.lastRunAt, lastRun: record.runs.at(-1) ?? null },
-      ]),
+      Object.entries(routines).map(([id, record]) => {
+        const run = record.runs.at(-1);
+        return [id, { lastRunAt: record.lastRunAt, lastRun: run ? routineRunResponse(run) : null }];
+      }),
     );
     return result(scheduler ? "The scheduler is running." : "The scheduler waits for Paseo to open.", {
       scheduler,
@@ -238,7 +239,7 @@ const history = defineControlTool({
     const text = runs.length
       ? runs.map((run) => `${run.startedAt} ${run.trigger}: ${describeRun(run).label}`).join("\n")
       : `${routine.name} hasn't run yet.`;
-    return result(text, { routine: routine.id, runs });
+    return result(text, { routine: routine.id, runs: runs.map(routineRunResponse) });
   },
 });
 
