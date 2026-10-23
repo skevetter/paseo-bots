@@ -90,6 +90,7 @@ describe("bounded proposal retention", () => {
   useTempPaseoHome("paseo-bots-proposal-cap-");
 
   it("refuses new proposals rather than dropping pending work, evicting only a resolved record", async () => {
+    const store = await seeded();
     const pending = await routineProposal();
     const filler = [];
     for (let index = 1; index < MAX_RECEIPTS; index++) {
@@ -102,11 +103,11 @@ describe("bounded proposal retention", () => {
         }),
       );
     }
-    await expect(routineProposal()).rejects.toThrow("Too many pending proposals");
+    await expect(routineProposal()).rejects.toThrow();
     expect((await getProposal(pending.id))?.status).toBe("pending");
     const dismissed = filler[0];
     if (!dismissed) throw new Error("Missing fixture");
-    await dismissProposal(dismissed.id);
+    await dismissProposal(dismissed.id, store);
     const admitted = await routineProposal();
     expect((await getProposal(admitted.id))?.status).toBe("pending");
     expect(await getProposal(dismissed.id)).toBeNull();

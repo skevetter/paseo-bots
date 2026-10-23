@@ -171,7 +171,7 @@ const dismiss = defineControlTool({
   description: "Dismisses a pending proposal without applying it.",
   input: z.object({ id: ProposalId }),
   async run({ id }, context) {
-    const proposal = await dismissProposal(id);
+    const proposal = await dismissProposal(id, context.host.store);
     return result(`Dismissed ${describeProposal(proposal)}.`, {
       proposal: summary(proposal, await context.host.values()),
     });
