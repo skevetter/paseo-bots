@@ -35,6 +35,74 @@ Safe retries create new attempt/execution/agent identities while retaining the f
 
 Admission, `startPrepared` and `pump` wait for durable state/reservation work, not provider creation acknowledgments. Tracked host launches proceed independently; callers requiring proof use `waitForCreation`. Scheduler ticks dispatch independent occurrence jobs so a hung prepare/create cannot consume a later bot's admission deadline. Manual/webhook wrappers may explicitly wait for bounded creation evidence to retain their established response contract.
 
+### Ordinary local starts
+
+`shared/local-start.ts` owns the raw local start schemas. Public callers never supply a prepared
+artifact, resolved policy, MCP configuration or relay credentials.
+
+| RPC | Input | Result |
+| --- | --- | --- |
+| `bots.runs.prepare` | `LocalChatInput` | `{planId,plannedAgentId,run}`; managed-only, no host agent creation |
+| `bots.runs.start` | `{planId}` | `LocalChatStartResult`; starts or observes that frozen managed plan |
+| `bots.chats.start` | `LocalChatInput` | One-shot managed prepare/start or legacy fixed-model creation, selected by the server |
+
+`LocalChatInput` requires `botId`, `requestId` (1-200 characters), and `prompt`. Optional fields are
+`agentId`, `idempotencyKey`, `env`, `outputSchema`, `clientMessageId`, `routineId`, and `deadlineAt`.
+Title defaults to empty, purpose to `task`, labels to `{}`, and wire images/attachments to `[]`.
+The complete validated original body is canonically hashed before title shortening, bot lookup or
+policy resolution. Same request and body reuse the original plan even after bot deletion, mode
+change or policy edits; a changed tail, attachment or option conflicts. A request captures one full
+configuration snapshot for bot, routine, library and policies. Only preparations of the same
+request are serialized; independent requests can progress. Ordinary managed overlap defaults to
+`queue`; a captured routine can set overlap, resource IDs, narrower capacity and an earlier deadline.
+
+Start results contain `status: created | pending | not_created`, `mode: legacy | managed`,
+`agentId`, `plannedAgentId`, `planId`, `run`, and `message`. Only proven creation returns non-null
+`agentId`; `plannedAgentId` alone is not proof. Managed results retain the plan and an allowlisted
+`run: {id,executionStatus,taskOutcome,purpose}`. No private run metadata or configuration is spread
+into the response. Queued and unknown creation return pending, not a fabricated chat or failure.
+
+`LocalChatStarts(host, relay, coordinator, options?)` and `registerLocalStarts(server, host, starts)`
+live in `server/local-starts.ts`. Composition explicitly calls `host.bindChatStarts(starts)` once.
+The ordinary `startChat(host, input)` wrapper in `server/chats.ts` uses that service, generating a
+request ID only when omitted. It no longer accepts a relay or full mutable bot. Registration attaches
+each RPC's `context.paseo`. Options are `creationWaitMs` (1 second by default, without changing the
+coordinator's 30-second SDK launch timeout),
+`legacyTimeoutMs` (30 seconds), and an injectable `now` clock. Shutdown calls `starts.stop()` before
+stopping the coordinator.
+
+Legacy one-shot creation uses the same full captured policy state and launch adapter. Before the
+SDK call, the existing `recordLegacy` writer durably retains request/body identity, planned agent
+UUID and purpose under the ordinary chat record. This is not a managed snapshot, reservation or
+managed accounting. No prepared configuration, prompt, environment or relay credential is saved
+as a legacy launch artifact. A repeated request never launches again, even after a bot mode change
+or deletion. Same UUID plus the actual host snapshot's bot label proves creation; a retained typed
+no-create result returns `not_created`; absent, mismatching or unavailable proof returns pending.
+`runs.prepare` refuses an existing legacy request instead of converting it into a managed plan.
+New legacy admissions with a caller-selected `agentId` first inspect that exact native identity:
+an existing agent refuses the admission, and unavailable/uncertain inspection refuses rather than
+treating the ID as unused. This avoids adopting a pre-existing bot chat after a duplicate-ID create
+failure. Server-minted IDs skip this preflight. Replay always precedes this inspection.
+
+A lazy bounded host call passes an abort signal through workspace setup. Timeout or shutdown
+prevents a later setup continuation from issuing creation; it cannot cancel an SDK create already
+sent. Unknown legacy effects retain their planned UUID. There is no in-memory legacy-plan protocol,
+frozen legacy recovery plan or automatic retry. Reuse the same request ID only to inspect the
+retained identity; never use a new ID to retry unknown effects without host reconciliation.
+
+Control `chats_start` and colleague `ask_bot` accept optional `request_id`. Canonical `bot-` IDs
+reach replay before current target lookup; names resolve only current bots. `ask_bot` preserves the
+target's independent settings/tools, blocks nested asks, and bounds creation plus answer retrieval
+to its existing 50-second tool budget. Pending admission never invents a chat ID.
+Control's explicit `setup: true` records purpose `maintenance`; ordinary prompt text never selects purpose.
+
+An actual agent carrying `paseo-bots.run` is an isolated managed task record. Control `chats_send`
+refuses direct sends and instructs callers to use `chats_start` for another task. A legacy agent
+without that label remains an ordinary conversation, even if its bot later opts into managed mode.
+Turning a bot back to legacy changes future new requests, not admitted plans or existing labels.
+Rollback must preserve retained plans/artifacts and reconcile pending effects before new execution;
+changing the mode is not an on-disk downgrade or cancellation.
+
 ## Capacity and overlap
 
 Default concurrent reservations:

@@ -88,8 +88,8 @@ describe("routine responses read by an old client", () => {
       const store = new RunStore(path);
       const internal = defined((await store.read()).routines["rt-runs"]).runs[0];
       expect(internal).not.toHaveProperty("status");
-      expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(fixture);
       await store.update(() => {});
+      expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(fixture);
       const saved = JSON.parse(await readFile(path, "utf8"));
       expect(saved.routines["rt-runs"].runs[0]).toMatchObject({
         executionStatus: "completed",

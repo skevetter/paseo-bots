@@ -3,6 +3,7 @@ import { CHAT_TOOLS } from "../server/control/tools/chats";
 import { BOT_LABEL, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { TOOLS_MCP_NAME } from "../shared/bot-tools";
 import { SETUP_PROMPT } from "../shared/chat";
+import { RUN_LABEL } from "../shared/managed-runs";
 import { PURPOSE_LABEL } from "../shared/runs";
 import { startControl } from "./control-helpers";
 import { defined, makeBot, useTempPaseoHome } from "./helpers";
@@ -175,8 +176,29 @@ describe("starting and listing bot chats", () => {
     const { call, paseo } = await control();
     expect((await call("chats_start", { bot: "bot-2", setup: true })).isError).toBe(false);
     expect(defined(paseo.created[0]).prompt).toBe(SETUP_PROMPT);
+    expect(defined(paseo.created[0]).labels[PURPOSE_LABEL]).toBe("maintenance");
     expect((await call("chats_start", { bot: "Inbox" })).isError).toBe(true);
     expect((await call("chats_start", { bot: "Inbox", prompt: "hi", setup: true })).isError).toBe(true);
+    expect(paseo.created).toHaveLength(1);
+  });
+
+  it("replays an explicit managed request by stable ID after target deletion", async () => {
+    const { call, paseo, store } = await control();
+    await store.update((values) => ({
+      ...values,
+      bots: values.bots.map((bot) => ({ ...bot, executionMode: "managed" })),
+    }));
+    const args = { bot: "bot-1", prompt: "Plan my week", request_id: "control-request" };
+    const original = await call("chats_start", args);
+    expect(original.isError).toBe(false);
+    expect(original.data).toMatchObject({
+      status: "created",
+      mode: "managed",
+      chat: paseo.created[0]?.agentId,
+    });
+    await store.update((values) => ({ ...values, bots: [] }));
+    expect((await call("chats_start", args)).data).toEqual(original.data);
+    expect((await call("chats_start", { ...args, prompt: "Changed" })).isError).toBe(true);
     expect(paseo.created).toHaveLength(1);
   });
 
@@ -215,6 +237,22 @@ describe("driving a bot chat", () => {
     expect(paseo.sent).toEqual([
       { chat: "chat", text: "Also check email", options: { activeTurnBehavior: "steer" } },
       { chat: "chat", text: "Stop that", options: { activeTurnBehavior: "interrupt" } },
+    ]);
+  });
+
+  it("refuses direct managed-task sends but preserves a legacy conversation after bot opt-in", async () => {
+    const { call, paseo, store } = await control({
+      legacy: { status: "running", labels: BOT_LABEL_CHAT("bot-1") },
+      managed: { status: "running", labels: { ...BOT_LABEL_CHAT("bot-1"), [RUN_LABEL]: "run-managed" } },
+    });
+    await store.update((values) => ({
+      ...values,
+      bots: values.bots.map((bot) => ({ ...bot, executionMode: "managed" })),
+    }));
+    expect((await call("chats_send", { chat: "managed", message: "Bypass capacity" })).isError).toBe(true);
+    expect((await call("chats_send", { chat: "legacy", message: "Continue" })).isError).toBe(false);
+    expect(paseo.sent).toEqual([
+      { chat: "legacy", text: "Continue", options: { activeTurnBehavior: "steer" } },
     ]);
   });
 

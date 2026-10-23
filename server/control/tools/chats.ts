@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BOT_LABEL } from "../../../shared/bot";
 import { displayTitle, SETUP_PROMPT } from "../../../shared/chat";
+import { RUN_LABEL } from "../../../shared/managed-runs";
 import { expandLearn } from "../../../shared/skills";
 import { fullTimeline } from "../../../shared/timeline";
 import { chatTranscript } from "../../../shared/transcript";
@@ -48,15 +49,31 @@ const start = defineControlTool({
       .boolean()
       .optional()
       .describe("Start the setup interview the bot's panel offers instead of a prompt."),
+    request_id: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Reuse with the same bot and input to inspect the retained request without relaunching."),
   }),
-  async run({ bot: ref, prompt, setup }, context) {
+  async run({ bot: ref, prompt, setup, request_id: requestId }, context) {
     if (setup && prompt) throw new Error("Give a prompt or set setup, not both.");
     const text = setup ? SETUP_PROMPT : prompt?.trim();
     if (!text) throw new Error("Give a prompt, or set setup to true for the setup interview.");
-    const bot = await botByRef(context, ref);
-    // Like the app: no title, so Paseo names the chat from its first message.
-    const chatId = await startChat(context.host, context.relay, bot, { prompt: text, title: "", labels: {} });
-    return result(`Started chat ${chatId} with ${bot.name}.`, { chat: chatId, bot: bot.id });
+    const key = ref.trim();
+    const botId = key.startsWith("bot-") ? key : (await botByRef(context, key)).id;
+    const started = await startChat(context.host, {
+      botId,
+      requestId,
+      prompt: text,
+      purpose: setup ? "maintenance" : "task",
+    });
+    return result(
+      started.status === "created"
+        ? `Started chat ${started.agentId}.`
+        : `${started.status}: ${started.message}`,
+      { ...started, bot: botId, ...(started.agentId ? { chat: started.agentId } : {}) },
+    );
   },
 });
 
@@ -97,7 +114,11 @@ const send = defineControlTool({
       .describe("While it's working, end its current turn instead of steering it."),
   }),
   async run({ chat, message, interrupt = false }, context) {
-    const { paseo, chatId } = await botChat(context, chat);
+    const { paseo, chatId, agent } = await botChat(context, chat);
+    if (agent.labels?.[RUN_LABEL])
+      throw new Error(
+        "Managed chats are isolated task records. Use chats_start with a new request_id to start another task; direct messages bypass admission.",
+      );
     const typed = message.trim();
     await paseo.agents
       .ref(chatId)

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { foldText, lastTurn } from "../../shared/activity";
 import { BOT_LABEL } from "../../shared/bot";
+import { newUuid } from "../../shared/uuid";
 import { startChat } from "../chats";
 import type { PaseoApi } from "../paseo";
+import { BoundedHostCalls, HostCallUncertainError } from "../run-deadlines";
 import { defineTool, type ToolCaller } from "./mcp";
 
 export const listBots = defineTool({
@@ -94,6 +96,27 @@ async function mayAsk({ bot, agentId, host }: ToolCaller): Promise<boolean> {
   return !chat?.labels[ASKED_BY_LABEL];
 }
 
+function assertAskActive(signal: AbortSignal): void {
+  if (signal.aborted) throw new HostCallUncertainError("Colleague tool budget expired.");
+}
+
+async function colleagueTarget(
+  { bot, host }: ToolCaller,
+  wanted: string,
+): Promise<{ id: string; name: string }> {
+  const key = wanted.trim();
+  if (key === bot.id) throw new Error("A bot cannot ask itself.");
+  // Stable IDs must reach durable replay even when the target no longer exists.
+  if (key.startsWith("bot-")) return { id: key, name: "The other bot" };
+  const others = (await host.bots()).filter((entry) => entry.id !== bot.id && !entry.archived);
+  const target =
+    others.find((entry) => entry.id === key) ??
+    others.find((entry) => entry.name.trim().toLowerCase() === key.toLowerCase());
+  if (!target)
+    throw new Error("The requested colleague is unavailable. Use list_bots for current names and IDs.");
+  return { id: target.id, name: target.name };
+}
+
 export const askBot = defineTool({
   name: "ask_bot",
   description:
@@ -111,33 +134,53 @@ export const askBot = defineTool({
       .describe(
         "Wait up to about 50 seconds for the answer (the default). With false, return at once and use check_chat later.",
       ),
+    request_id: z
+      .string()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("Reuse the same ID and message to recover managed admission."),
   }),
   available: mayAsk,
-  async run({ bot: wanted, message, wait = true }, caller) {
-    const { bot, host, relay } = caller;
-    const others = (await host.bots()).filter((entry) => entry.id !== bot.id && !entry.archived);
-    const key = wanted.trim().toLowerCase();
-    const target =
-      others.find((entry) => entry.id === wanted.trim()) ??
-      others.find((entry) => entry.name.trim().toLowerCase() === key);
-    if (!target)
-      throw new Error(
-        others.length
-          ? `There's no other bot called "${wanted}". Ask one of: ${others.map((entry) => entry.name).join(", ")}.`
-          : "There are no other bots to ask.",
-      );
-    const chatId = await startChat(host, relay, target, {
-      prompt: askPrompt(bot.name, message),
-      title: `${bot.name}: ${foldText(message, 60)}`,
-      labels: { [ASKED_BY_LABEL]: bot.id },
-    });
-    if (!wait) return `Asked ${target.name} in chat ${chatId}. Use check_chat with that id for the answer.`;
-    const paseo = host.requirePaseo();
-    await paseo.agents
-      .ref(chatId)
-      .waitForFinish(ASK_WAIT_MS)
-      .catch(() => null);
-    return describeChat(await readChat(paseo, chatId), target.name, chatId);
+  async run({ bot: wanted, message, wait = true, request_id: suppliedRequestId }, caller) {
+    const { bot, host } = caller;
+    const requestId = suppliedRequestId ?? newUuid();
+    const deadline = Date.now() + ASK_WAIT_MS;
+    const calls = new BoundedHostCalls(ASK_WAIT_MS);
+    try {
+      return await calls.run(async (signal) => {
+        if (!(await mayAsk(caller))) throw new Error("Nested or disabled bot requests are not allowed.");
+        const target = await colleagueTarget(caller, wanted);
+        assertAskActive(signal);
+        const started = await startChat(host, {
+          botId: target.id,
+          requestId,
+          prompt: askPrompt(bot.name, message),
+          title: `${bot.name}: ${foldText(message, 60)}`,
+          labels: { [ASKED_BY_LABEL]: bot.id },
+          purpose: "task",
+        });
+        if (started.status !== "created")
+          return `${started.status}: request ${requestId}; plan ${started.planId ?? "unavailable"}; planned agent ${started.plannedAgentId ?? "unavailable"}. ${started.message}`;
+        const chatId = started.agentId;
+        if (!chatId) throw new Error("Created chat receipt is missing its proven identity.");
+        if (!wait)
+          return `Asked ${target.name} in chat ${chatId}. Use check_chat with that id for the answer.`;
+        assertAskActive(signal);
+        const paseo = host.requirePaseo();
+        await paseo.agents
+          .ref(chatId)
+          .waitForFinish(Math.max(0, deadline - Date.now()))
+          .catch(() => null);
+        assertAskActive(signal);
+        return describeChat(await readChat(paseo, chatId), target.name, chatId);
+      }, "Colleague creation and answer");
+    } catch (error) {
+      if (!(error instanceof HostCallUncertainError)) throw error;
+      return `Accepted/pending request ${requestId}: creation or answer was not confirmed within the tool budget. Repeat this request_id with the identical bot and message to inspect its retained identity. Legacy requests have no frozen recovery plan; inspect host chats before any new request.`;
+    } finally {
+      calls.close();
+    }
   },
 });
 
