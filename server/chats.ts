@@ -6,6 +6,7 @@ import {
   type CreationObserver,
   launchPreparedBotChat,
   type PreparedBotChat,
+  type PreparedLaunchOptions,
   prepareBotChat,
   type StartChatInput,
 } from "../shared/chat";
@@ -94,10 +95,10 @@ export async function launchPreparedChat(
   host: BotsHost,
   relay: Relay,
   prepared: PreparedBotChat,
-  observer?: CreationObserver,
+  options?: PreparedLaunchOptions,
 ): Promise<string> {
   if (prepared.hostId) throw new Error("A remote prepared chat must launch on its selected host.");
-  return launchPreparedBotChat(host.requirePaseo(), await refreshPreparedChat(relay, prepared), observer);
+  return launchPreparedBotChat(host.requirePaseo(), await refreshPreparedChat(relay, prepared), options);
 }
 
 /** Direct callers retain the same plain-chat convenience path; admission routing is owned by the coordinator. */
@@ -119,5 +120,5 @@ export async function startChat(
     agentId,
     idempotencyKey: input.idempotencyKey ?? `paseo-bots:${agentId}`,
   });
-  return launchPreparedChat(host, relay, prepared, input.onEvent);
+  return launchPreparedChat(host, relay, prepared, { onEvent: input.onEvent });
 }

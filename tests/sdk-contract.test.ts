@@ -14,13 +14,14 @@ import {
   getAgentStreamEventTurnId,
 } from "@getpaseo/protocol/agent-types";
 import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirements";
-import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import { z } from "zod";
 import { BOT_LABEL, type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import {
   type CreationEvidence,
   launchPreparedBotChat,
   type PreparedBotChat,
+  PreparedLaunchAbortedError,
   prepareBotChat,
   startBotChat,
 } from "../shared/chat";
@@ -313,6 +314,25 @@ it("keeps a remote chosen UUID and the admitted model, approval and grants after
   expect(prepared.config.mcpServers?.reviewed).toMatchObject({ command: "safe-tool" });
 });
 
+it("does not request an agent when launch is abandoned during workspace setup", async () => {
+  const { prepared } = await admittedRemoteChat();
+  const controller = new AbortController();
+  daemon.hold("workspaces");
+  const launch = launchPreparedBotChat(daemon.api, prepared, { signal: controller.signal });
+  const refused = expect(launch).rejects.toBeInstanceOf(PreparedLaunchAbortedError);
+  await vi.waitFor(() =>
+    expect(daemon.sent.some((frame) => frame.type === "fetch_workspaces_request")).toBe(true),
+  );
+
+  controller.abort();
+  daemon.release();
+  await refused;
+  expect(daemon.sent.map((frame) => frame.type)).toEqual([
+    "get_providers_snapshot_request",
+    "fetch_workspaces_request",
+  ]);
+});
+
 it("surfaces a typed managed-identity refusal on old remote hosts without creating an unmanaged agent", async () => {
   daemon = await connectFakeDaemon({});
   const failure = await startBotChat(daemon.api, {
@@ -366,9 +386,9 @@ it("retains unknown creation outcome and nullable repeated IDs when the SDK disc
     onEvent: (event) => observed.push(event),
   });
   expect(JSON.stringify(prepared)).not.toContain("onEvent");
-  const failure = await launchPreparedBotChat(daemon.api, prepared, (event) => observed.push(event)).catch(
-    (error: unknown) => error,
-  );
+  const failure = await launchPreparedBotChat(daemon.api, prepared, {
+    onEvent: (event) => observed.push(event),
+  }).catch((error: unknown) => error);
   expect(failure).toBeInstanceOf(Error);
   expect(failure).not.toHaveProperty("outcomeUnknown");
   expect(observed.map((event) => [event.revision, event.agentId, event.workspaceId])).toEqual([

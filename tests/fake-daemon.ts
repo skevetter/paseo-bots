@@ -8,12 +8,18 @@ import type { CreationEvidence } from "../shared/chat";
 
 export type Features = Record<string, boolean>;
 
+type HeldRequest = "create" | "workspaces";
+const HELD_FRAMES: Record<HeldRequest, readonly unknown[]> = {
+  create: ["agent.create.request", "create_agent_request"],
+  workspaces: ["fetch_workspaces_request"],
+};
+
 export interface FakeDaemon {
   api: PaseoApi;
   /** Every JSON frame the client sent after the hello, unwrapped from its session envelope. */
   sent: Record<string, unknown>[];
-  /** Hold create replies until `release`, so a test can overlap in-flight requests. */
-  hold(): void;
+  /** Hold selected replies until `release`, so a test can interrupt asynchronous setup or creation. */
+  hold(request?: HeldRequest): void;
   release(): void;
   setProviders(entries: ProviderEntry[]): void;
   creation(events: Omit<CreationEvidence, "idempotencyKey">[], error?: string): void;
@@ -163,6 +169,7 @@ const FIXTURE_WORKSPACE = {
 export async function connectFakeDaemon(features: Features): Promise<FakeDaemon> {
   const sent: Record<string, unknown>[] = [];
   let held: (() => void)[] | null = null;
+  let heldRequest: HeldRequest = "create";
   let deliver: (data: unknown, isBinary: boolean) => void = () => {};
   const reply = (message: unknown) => deliver(JSON.stringify({ type: "session", message }), false);
 
@@ -190,8 +197,7 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
       }
       const message = (frame.message ?? frame) as Record<string, unknown>;
       sent.push(message);
-      if (held && (message.type === "agent.create.request" || message.type === "create_agent_request"))
-        held.push(() => server.respond(message));
+      if (held && HELD_FRAMES[heldRequest].includes(message.type)) held.push(() => server.respond(message));
       else queueMicrotask(() => server.respond(message));
     },
     close() {},
@@ -217,8 +223,9 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
   return {
     api: createPaseoApi(client),
     sent,
-    hold() {
+    hold(request = "create") {
       held = [];
+      heldRequest = request;
     },
     release() {
       const queued = held ?? [];
