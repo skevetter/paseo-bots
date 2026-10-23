@@ -11,6 +11,8 @@
 - `Admission` contains `bot`, optional `routine`, `trigger`, `due: Date`, explicit `requestId`, `prompt`, `title`, optional labels/purpose/resource IDs/overlap.
 - `PreparedAdmission` contains optional `routineId`, `trigger`, `due`, `requestId`, optional resource IDs/overlap/capacity limits.
 
+Server `prepareChat` accepts `state?: BotState`: callers with an admission snapshot pass the whole captured configuration, including policy definitions and library. Without it, direct preparation reads current state once. A narrower policy-only object cannot preserve the library from that same revision.
+
 A scheduled occurrence key is `<routineId>@<ISO due instant>`. Manual and webhook keys are `request:<sha256(JSON.stringify([recordId, trigger, requestId]))>`. The namespace separates triggers and prevents opaque-ID delimiter collisions. Request identity does not change across retries. Manual routine RPC callers may pass `requestId`; webhook callers may pass `Idempotency-Key` (1-200 characters). Omission creates a new request identity. A duplicate returns its existing run; a retained occurrence whose terminal run has been pruned refuses replay rather than launching again.
 
 Before any host creation:
@@ -72,7 +74,7 @@ Coordinator methods are `list`, `get`, `cancel`, `reconcile`, `recover`, `pump`,
 
 Canceling queued/reserved work is atomic and records canceled/no-change. For active work, cancel records the request but retains the reservation. Paseo SDK 0.11.1's plugin-facing agent handle has no supported cancel method; the default response explicitly reports this limitation. Stop the agent in Paseo and reconcile. An explicitly supplied supported cancellation adapter may request host cancellation, but only subsequent host evidence settles execution. Cancellation does not prove absence of external effects.
 
-The admission API also supports ordinary server/UI registration with the same UUID/snapshot/reservation contract. Caller routing must register before creation; remote UI creation needs the integration owner's target-host launch handshake, not local-server launch of a remote prepared config.
+Local managed starts register before creation. Remote manual chats retain the selected host's legacy launch path until a trusted remote coordinator exists; they must visibly report unsupported managed accounting/enforcement and must never use the storing host's Memory bridge or launch a remote prepared config on the local server.
 
 ## Migration, locking and rollback
 
