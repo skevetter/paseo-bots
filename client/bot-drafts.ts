@@ -153,32 +153,47 @@ export function applyDrafts(values: BotState, pending: BotDrafts, now = new Date
   return { ...values, bots, history };
 }
 
-function advanceDraft(pending: BotDraft, earlier: BotDraft, saved: Bot): BotDraft | null {
-  if (pending === earlier) return null;
-  const later = changedFields(earlier.value, pending.value);
-  const advanced = {
-    base: BotSchema.parse(saved),
-    value: {
-      ...saved,
-      ...Object.fromEntries(later.map((field) => [field, pending.value[field]])),
-      updatedAt: pending.value.updatedAt,
-    },
-    recordHistory: pending.recordHistory,
-  };
-  return draftChanged(advanced) ? advanced : null;
+interface DraftAdvance {
+  draft: BotDraft | null;
+  conflict?: DraftConflict;
 }
 
-/** An own V1 acknowledgement advances V2's baseline, applying only edits made after the captured V1. */
-export function acknowledgeDrafts(current: BotDrafts, captured: BotDrafts, saved: BotState): BotDrafts {
+function advanceDraft(pending: BotDraft, earlier: BotDraft, saved: Bot): DraftAdvance {
+  if (pending === earlier) return { draft: null };
+  // V1's expected value separates its acknowledged edits from incorporated remote changes.
+  const later = { ...pending, base: earlier.value };
+  try {
+    const value = rebaseDraft(saved, later, pending.value.updatedAt);
+    const advanced = { ...later, base: BotSchema.parse(saved), value };
+    return { draft: draftChanged(advanced) ? advanced : null };
+  } catch (error) {
+    if (!(error instanceof DraftConflictError)) throw error;
+    return { draft: later, conflict: error.conflict };
+  }
+}
+
+export interface DraftAcknowledgement {
+  drafts: BotDrafts;
+  conflicts: Record<string, DraftConflict>;
+}
+
+/** Acknowledges V1 independently; V2 cannot absorb concurrent remote changes into its baseline unchecked. */
+export function acknowledgeDrafts(
+  current: BotDrafts,
+  captured: BotDrafts,
+  saved: BotState,
+): DraftAcknowledgement {
   const next = { ...current };
+  const conflicts: Record<string, DraftConflict> = {};
   for (const [id, earlier] of Object.entries(captured)) {
     const pending = next[id];
-    if (!pending || pending.base !== earlier.base) continue;
+    if (pending?.base !== earlier.base) continue;
     const bot = saved.bots.find((entry) => entry.id === id);
     if (!bot) continue;
     const advanced = advanceDraft(pending, earlier, bot);
-    if (advanced) next[id] = advanced;
+    if (advanced.draft) next[id] = advanced.draft;
     else delete next[id];
+    if (advanced.conflict) conflicts[id] = advanced.conflict;
   }
-  return next;
+  return { drafts: next, conflicts };
 }

@@ -8,9 +8,11 @@ Only the selected catalog/history view polls, every five seconds. The catalog ma
 
 Opening Automations awaits the bot-draft flush and refuses navigation while any draft remains. An acknowledged catalog pause cannot be undone by an older full-bot autosave retry: each draft captures its original bot baseline and rebases only changed root fields against the fresh CAS revision. Untouched routine booleans, other saved fields and operation receipts remain authoritative.
 
-Concurrent edits to the same root field, or dependent execution/model/permission fields, refuse the entire draft write instead of blindly merging security settings or complex arrays. `updatedAt` alone is not a user edit. Deleted or replaced bots are not recreated. An own earlier autosave acknowledgement advances the baseline of later keystrokes, including an explicit return to the original value.
+Concurrent edits to the same root field, or dependent execution/model/permission fields, refuse the entire draft write instead of blindly merging security settings or complex arrays. `updatedAt` alone is not a user edit. Deleted or replaced bots are not recreated. An earlier autosave acknowledgement three-way checks later keystrokes against both its expected V1 value and its actual saved V1. Only conflict-free later edits adopt the saved baseline, including an explicit return to the original value.
 
 Failed or conflicting drafts stay available. Retry saving after a transient failure, or explicitly discard unsaved edits and review the saved bot before editing again. Discarding a draft does not revert a saved pause or receipt. Discard is disabled during an in-flight draft save; its callback also checks the live write state.
+
+If the V1 save incorporated a remote pause or execution-setting change that conflicts with a later V2 edit, V1 remains acknowledged but V2 retains its expected-V1 baseline and an immediately visible conflict. There is no automatic V2 follow-up. Retrying still checks the real conflicting fields rather than laundering the remote change into an accepted baseline. Explicit discard/review can start a new edit against the saved paused bot. File-backed regressions and a temporary real-store smoke verify this acknowledgement window, independent ordinary V2 edits and recovery without changing pause receipts.
 
 ## Routine catalog
 

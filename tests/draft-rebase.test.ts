@@ -202,7 +202,7 @@ describe("own autosave acknowledgements with later keystrokes", () => {
     );
     const receipt = await pause(host, store);
     const savedV1 = await persist(store, captured);
-    const remaining = acknowledgeDrafts(current, captured, savedV1.values);
+    const remaining = acknowledgeDrafts(current, captured, savedV1.values).drafts;
     expect(defined(remaining[base.id]).base.title).toBe("V1");
     expect(defined(defined(remaining[base.id]).value.routines[0]).enabled).toBe(false);
     await store.update((values) => ({
@@ -213,11 +213,11 @@ describe("own autosave acknowledgements with later keystrokes", () => {
     expect(defined(savedV2.values.bots[0])).toMatchObject({ title: "V2", pinned: true });
     expect(defined(defined(savedV2.values.bots[0]).routines[0]).enabled).toBe(false);
     expect(savedV2.values.receipts).toEqual([receipt]);
-    expect(acknowledgeDrafts(remaining, remaining, savedV2.values)).toEqual({});
+    expect(acknowledgeDrafts(remaining, remaining, savedV2.values).drafts).toEqual({});
   });
 
   it("retains an explicit return to the original title while V1 is saving", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
     const current = stageDrafts(
       captured,
@@ -226,10 +226,94 @@ describe("own autosave acknowledgements with later keystrokes", () => {
       { recordHistory: true, inFlight: captured[base.id] },
     );
     expect(defined(current[base.id]).value.title).toBe(base.title);
+    const receipt = await pause(host, store);
     const savedV1 = await persist(store, captured);
-    const remaining = acknowledgeDrafts(current, captured, savedV1.values);
+    const remaining = acknowledgeDrafts(current, captured, savedV1.values).drafts;
     const savedV2 = await persist(store, remaining);
     expect(defined(savedV2.values.bots[0]).title).toBe("original");
-    expect(acknowledgeDrafts(remaining, remaining, savedV2.values)).toEqual({});
+    expect(defined(defined(savedV2.values.bots[0]).routines[0]).enabled).toBe(false);
+    expect(savedV2.values.receipts).toEqual([receipt]);
+    expect(acknowledgeDrafts(remaining, remaining, savedV2.values).drafts).toEqual({});
   });
+});
+
+describe("remote changes incorporated by an earlier autosave acknowledgement", () => {
+  it("retains a V2 routine-array conflict after V1 rebases over an atomic pause", async () => {
+    const { host, store, base } = await fixture();
+    const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
+    const stale = await store.read();
+    const outgoing = applyDrafts(stale.values, captured);
+    const current = stageDrafts(
+      captured,
+      base,
+      {
+        routines: base.routines.map((routine) => ({ ...routine, name: "V2 routine name" })),
+      },
+      { recordHistory: true, inFlight: captured[base.id] },
+    );
+    const receipt = await pause(host, store);
+    expect((await store.write(stale.revision, outgoing)).status).toBe("conflict");
+    const savedV1 = await persist(store, captured);
+    expect(defined(savedV1.values.bots[0]).title).toBe("V1");
+    expect(defined(defined(savedV1.values.bots[0]).routines[0]).enabled).toBe(false);
+    const acknowledgement = acknowledgeDrafts(current, captured, savedV1.values);
+    const remaining = acknowledgement.drafts;
+    expect(defined(acknowledgement.conflicts[base.id]).fields).toEqual(["routines"]);
+    expect(defined(remaining[base.id]).base.title).toBe("V1");
+    const before = await store.read();
+    await expect(persist(store, remaining)).rejects.toMatchObject({ conflict: { fields: ["routines"] } });
+    expect(await store.read()).toEqual(before);
+    expect(before.values.receipts).toEqual([receipt]);
+    expect(defined(defined(remaining[base.id]).value.routines[0]).name).toBe("V2 routine name");
+    // Explicit discard/review starts a new draft from the actual saved bot, not the conflicted V2.
+    const reviewed = defined(before.values.bots[0]);
+    const recovered = stageDrafts(
+      {},
+      reviewed,
+      {
+        routines: reviewed.routines.map((routine) => ({ ...routine, name: "V2 routine name" })),
+      },
+      { recordHistory: true },
+    );
+    const savedAfterReview = await persist(store, recovered);
+    expect(defined(defined(savedAfterReview.values.bots[0]).routines[0])).toMatchObject({
+      name: "V2 routine name",
+      enabled: false,
+    });
+    expect(savedAfterReview.values.receipts).toEqual([receipt]);
+  });
+
+  it.each([
+    { local: { model: "V2-model" }, remote: { provider: "remote-provider" }, fields: ["model", "provider"] },
+    {
+      local: { alwaysAllow: ["server/tool"] },
+      remote: { modeId: "remote-mode" },
+      fields: ["alwaysAllow", "modeId"],
+    },
+  ] satisfies { local: Partial<Bot>; remote: Partial<Bot>; fields: string[] }[])(
+    "retains V2 execution dependency conflicts incorporated by V1: $fields",
+    async ({ local, remote, fields }) => {
+      const { store, base } = await fixture();
+      const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
+      const current = stageDrafts(captured, base, local, {
+        recordHistory: true,
+        inFlight: captured[base.id],
+      });
+      await store.update((values) => ({
+        ...values,
+        bots: values.bots.map((bot) => ({ ...bot, ...remote })),
+      }));
+      const savedV1 = await persist(store, captured);
+      expect(defined(savedV1.values.bots[0])).toMatchObject({ title: "V1", ...remote });
+      const acknowledgement = acknowledgeDrafts(current, captured, savedV1.values);
+      const remaining = acknowledgement.drafts;
+      expect(defined(acknowledgement.conflicts[base.id]).fields).toEqual(expect.arrayContaining(fields));
+      const before = await store.read();
+      await expect(persist(store, remaining)).rejects.toMatchObject({
+        conflict: { fields: expect.arrayContaining(fields) },
+      });
+      expect(await store.read()).toEqual(before);
+      expect(defined(remaining[base.id]).value).toMatchObject(local);
+    },
+  );
 });

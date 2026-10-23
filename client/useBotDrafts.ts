@@ -59,7 +59,7 @@ function useDraftPersistence(
     captured.current = batch;
     setSaving(true);
     const write = async () => {
-      const failure: { conflict?: DraftConflict } = {};
+      const failure: { conflict?: DraftConflict; acknowledgementBlocked?: boolean } = {};
       const ok = await commit(
         (values) => {
           try {
@@ -70,17 +70,19 @@ function useDraftPersistence(
           }
         },
         (saved) => {
-          publish(acknowledgeDrafts(pending.current, batch, saved.values));
+          const acknowledgement = acknowledgeDrafts(pending.current, batch, saved.values);
+          failure.acknowledgementBlocked = Object.keys(acknowledgement.conflicts).length > 0;
+          publish(acknowledgement.drafts);
           setConflicts((current) => {
             const next = { ...current };
             for (const id of Object.keys(batch)) delete next[id];
-            return next;
+            return Object.assign(next, acknowledgement.conflicts);
           });
         },
       );
       const conflict = failure.conflict;
       if (conflict) setConflicts((current) => ({ ...current, [conflict.botId]: conflict }));
-      if (ok && Object.keys(pending.current).length) schedule();
+      if (ok && !failure.acknowledgementBlocked && Object.keys(pending.current).length) schedule();
     };
     inFlight.current = write().finally(() => {
       captured.current = {};
