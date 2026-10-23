@@ -1,6 +1,7 @@
 import type { WireAttachment } from "./attachments";
 import { BOT_LABEL, type Bot, type Library } from "./bot";
 import { buildAgentConfig, defaultModelId, type PluginServers } from "./bot-agent";
+import { PURPOSE_LABEL, type Purpose } from "./runs";
 
 /** Carries the routine id. */
 export const ROUTINE_LABEL = "paseo-bots.routine";
@@ -128,6 +129,8 @@ export interface StartChatInput {
   /** Omitted: Paseo derives one from the prompt. */
   title?: string;
   labels?: Record<string, string>;
+  /** Why the chat exists; a chat that isn't a task stays out of review windows. Defaults to a task. */
+  purpose?: Purpose;
   images?: { data: string; mimeType: string }[];
   attachments?: WireAttachment[];
   clientMessageId?: string;
@@ -145,7 +148,7 @@ export async function startBotChat(api: ChatApi, input: StartChatInput): Promise
       systemPrompt: input.systemPrompt,
       plugin: input.plugin,
     }),
-    labels: { [BOT_LABEL]: bot.id, ...input.labels },
+    labels: { [BOT_LABEL]: bot.id, ...input.labels, [PURPOSE_LABEL]: input.purpose ?? "task" },
     prompt: input.prompt,
     ...(input.title ? { title: input.title.slice(0, MAX_TITLE_CHARS) } : {}),
     ...(input.images?.length ? { images: input.images } : {}),

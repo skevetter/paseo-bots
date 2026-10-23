@@ -2,6 +2,7 @@ import { View } from "react-native";
 import type { Routine } from "../../../shared/bot";
 import { describeSchedule, nextRun } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
+import { describeRun } from "../../../shared/runs";
 import { relativeTime } from "../../../shared/time";
 import { actionsLabel } from "../../a11y";
 import { type MenuEntry, useMenu } from "../../ui/Menu";
@@ -27,10 +28,10 @@ function routineMeta(routine: Routine, run: RoutineRun | undefined, next: Date |
   const parts = [describeSchedule(routine.schedule)];
   const when = relativeTime(run?.startedAt);
   if (!run) parts.push("Never run");
-  else if (run.status === "failed") parts.push(`Failed ${when}: ${run.error ?? "unknown error"}`);
-  else if (run.status === "skipped-busy") parts.push(`Skipped ${when}, still working`);
-  else if (run.status === "skipped-missed") parts.push(`Missed ${when}`);
-  else parts.push(`Last run ${when}`);
+  else if (run.skipped === "busy") parts.push(`Skipped ${when}, still working`);
+  else if (run.skipped === "missed") parts.push(`Missed ${when}`);
+  else if (run.executionStatus === "failed") parts.push(`Failed ${when}: ${run.error ?? "unknown error"}`);
+  else parts.push(`Last run ${when}: ${describeRun(run).label}`);
   if (routine.enabled && next) parts.push(`Next run ${formatNextRun(next)}`);
   return parts.join(" · ");
 }

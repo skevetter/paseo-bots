@@ -1,5 +1,6 @@
 import { BOT_LABEL, type Bot, type BotState, EMPTY_LIBRARY, type Library } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
+import { type Purpose, purposeFromLabels } from "../shared/runs";
 import type { PaseoApi } from "./paseo";
 import type { BotStore } from "./state";
 
@@ -56,6 +57,8 @@ export class BotsHost {
     botId: string;
     title: string | null;
     routineId: string | null;
+    /** Null when the chat names a purpose this version doesn't know. */
+    purpose: Purpose | null;
     labels: Record<string, string>;
   } | null> {
     if (this.chatBots.get(agentId) === null) return null;
@@ -69,7 +72,13 @@ export class BotsHost {
     this.chatBots.set(agentId, botId);
     const labels = snapshot.agent.labels ?? {};
     return botId
-      ? { botId, title: snapshot.agent.title ?? null, routineId: labels[ROUTINE_LABEL] ?? null, labels }
+      ? {
+          botId,
+          title: snapshot.agent.title ?? null,
+          routineId: labels[ROUTINE_LABEL] ?? null,
+          purpose: purposeFromLabels(labels),
+          labels,
+        }
       : null;
   }
 

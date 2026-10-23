@@ -2,20 +2,13 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import { Text, View } from "react-native";
 import type { RoutineRunCard as RunCard } from "../../../shared/rpc";
+import { describeRun } from "../../../shared/runs";
 import { relativeTime } from "../../../shared/time";
-import { type BadgeVariant, StatusBadge } from "../../panel/status";
+import { StatusBadge } from "../../panel/status";
 import { ui } from "../../typography";
 import { CardButton } from "./buttons";
 
 type Colors = PluginTheme["colors"];
-
-const STATUS: Record<RunCard["status"], { label: string; variant: BadgeVariant }> = {
-  running: { label: "Running", variant: "muted" },
-  succeeded: { label: "Done", variant: "success" },
-  failed: { label: "Failed", variant: "error" },
-  "skipped-busy": { label: "Skipped", variant: "muted" },
-  "skipped-missed": { label: "Missed", variant: "warning" },
-};
 
 const TRIGGER: Record<RunCard["trigger"], string> = {
   schedule: "on schedule",
@@ -32,7 +25,7 @@ export function RoutineRunCard({
   card: RunCard;
   onOpenChat?: (agentId: string) => void;
 }) {
-  const status = STATUS[card.status];
+  const status = describeRun(card);
   const agentId = card.agentId;
   return (
     <View
@@ -54,7 +47,7 @@ export function RoutineRunCard({
         >
           {card.routineName}
         </Text>
-        <StatusBadge colors={colors} label={status.label} variant={status.variant} />
+        <StatusBadge colors={colors} label={status.label} variant={status.tone} />
       </View>
       <Text
         style={{ color: colors.foregroundMuted, fontSize: ui(13) }}

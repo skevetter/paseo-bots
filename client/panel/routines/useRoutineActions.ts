@@ -20,12 +20,11 @@ export interface RoutineActions {
 }
 
 function showRunOutcome(toast: ToastApi, routine: Routine, botName: string, started: RoutineRun) {
-  if (started.status === "running")
+  if (started.executionStatus === "running")
     toast.show(`Started "${routine.name}". It appears as a chat under ${botName}.`, {
       variant: "success",
     });
-  else if (started.status === "skipped-busy")
-    toast.show(`"${routine.name}" is still working on its last run.`);
+  else if (started.skipped === "busy") toast.show(`"${routine.name}" is still working on its last run.`);
   else toast.error(started.error ?? "Couldn't start the run.");
 }
 

@@ -1,5 +1,6 @@
 import type { Bot } from "../shared/bot";
 import { startBotChat } from "../shared/chat";
+import type { Purpose } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
 import { ensureBotHome } from "./bot-home";
 import type { BotsHost } from "./host";
@@ -10,7 +11,7 @@ export async function startChat(
   host: BotsHost,
   relay: Relay,
   bot: Bot,
-  input: { prompt: string; title: string; labels: Record<string, string> },
+  input: { prompt: string; title: string; labels: Record<string, string>; purpose?: Purpose },
 ): Promise<string> {
   const paseo = host.requirePaseo();
   if (bot.hostId)
@@ -37,5 +38,6 @@ export async function startChat(
     systemPrompt: system,
     title: input.title,
     labels: input.labels,
+    ...(input.purpose ? { purpose: input.purpose } : {}),
   });
 }
