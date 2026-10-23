@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import contribute from "../index.server";
 import { pluginDataPath } from "../server/bot-home";
+import { routineStatusResponse } from "../server/routine-responses";
 import { RunStore } from "../server/run-store";
 import { BotStore } from "../server/state";
 import { routineRunNowRpc, routineStatusRpc } from "../shared/rpc";
@@ -94,7 +95,7 @@ describe("routine responses read by an old client", () => {
       const store = new RunStore(path);
       const internal = defined((await store.read()).routines["rt-runs"]).runs[0];
       expect(internal).not.toHaveProperty("status");
-      expect(await readFile(path, "utf8")).toBe(fixture);
+      expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(fixture);
       await store.update(() => {});
       const saved = JSON.parse(await readFile(path, "utf8"));
       expect(saved.routines["rt-runs"].runs[0]).toMatchObject({
@@ -122,32 +123,27 @@ describe("new execution statuses read by an old client", () => {
           runs: [makeRun(executionStatus, { executionStatus })],
         };
     });
-    const server = rpcServer();
-    try {
-      const response = await server.call("bots.routines.status");
-      const old = OldStatus.parse(response);
-      expect(EXECUTION_STATUSES.map((status) => defined(old.routines[status]).runs[0]?.status)).toEqual([
-        "running",
-        "running",
-        "running",
-        "running",
-        "running",
-        "running",
-        "succeeded",
-        "failed",
-        "failed",
-        "failed",
-      ]);
-      const current = routineStatusRpc.output.parse(response);
-      expect(
-        EXECUTION_STATUSES.map((status) => defined(current.routines[status]).runs[0]?.executionStatus),
-      ).toEqual([...EXECUTION_STATUSES]);
-      expect(
-        EXECUTION_STATUSES.map((status) => defined(current.routines[status]).runs[0]?.taskOutcome),
-      ).toEqual(EXECUTION_STATUSES.map(() => "unknown"));
-    } finally {
-      await server.stop();
-    }
+    const response = routineStatusResponse({ scheduler: true, routines: (await store.read()).routines });
+    const old = OldStatus.parse(response);
+    expect(EXECUTION_STATUSES.map((status) => defined(old.routines[status]).runs[0]?.status)).toEqual([
+      "running",
+      "running",
+      "running",
+      "running",
+      "running",
+      "running",
+      "succeeded",
+      "failed",
+      "failed",
+      "failed",
+    ]);
+    const current = routineStatusRpc.output.parse(response);
+    expect(
+      EXECUTION_STATUSES.map((status) => defined(current.routines[status]).runs[0]?.executionStatus),
+    ).toEqual([...EXECUTION_STATUSES]);
+    expect(
+      EXECUTION_STATUSES.map((status) => defined(current.routines[status]).runs[0]?.taskOutcome),
+    ).toEqual(EXECUTION_STATUSES.map(() => "unknown"));
   });
 });
 
@@ -198,13 +194,13 @@ describe("routine RPCs encountering a future run store", () => {
 
   it("returns an error instead of a writable empty status response", async () => {
     const path = join(pluginDataPath(), "routines.json");
-    const future = JSON.stringify({ version: 2, routines: {}, occurrences: ["not-ours-to-reset"] });
+    const future = JSON.stringify({ version: 3, routines: {}, occurrences: ["not-ours-to-reset"] });
     await mkdir(pluginDataPath(), { recursive: true });
     await writeFile(path, future);
     const server = rpcServer();
     try {
       await expect(server.call("bots.routines.status")).rejects.toThrow(
-        "Unsupported routine history version 2",
+        "Unsupported routine history version 3",
       );
       await expect(server.call("bots.routines.status")).rejects.toThrow("file left unchanged");
       expect(await readFile(path, "utf8")).toBe(future);

@@ -26,15 +26,19 @@ export class BotsHost {
     for (const listener of this.listeners) listener(paseo);
   }
 
-  onAttach(listener: Listener): void {
+  onAttach(listener: Listener): () => void {
     this.listeners.add(listener);
     if (this.api) listener(this.api);
+    return () => this.listeners.delete(listener);
   }
 
   get paseo(): PaseoApi | null {
     return this.api;
   }
 
+  get readiness(): "waiting_for_host_api" | "ready" {
+    return this.api ? "ready" : "waiting_for_host_api";
+  }
   requirePaseo(): PaseoApi {
     if (!this.api) throw new Error("Open Paseo once since the daemon started, then try again.");
     return this.api;
