@@ -260,7 +260,7 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
-  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
+  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id, store) }));
   server.handle(routineStatusRpc, (_input, context) => {
     attach(context);
     return scheduler.status();
