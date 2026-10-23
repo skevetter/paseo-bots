@@ -65,7 +65,7 @@ export function CadenceSection({
   return (
     <SettingsSection
       title="Cadence"
-      info="In this host's local time. A run that's still working when the next is due is skipped."
+      info="Wall-clock times use the timezone policy below. Once uses device-local input saved as an absolute instant."
     >
       <SettingsCard>
         <SettingsSelect

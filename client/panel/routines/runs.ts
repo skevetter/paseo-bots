@@ -33,6 +33,7 @@ export function upcomingRunsOf(routines: Routine[], recordOf: RecordOf, now: Dat
     .flatMap((routine) =>
       upcomingRuns(routine.schedule, new Date(recordOf(routine)?.lastRunAt ?? routine.createdAt), now, {
         count: UPCOMING,
+        policy: routine.schedulePolicy,
       }).map((at) => ({ at, routine })),
     )
     .filter(({ at }) => at.getTime() - now.getTime() <= UPCOMING_DAYS * 86_400_000)
