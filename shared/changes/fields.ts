@@ -1,12 +1,11 @@
 import type { z } from "zod";
 import { canonicalSlug } from "../apps";
-import { randomSeed } from "../avatar";
 import type { Bot, BotAvatar, BotState, Library } from "../bot";
 import { pushHistory } from "../bot-history";
-import { newPlaybookId } from "../bot-ids";
 
 import { setBotUses } from "../library";
-import { type ApplyContext, accountId, carriedThinking, checkAgent } from "./context";
+import { type ApplyContext, accountId, type ChangeContext, carriedThinking, checkAgent } from "./context";
+import type { ChangeIds } from "./ids";
 import { findServer, findSkill } from "./refs";
 import type { AppInputValue, AvatarInput, BotFieldValues, PlaybookInput } from "./schema";
 
@@ -24,10 +23,14 @@ export function oneLine(text: string): string {
   return text.replace(/\s*\n\s*/g, " ").trim();
 }
 
-function withAvatar(avatar: BotAvatar, input: z.infer<typeof AvatarInput> | undefined): BotAvatar {
+function withAvatar(
+  avatar: BotAvatar,
+  input: z.infer<typeof AvatarInput> | undefined,
+  ids: ChangeIds,
+): BotAvatar {
   if (!input) return avatar;
   return {
-    seed: input.new_face ? randomSeed() : avatar.seed,
+    seed: input.new_face ? ids.seed() : avatar.seed,
     palette: input.colour !== undefined ? input.colour : avatar.palette,
     shape: input.shape ?? avatar.shape,
     imageUrl:
@@ -66,8 +69,12 @@ function workingFolder(value: string | null): string | null {
   return folder;
 }
 
-export function withFields(bot: Bot, fields: BotFieldValues, context: ApplyContext): Bot {
-  const next: Bot = withAgent({ ...bot, avatar: withAvatar(bot.avatar, fields.avatar) }, fields, context);
+export function withFields(bot: Bot, fields: BotFieldValues, context: ChangeContext): Bot {
+  const next: Bot = withAgent(
+    { ...bot, avatar: withAvatar(bot.avatar, fields.avatar, context.ids) },
+    fields,
+    context,
+  );
   if (fields.title !== undefined) next.title = oneLine(fields.title);
   if (fields.description !== undefined) next.description = fields.description.trim();
   if (fields.instructions !== undefined) next.soul = fields.instructions.trim();
@@ -136,6 +143,7 @@ export function withGrants(bot: Bot, allow: readonly string[] = [], disallow: re
 
 export function withPlaybooks(
   bot: Bot,
+  ids: ChangeIds,
   add: readonly z.infer<typeof PlaybookInput>[] = [],
   remove: readonly string[] = [],
 ): Bot {
@@ -149,7 +157,7 @@ export function withPlaybooks(
   for (const input of add) {
     const existing = playbooks.find((playbook) => same(playbook.name, input.name));
     const playbook = {
-      id: existing?.id ?? newPlaybookId(),
+      id: existing?.id ?? ids.id("pb"),
       name: input.name.trim(),
       triggers: [...new Set(input.triggers.map((trigger) => trigger.trim()).filter(Boolean))],
       instructions: input.instructions.trim(),

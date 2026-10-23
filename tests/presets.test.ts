@@ -156,7 +156,7 @@ describe("team files", () => {
       { bots: [makeBot({ id: "old", name: "Juno" })], history: [] },
       imported.bots,
       imported.teams,
-      "now",
+      { now: "now" },
     );
     const juno = defined(values.bots[1], "Juno 2");
     const mika = defined(values.bots[2], "Mika");

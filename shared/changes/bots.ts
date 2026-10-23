@@ -1,11 +1,9 @@
 import { type Bot, type BotState, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "../bot";
-import { newRoutineId } from "../bot-ids";
-
 import { withoutBot } from "../groups";
 import { applyDefaults } from "../presets";
 import { scheduleFrom } from "../routines";
 import { BOT_TEMPLATES, botFromPreset, newBot } from "../templates";
-import type { ApplyContext } from "./context";
+import type { ApplyContext, ChangeContext } from "./context";
 import {
   uniqueBotName,
   withApps,
@@ -15,6 +13,7 @@ import {
   withLibraryItems,
   withPlaybooks,
 } from "./fields";
+import type { ChangeIds } from "./ids";
 import { byRef, findBot, ROUTINE_REF } from "./refs";
 import type { ChangeOf } from "./schema";
 
@@ -23,11 +22,13 @@ export function startingBot(
   values: BotState,
   change: Pick<ChangeOf<"create_bot">, "role" | "preset">,
   provider: string,
+  ids: ChangeIds,
 ): Bot {
   if (change.preset === undefined)
     return newBot(
       provider,
       BOT_TEMPLATES.find((entry) => entry.id === change.role),
+      ids,
     );
   if (change.role !== undefined) throw new Error("Start from a role or a preset, not both.");
   const preset = byRef(values.presets ?? [], change.preset, {
@@ -35,13 +36,22 @@ export function startingBot(
     id: (entry) => entry.id,
     name: (entry) => entry.name,
   });
-  return botFromPreset(provider, preset);
+  return botFromPreset(provider, preset, ids);
 }
 
-export function createBot(values: BotState, change: ChangeOf<"create_bot">, context: ApplyContext): BotState {
+export function createBot(
+  values: BotState,
+  change: ChangeOf<"create_bot">,
+  context: ChangeContext,
+): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const defaults = values.defaults ?? DEFAULT_BOT_DEFAULTS;
-  const base = startingBot(values, change, change.provider ?? (defaults.provider || context.provider));
+  const base = startingBot(
+    values,
+    change,
+    change.provider ?? (defaults.provider || context.provider),
+    context.ids,
+  );
   const modes = Object.fromEntries((context.providers ?? []).map((entry) => [entry.id, entry]));
   const start = applyDefaults({ ...base, name: uniqueBotName(values, change.name) }, defaults, modes);
   if (start.note && change.mode === undefined) context.notes?.push(start.note);
@@ -50,11 +60,15 @@ export function createBot(values: BotState, change: ChangeOf<"create_bot">, cont
   bot = withLibraryItems(bot, library, "skill", { add: change.skills });
   bot = withLibraryItems(bot, library, "mcp", { add: change.mcp_servers });
   bot = withApps(bot, { add: change.apps }, context);
-  bot = withPlaybooks(bot, change.playbooks);
+  bot = withPlaybooks(bot, context.ids, change.playbooks);
   return withBot(values, bot, context);
 }
 
-export function updateBot(values: BotState, change: ChangeOf<"update_bot">, context: ApplyContext): BotState {
+export function updateBot(
+  values: BotState,
+  change: ChangeOf<"update_bot">,
+  context: ChangeContext,
+): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   let bot = findBot(values, change.bot);
   if (change.name !== undefined) bot = { ...bot, name: uniqueBotName(values, change.name, bot.id) };
@@ -67,7 +81,7 @@ export function updateBot(values: BotState, change: ChangeOf<"update_bot">, cont
   });
   bot = withApps(bot, { add: change.add_apps, remove: change.remove_apps }, context);
   bot = withGrants(bot, change.allow_tools, change.disallow_tools);
-  bot = withPlaybooks(bot, change.add_playbooks, change.remove_playbooks);
+  bot = withPlaybooks(bot, context.ids, change.add_playbooks, change.remove_playbooks);
   return withBot(values, bot, context);
 }
 
@@ -92,11 +106,11 @@ export function deleteBot(values: BotState, change: ChangeOf<"delete_bot">, cont
 export function addRoutine(
   values: BotState,
   change: ChangeOf<"add_routine">,
-  context: ApplyContext,
+  context: ChangeContext,
 ): BotState {
   const bot = findBot(values, change.bot);
   const routine = {
-    id: newRoutineId(),
+    id: context.ids.id("rt"),
     name: change.name.trim(),
     prompt: change.instructions.trim(),
     enabled: true,

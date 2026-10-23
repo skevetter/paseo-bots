@@ -14,6 +14,7 @@ import { newBotId, numberedName } from "../../../shared/bot-ids";
 import { isBrowserServer } from "../../../shared/browser";
 import { startingBot } from "../../../shared/changes/bots";
 import { describeChange } from "../../../shared/changes/describe";
+import { RANDOM_IDS } from "../../../shared/changes/ids";
 import { botDetails, defaultsText } from "../../../shared/changes/overview";
 import { findBot } from "../../../shared/changes/refs";
 import { type Change, CreateBot, SetDefaults, UpdateBot } from "../../../shared/changes/schema";
@@ -149,7 +150,7 @@ const botsCreate = defineControlTool({
   input: CreateInput,
   async run({ name, ...fields }, context) {
     const values = await context.host.values();
-    const start = startingBot(values, fields, "");
+    const start = startingBot(values, fields, "", RANDOM_IDS);
     const taken = new Set(values.bots.map((bot) => bot.name));
     const change: Change = { type: "create_bot", ...fields, name: name ?? numberedName(start.name, taken) };
     // A new bot is saved last.

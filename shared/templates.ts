@@ -1,6 +1,5 @@
-import { randomSeed } from "./avatar";
 import type { Bot, Preset } from "./bot";
-import { newBotId } from "./bot-ids";
+import { type ChangeIds, RANDOM_IDS } from "./changes/ids";
 
 export interface BotTemplate {
   id: string;
@@ -54,14 +53,14 @@ export const BOT_TEMPLATES: readonly BotTemplate[] = [
   },
 ];
 
-export function newBot(provider: string, template?: BotTemplate): Bot {
+export function newBot(provider: string, template?: BotTemplate, ids: ChangeIds = RANDOM_IDS): Bot {
   const now = new Date().toISOString();
   return {
-    id: newBotId(),
+    id: ids.id("bot"),
     name: template?.name ?? "New bot",
     title: template?.title ?? "",
     description: template?.description ?? "",
-    avatar: { seed: template?.avatarSeed ?? randomSeed(), palette: null, shape: "circle", imageUrl: null },
+    avatar: { seed: template?.avatarSeed ?? ids.seed(), palette: null, shape: "circle", imageUrl: null },
     hostId: null,
     provider,
     model: null,
@@ -85,7 +84,7 @@ export function newBot(provider: string, template?: BotTemplate): Bot {
   };
 }
 
-export function botFromPreset(provider: string, preset: Preset): Bot {
+export function botFromPreset(provider: string, preset: Preset, ids: ChangeIds = RANDOM_IDS): Bot {
   const { id: _id, createdAt: _createdAt, ...fields } = preset;
-  return { ...newBot(provider), ...fields };
+  return { ...newBot(provider, undefined, ids), ...fields };
 }

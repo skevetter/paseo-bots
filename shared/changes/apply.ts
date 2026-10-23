@@ -3,7 +3,8 @@ import { type BotDefaults, type BotState, DEFAULT_BOT_DEFAULTS } from "../bot";
 import { presetFromBot } from "../presets";
 
 import { addRoutine, createBot, deleteBot, deleteRoutine, updateBot, updateRoutine } from "./bots";
-import { type ApplyContext, accountId, carriedThinking, checkAgent } from "./context";
+import { type ApplyContext, accountId, type ChangeContext, carriedThinking, checkAgent } from "./context";
+import { changeIds, RANDOM_IDS } from "./ids";
 import { addMcpServer, removeMcpServer, setMcpServer, setSkill } from "./library";
 import { byRef, findBot, findTeam } from "./refs";
 import type { AppInputValue, Change, ChangeOf } from "./schema";
@@ -54,7 +55,7 @@ function deletePreset(values: BotState, change: ChangeOf<"delete_preset">): BotS
   return { ...values, presets: presets.filter((entry) => entry.id !== preset.id) };
 }
 
-function applyChange(values: BotState, change: Change, context: ApplyContext): BotState {
+function applyChange(values: BotState, change: Change, context: ChangeContext): BotState {
   switch (change.type) {
     case "create_bot":
       return createBot(values, change, context);
@@ -88,18 +89,25 @@ function applyChange(values: BotState, change: Change, context: ApplyContext): B
       return setDefaults(values, change, context);
     case "save_preset": {
       const bot = findBot(values, change.bot);
-      return { ...values, presets: [...(values.presets ?? []), presetFromBot(bot, context.now)] };
+      return {
+        ...values,
+        presets: [...(values.presets ?? []), presetFromBot(bot, context.now, context.ids)],
+      };
     }
     case "delete_preset":
       return deletePreset(values, change);
   }
 }
 
-/** Throws naming the first change that doesn't fit. */
+/**
+ * Throws naming the first change that doesn't fit. With `context.operationId`, whatever the changes create
+ * gets ids made from it and the change's position, so the same changes make the same ids every time.
+ */
 export function applyChanges(values: BotState, changes: readonly Change[], context: ApplyContext): BotState {
   return changes.reduce((current, change, index) => {
+    const ids = context.operationId ? changeIds(context.operationId, index) : RANDOM_IDS;
     try {
-      return applyChange(current, change, context);
+      return applyChange(current, change, { ...context, ids });
     } catch (error) {
       throw new Error(
         `Change ${index + 1} (${change.type}): ${error instanceof Error ? error.message : String(error)}`,

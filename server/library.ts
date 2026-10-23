@@ -20,6 +20,7 @@ import {
   sanitizeSkillName,
 } from "../shared/skills";
 import { botDataPath, botsHomePath, pluginDataPath } from "./bot-home";
+import { writeAtomic } from "./files";
 import { readCapped } from "./http";
 
 // Bots get a link to each of their skills in <bot>/skills, so the agent reads them inside its own
@@ -254,6 +255,43 @@ export async function writeSkill({ id, text }: { id: string; text: string }) {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "SKILL.md"), text, "utf8");
   return { description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+}
+
+function stagingPath(operationId: string): string {
+  return join(pluginDataPath(), "staging", "skills", operationId);
+}
+
+/**
+ * A skill an operation is about to add goes here first, where nothing reads it. The library only points at
+ * it once the operation's changes are saved; publishStagedSkill moves it into place after that.
+ */
+export async function stageSkill(operationId: string, text: string) {
+  await writeAtomic(join(stagingPath(operationId), "SKILL.md"), text);
+  return { description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+}
+
+/** Safe to repeat, and to run when staging is already gone: `text` is what the operation saved. */
+export async function publishStagedSkill(operationId: string, id: string, text: string): Promise<void> {
+  const staged = join(stagingPath(operationId), "SKILL.md");
+  const live = join(librarySkillPath(id), "SKILL.md");
+  if ((await readFile(live, "utf8").catch(() => null)) !== text) {
+    if ((await readFile(staged, "utf8").catch(() => null)) === text) {
+      await mkdir(dirname(live), { recursive: true });
+      await rename(staged, live);
+    } else await writeAtomic(live, text);
+  }
+  await rm(stagingPath(operationId), { recursive: true, force: true });
+}
+
+/** Removes the staging of every operation `keep` doesn't name: what a crash left before its changes were saved. */
+export async function discardStagedSkills(keep: (operationId: string) => boolean): Promise<string[]> {
+  const root = join(pluginDataPath(), "staging", "skills");
+  const staged = await readdir(root).catch(() => []);
+  const dropped = staged.filter((operationId) => !keep(operationId));
+  await Promise.all(
+    dropped.map((operationId) => rm(stagingPath(operationId), { recursive: true, force: true })),
+  );
+  return dropped;
 }
 
 export async function deleteSkill({ id }: { id: string }) {

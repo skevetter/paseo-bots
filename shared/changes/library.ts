@@ -1,7 +1,7 @@
 import { type BotState, EMPTY_LIBRARY, type McpServerConfig } from "../bot";
 import { addMcpServers, mcpServerTested, withoutMcpServer } from "../library";
 import { RESERVED_MCP_NAMES } from "../mcp-servers";
-import type { ApplyContext } from "./context";
+import type { ApplyContext, ChangeContext } from "./context";
 import { findServer, findSkill } from "./refs";
 import type { ChangeOf } from "./schema";
 
@@ -32,7 +32,7 @@ function mcpConfigFrom(change: ChangeOf<"add_mcp_server">): McpServerConfig {
 export function addMcpServer(
   values: BotState,
   change: ChangeOf<"add_mcp_server">,
-  context: ApplyContext,
+  context: ChangeContext,
 ): BotState {
   const library = values.library ?? EMPTY_LIBRARY;
   const name = change.name.trim();
@@ -41,7 +41,10 @@ export function addMcpServer(
   if (library.mcpServers.some((server) => server.name === name))
     throw new Error(`There's already an MCP server called "${name}".`);
   const config = mcpConfigFrom(change);
-  const added = addMcpServers(library, [{ name, enabled: true, config }], { now: context.now });
+  const added = addMcpServers(library, [{ name, enabled: true, config }], {
+    now: context.now,
+    ids: context.ids,
+  });
   const [id] = added.ids;
   return {
     ...values,
