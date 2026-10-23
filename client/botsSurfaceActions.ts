@@ -5,29 +5,35 @@ import {
   type BotGroup,
   type BotListUi,
   type BotState,
+  BotStateSchema,
   DEFAULT_BOT_DEFAULTS,
   DEFAULT_BOT_LIST_UI,
   EMPTY_LIBRARY,
   type Library,
   type Preset,
+  type StateSnapshot,
+  type TeamFileTeam,
 } from "../shared/bot";
 import { duplicateOf } from "../shared/bot-copy";
 import { newBotId, newGroupId } from "../shared/bot-ids";
 import { displayTitle } from "../shared/chat";
 import { saveTeam, type TeamDraft, type TeamTab, tabOf, teamTabs, withoutBot } from "../shared/groups";
+import { importsApplyRpc } from "../shared/imports";
 import { fitColumns } from "../shared/layout";
-import { addImportedBots } from "../shared/library";
+import type { ImportedBot } from "../shared/library";
 import { applyDefaults, presetFromBot } from "../shared/presets";
 import { matchesName, moveKey, neighbourInGroup, swapEntries } from "../shared/sidebar";
 import { type BotTemplate, botFromPreset, newBot } from "../shared/templates";
 import { fullTimeline } from "../shared/timeline";
 import { chatTranscript } from "../shared/transcript";
+import { prefixedId } from "../shared/uuid";
 import { botMenuEntries, chatMenuEntries } from "./BotDialogs";
 import type { BotHost } from "./data";
 import { confirmDialog, errorText } from "./native";
 import type { SectionId } from "./panel/BotPanel";
 import type { PaseoAgent } from "./paseo";
 import type { ChatMenuRequest, MenuSource, Selection } from "./sidebar/types";
+import { showSaved } from "./state-query";
 import { measureAnchor } from "./ui/Menu";
 import type { BotsSurfaceModel } from "./useBotsSurface";
 
@@ -81,6 +87,7 @@ export function surfaceContext(model: BotsSurfaceModel, values: BotState): Surfa
 export function select(ctx: SurfaceContext, next: Selection) {
   ctx.setSelection(next);
   ctx.setTeamMap(false);
+  ctx.setFleet(false);
   const { openTab, groups } = ctx;
   const tab = openTab && tabOf(next.botId, groups) !== openTab.id ? tabOf(next.botId, groups) : null;
   if (tab || ctx.currentUi().collapsed.includes(next.botId)) {
@@ -90,6 +97,13 @@ export function select(ctx: SurfaceContext, next: Selection) {
       collapsed: current.collapsed.filter((id) => id !== next.botId),
     }));
   }
+}
+
+export async function openFleet(ctx: SurfaceContext) {
+  await ctx.flush();
+  ctx.setPanel({ open: false, section: null });
+  ctx.setTeamMap(false);
+  ctx.setFleet(true);
 }
 
 function openPanel(ctx: SurfaceContext, bot: Bot, section: SectionId | null) {
@@ -108,8 +122,11 @@ async function addBot(ctx: SurfaceContext, bot: Bot, section: SectionId = "ident
 async function duplicate(ctx: SurfaceContext, bot: Bot) {
   await ctx.flush();
   const { json } = await ctx.exportBot({ bot, includeMemory: false });
-  const { bot: copy } = await ctx.importBot({ botId: newBotId(), json });
-  await addBot(ctx, duplicateOf(bot, copy));
+  const entry = await ctx.importBot({ botId: newBotId(), json });
+  const copy = duplicateOf(bot, entry.bot);
+  await admitImports(ctx, { bots: [{ ...entry, bot: copy }], teams: [] });
+  select(ctx, { botId: copy.id, chatId: null });
+  ctx.setPanel({ open: true, section: "overview" });
 }
 
 async function remove(ctx: SurfaceContext, bot: Bot) {
@@ -427,16 +444,38 @@ export function createBot(ctx: SurfaceContext, start?: NewBotStart) {
 }
 
 export async function importBots(ctx: SurfaceContext, json: string) {
+  await ctx.flush();
   const { bots, teams, notes } = await ctx.importTeam({ json });
+  await admitImports(ctx, { bots, teams });
   ctx.setCreating(false);
-  const saved = await ctx.commit((values) => addImportedBots(values, bots, teams));
   const first = bots[0]?.bot;
-  if (saved && first) {
+  if (first) {
     select(ctx, { botId: first.id, chatId: null });
     ctx.setPanel({ open: true, section: "overview" });
     if (bots.length > 1) ctx.toast.show(`Added ${bots.length} bots`, { variant: "success" });
     if (notes.length) ctx.toast.show(notes.join(" "), { variant: "warning" });
   }
+}
+
+async function admitImports(ctx: SurfaceContext, input: { bots: ImportedBot[]; teams: TeamFileTeam[] }) {
+  const current = ctx.queryClient.getQueryData<StateSnapshot>(["paseo-bots", "state"]);
+  if (!current) throw new Error("Reload bot settings before importing.");
+  const result = await ctx.applyImports(
+    importsApplyRpc.input.parse({
+      operationId: prefixedId("import"),
+      revision: current.revision,
+      ...input,
+    }),
+  );
+  if (result.status === "conflict") {
+    await ctx.settings.reload();
+    throw new Error(`${result.error} Review refreshed settings before importing again.`);
+  }
+  await showSaved(ctx.queryClient, {
+    revision: result.revision,
+    values: BotStateSchema.parse(result.values),
+  });
+  void ctx.queryClient.invalidateQueries({ queryKey: ["paseo-bots", "fleet"] });
 }
 
 export async function renameBot(ctx: SurfaceContext, bot: Bot, name: string) {

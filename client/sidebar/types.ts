@@ -63,6 +63,7 @@ export interface BotSidebarProps {
   onDisplayMenu(anchor: LayoutRectangle): void;
   onEditTeam(group: BotGroup): void;
   onTeamMap(): void;
+  onFleet(): void;
 }
 
 export type GroupProps = BotSidebarProps & {

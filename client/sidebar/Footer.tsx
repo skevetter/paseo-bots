@@ -13,10 +13,12 @@ export function Footer({
   colors,
   onNewBot,
   onTeamMap,
+  onFleet,
 }: {
   colors: Colors;
   onNewBot(): void;
   onTeamMap(): void;
+  onFleet(): void;
 }) {
   const { hovered, hoverProps } = useHover();
   return (
@@ -66,6 +68,7 @@ export function Footer({
         </Text>
       </Pressable>
       <FooterIconButton colors={colors} icon="Network" label="Team map" onPress={onTeamMap} />
+      <FooterIconButton colors={colors} icon="ListChecks" label="Fleet" onPress={onFleet} />
       <FooterIconButton colors={colors} icon="Blocks" label="Skills & Tools" onPress={() => openLibrary()} />
     </View>
   );
