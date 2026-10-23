@@ -21,7 +21,10 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@getpaseo/client": "0.11.1",
+    "@getpaseo/client-012": "npm:@getpaseo/client@0.12.0",
     "@getpaseo/plugin": "0.11.1",
+    "@getpaseo/protocol": "0.11.1",
+    "@getpaseo/protocol-012": "npm:@getpaseo/protocol@0.12.0",
     "@semantic-release/exec": "^7.1.0",
     "@semantic-release/git": "^11.0.1",
     "@tanstack/react-query": "^5.104.1",
