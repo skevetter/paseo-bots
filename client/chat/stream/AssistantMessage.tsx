@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, useRevealedText } from "@getpaseo/plugin/client/react-native";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { memo, useMemo } from "react";
 import { Text, View } from "react-native";
 import { utf8Bytes } from "../../../shared/bot-checks";
@@ -22,7 +22,6 @@ export const AssistantMessage = memo(function AssistantMessage({
   compactBottom: boolean;
 }) {
   const capped = useMemo(() => capMessageForRender(text), [text]);
-  const revealed = useRevealedText(capped.text, phase);
   const bytes = useMemo(
     () => (capped.capped && phase === "complete" ? utf8Bytes(text) : null),
     [capped.capped, phase, text],
@@ -35,7 +34,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         ...(isWeb ? ({ userSelect: "text" } as object) : {}),
       }}
     >
-      <Markdown colors={colors} text={revealed} streaming={phase === "streaming"} />
+      <Markdown colors={colors} text={capped.text} streaming={phase === "streaming"} />
       {bytes !== null ? (
         <Text style={{ marginTop: 12, fontSize: ui(14), fontStyle: "italic", color: colors.foregroundMuted }}>
           This message was capped ({bytes} bytes).

@@ -1,5 +1,5 @@
 import type { PluginTheme } from "@getpaseo/plugin";
-import { Icon, Modal, useRevealedText } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
 import { memo, useCallback, useMemo, useState } from "react";
 import { buildToolCallPresentation, type ToolCallDetail, type ToolCallStatus } from "../../../shared/tools";
 import { ToolCallDetailsContent } from "./details";
@@ -105,11 +105,7 @@ export const ThoughtRow = memo(function ThoughtRow({
   text: string;
   loading: boolean;
 }) {
-  const revealed = useRevealedText(text, loading ? "streaming" : "complete");
-  const detail = useMemo<ToolCallDetail>(
-    () => ({ type: "unknown", input: revealed, output: null }),
-    [revealed],
-  );
+  const detail = useMemo<ToolCallDetail>(() => ({ type: "unknown", input: text, output: null }), [text]);
   return (
     <ToolCallRow
       colors={colors}
