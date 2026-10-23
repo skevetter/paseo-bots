@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { copyFile } from "node:fs/promises";
-import { join } from "node:path";
+import { copyFile, open } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { z } from "zod";
+import { type CoordinatorState, CoordinatorStateSchema } from "../shared/managed-runs";
 import { type RoutineRecord, RoutineRecordSchema, type RoutineRun, RoutineRunShape } from "../shared/rpc";
 import {
   fromLegacyStatus,
+  isTerminal,
   newAttemptId,
   newCycleId,
   newExecutionId,
@@ -16,12 +18,12 @@ import {
   type Trigger,
 } from "../shared/runs";
 import { pluginDataPath } from "./bot-home";
-import { readParsed, writeAtomic } from "./files";
+import { readParsed, UnsupportedFileVersionError, writeAtomic } from "./files";
 
 // The only reader and writer of routines.json. Writes are serialized, replace the file atomically, and
 // save only over the revision they were made from, like state.ts does for bots.
 
-const VERSION = 1;
+const VERSION = 2;
 /** Runs kept per routine. */
 export const KEEP_RUNS = 30;
 /** Where runs saved before the store had a version are kept, once, so an older plugin can be put back. */
@@ -32,6 +34,7 @@ export type Records = Record<string, RoutineRecord>;
 export interface RunSnapshot {
   revision: string;
   routines: Records;
+  coordinator: CoordinatorState;
 }
 
 export type RunWrite = ({ status: "saved" } & RunSnapshot) | { status: "conflict"; error: string };
@@ -40,6 +43,7 @@ interface Loaded extends RunSnapshot {
   /** The file had no version: it holds the shape saved before the store existed. */
   unversioned: boolean;
   dropped: string[];
+  version: number | null;
 }
 
 interface UnsupportedVersion {
@@ -49,6 +53,7 @@ interface UnsupportedVersion {
 const EnvelopeSchema = z.object({
   version: z.literal(VERSION),
   routines: z.record(z.string(), RoutineRecordSchema),
+  coordinator: CoordinatorStateSchema,
 });
 
 export const emptyRecord = (): RoutineRecord => ({ lastRunAt: null, runs: [] });
@@ -118,13 +123,20 @@ function readRecord(routineId: string, entry: unknown, dropped: string[]): Routi
   return { lastRunAt, runs: readRun(routineId, run, dropped) };
 }
 
+class UnsafeRunHistoryError extends UnsupportedFileVersionError {
+  constructor(message: string) {
+    super(VERSION);
+    this.message = `Run history requires explicit repair; file left unchanged: ${message}`;
+  }
+}
+
 function parse(raw: string): Loaded | UnsupportedVersion {
-  const saved: unknown = JSON.parse(raw);
+  const saved: unknown = decodeHistory(raw);
   if (!isObject(saved)) throw new Error("Routine history isn't an object");
   const versioned = typeof saved.version === "number";
   // This is readable data from another version, not corruption. Let load refuse it outside readParsed's
   // corruption recovery so a downgrade can't move it away and silently create an empty history.
-  if (typeof saved.version === "number" && saved.version !== VERSION)
+  if (typeof saved.version === "number" && saved.version !== 1 && saved.version !== VERSION)
     return { unsupportedVersion: saved.version };
   const entries = versioned ? saved.routines : saved;
   if (!isObject(entries)) throw new Error("Routine history has no routines");
@@ -132,12 +144,63 @@ function parse(raw: string): Loaded | UnsupportedVersion {
   const routines: Records = Object.fromEntries(
     Object.entries(entries).map(([id, entry]) => [id, readRecord(id, entry, dropped)]),
   );
-  return { revision: hash(raw), routines, unversioned: !versioned, dropped };
+  const coordinator = readCoordinator(saved, dropped, routines);
+  return {
+    revision: hash(raw),
+    routines,
+    coordinator,
+    unversioned: !versioned,
+    version: versioned ? Number(saved.version) : null,
+    dropped,
+  };
 }
 
-/** Adds a run and keeps only the latest `KEEP_RUNS`. */
+function decodeHistory(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    // Managed writers put the version first; losing that history must never free unknown reservations.
+    const version = /^\s*\{\s*"version"\s*:\s*(\d+)/.exec(raw)?.[1];
+    if (version && Number(version) >= VERSION) throw new UnsafeRunHistoryError("malformed managed history");
+    throw error;
+  }
+}
+
+function readCoordinator(
+  saved: Record<string, unknown>,
+  dropped: string[],
+  routines: Records,
+): CoordinatorState {
+  const parsed = CoordinatorStateSchema.safeParse(saved.coordinator);
+  if (saved.version === VERSION && (!parsed.success || dropped.length > 0))
+    throw new UnsafeRunHistoryError("unreadable coordinator state or managed execution");
+  const coordinator =
+    saved.version === VERSION && parsed.success ? parsed.data : { occurrences: {}, circuits: {} };
+  for (const record of Object.values(routines))
+    for (const run of record.runs) coordinator.occurrences[run.occurrenceKey] ??= run.id;
+  return coordinator;
+}
+
+/** Retention never discards unfinished work, unknown effects, or a live reservation. */
 export function appendRun(record: RoutineRecord, run: RoutineRun): void {
-  record.runs = [...record.runs, run].slice(-KEEP_RUNS);
+  record.runs.push(run);
+  pruneRuns(record);
+}
+
+function pruneRuns(record: RoutineRecord): void {
+  let remaining = KEEP_RUNS;
+  record.runs = record.runs
+    .toReversed()
+    .filter((entry) => {
+      if (
+        !isTerminal(entry.executionStatus) ||
+        entry.executionStatus === "unknown" ||
+        entry.managed?.reservation
+      )
+        return true;
+      return remaining-- > 0;
+    })
+    .reverse();
 }
 
 /** A new run in its own cycle with its first attempt and execution. */
@@ -182,8 +245,8 @@ export class RunStore {
   constructor(readonly path = join(pluginDataPath(), "routines.json")) {}
 
   async read(): Promise<RunSnapshot> {
-    const { revision, routines } = await this.serial(() => this.load());
-    return { revision, routines };
+    const { revision, routines, coordinator } = await this.serial(() => this.load());
+    return { revision, routines, coordinator };
   }
 
   write(revision: string, routines: Records): Promise<RunWrite> {
@@ -197,9 +260,13 @@ export class RunStore {
 
   /** `change` edits the records in place and may return a value. */
   update<T>(change: (routines: Records) => T | Promise<T>): Promise<T> {
+    return this.updateState(({ routines }) => change(routines));
+  }
+
+  updateState<T>(change: (state: RunSnapshot) => T | Promise<T>): Promise<T> {
     return this.serial(async () => {
       const loaded = await this.load();
-      const result = await change(loaded.routines);
+      const result = await change(loaded);
       await this.persist(loaded, loaded.routines);
       return result;
     });
@@ -213,7 +280,15 @@ export class RunStore {
 
   private async load(): Promise<Loaded> {
     const loaded = await readParsed(this.path, parse);
-    if (!loaded) return { revision: "missing", routines: {}, unversioned: false, dropped: [] };
+    if (!loaded)
+      return {
+        revision: "missing",
+        routines: {},
+        coordinator: { occurrences: {}, circuits: {} },
+        unversioned: false,
+        version: VERSION,
+        dropped: [],
+      };
     if ("unsupportedVersion" in loaded)
       throw new Error(
         `Unsupported routine history version ${loaded.unsupportedVersion} at ${this.path}; file left unchanged. Use a compatible plugin or explicitly restore a backup.`,
@@ -226,7 +301,8 @@ export class RunStore {
   }
 
   private async persist(loaded: Loaded, routines: Records): Promise<RunSnapshot> {
-    const envelope = EnvelopeSchema.parse({ version: VERSION, routines });
+    for (const record of Object.values(routines)) pruneRuns(record);
+    const envelope = EnvelopeSchema.parse({ version: VERSION, routines, coordinator: loaded.coordinator });
     const raw = JSON.stringify(envelope, null, 2);
     if (loaded.unversioned)
       await copyFile(this.path, `${this.path}${BACKUP_SUFFIX}`, constants.COPYFILE_EXCL).catch(
@@ -234,7 +310,24 @@ export class RunStore {
           if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
         },
       );
+    if (loaded.version === 1) {
+      await copyFile(this.path, `${this.path}.v1.bak`, constants.COPYFILE_EXCL).catch((error: unknown) => {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      });
+    }
     await writeAtomic(this.path, raw, 0o600);
-    return { revision: hash(raw), routines: envelope.routines };
+    const file = await open(this.path, "r");
+    try {
+      await file.sync();
+    } finally {
+      await file.close();
+    }
+    const directory = await open(dirname(this.path), "r");
+    try {
+      await directory.sync();
+    } finally {
+      await directory.close();
+    }
+    return { revision: hash(raw), routines: envelope.routines, coordinator: envelope.coordinator };
   }
 }
