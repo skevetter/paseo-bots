@@ -108,7 +108,12 @@ export async function openFleet(ctx: SurfaceContext) {
   ctx.setFleet(true);
 }
 
-export function openAutomations(ctx: SurfaceContext) {
+export async function openAutomations(ctx: SurfaceContext) {
+  await ctx.flush();
+  if (ctx.hasPendingDrafts()) {
+    ctx.toast.error("Save or discard unsaved bot edits before opening Automations.");
+    return;
+  }
   ctx.setPanel({ open: false, section: null });
   ctx.setTeamMap(false);
   ctx.setFleet(false);

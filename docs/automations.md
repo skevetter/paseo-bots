@@ -4,6 +4,14 @@ Open **Automations** (the calendar-clock icon) in the bot-list footer. **Routine
 
 Only the selected catalog/history view polls, every five seconds. The catalog makes one bounded shared request, not one history request per bot. Opening details suspends those list polls and refreshes only that run's detail. Errors stay accessible even when cached data is displayed. The client uses the selected host's existing plugin RPC/query context; it never creates a hidden chat to attach the host.
 
+## Unsaved edits and concurrent changes
+
+Opening Automations awaits the bot-draft flush and refuses navigation while any draft remains. An acknowledged catalog pause cannot be undone by an older full-bot autosave retry: each draft captures its original bot baseline and rebases only changed root fields against the fresh CAS revision. Untouched routine booleans, other saved fields and operation receipts remain authoritative.
+
+Concurrent edits to the same root field, or dependent execution/model/permission fields, refuse the entire draft write instead of blindly merging security settings or complex arrays. `updatedAt` alone is not a user edit. Deleted or replaced bots are not recreated. An own earlier autosave acknowledgement advances the baseline of later keystrokes, including an explicit return to the original value.
+
+Failed or conflicting drafts stay available. Retry saving after a transient failure, or explicitly discard unsaved edits and review the saved bot before editing again. Discarding a draft does not revert a saved pause or receipt. Discard is disabled during an in-flight draft save; its callback also checks the live write state.
+
 ## Routine catalog
 
 The catalog includes paused routines and archived bots, with exact bot/routine IDs and team labels. Each row shows:
@@ -11,7 +19,7 @@ The catalog includes paused routines and archived bots, with exact bot/routine I
 - Enabled/paused state and managed/legacy execution mode.
 - Next prospective UTC instant, zoned local display and IANA zone. A paused routine's next time is what its schedule would produce if resumed, not a promised launch. Legacy wall-clock schedules retain the host-local interpretation; intervals are elapsed durations and once schedules are absolute instants.
 - Last execution status **and** task outcome, plus retained-ledger active, permission-wait and unknown counts. Ledger counts are not a complete live host census.
-- A current owner only when a unique active agent was observed through the supported host snapshot. Missing, partial or ambiguous evidence is unavailable, not an invented owner or zero active host work.
+- A current owner only when a unique active agent was observed through a **complete** supported host snapshot. One visible agent on a partial page cannot establish unique ownership. Positive permission-wait observations remain valid even when the census is incomplete.
 - Configured effective provider/model, corrected selectable provider-default model selection, per-field policy sources and resolved time/token/cost budgets. These describe current configuration, not the immutable configuration of an older run. Legacy mode does not advertise managed accounting or enforcement. Dollar/token limits are not claimed to be hard in-flight limits without an enforcement producer.
 - Spend and escalation count as unavailable (`null`), never fabricated zeroes. B08 usage, B09 routing and B10 bridge producers are not implemented by this page.
 
@@ -81,8 +89,10 @@ Cancel, reconcile, pause/resume, revert and manual run requests have pending/err
 
 New contracts live in `shared/automations.ts`: `automationsListRpc`, `automationsPreviewRpc`, `automationsApplyRpc`, `automationsRevertRpc`, and `automationsRunNowRpc`. Safe details use `runsDetailsRpc` in `shared/run-details.ts`. Existing `bots.routines.status`, `bots.runs.list/get/cancel/reconcile`, schedule editor and schedule preview contracts remain unchanged.
 
+`useBotDrafts` exposes live `hasPendingDrafts()`, `draftSaving`, `draftConflicts`, and `discardDrafts(botId?)` recovery state. Surface guards use `DraftRecovery` for retry/discard/review controls; review must check live remaining drafts after discard before navigating, rather than relying on an earlier render's saving flag. The integration owner owns those `BotsSurface` render guards and desktop/compact validation.
+
 There is no automatic execution-mode adoption, schedule-policy migration, accounting/routing implementation or client-side file writer. The optional routine audit extends version-2 configuration receipts; older code may strip that audit on rewrite. Preserve configuration backups and retained coordinator evidence before downgrade. Removing this UI never cancels executions or releases reservations, and restoring config does not undo external effects.
 
 ## Verification scope
 
-Consumer tests cover exact 100-row atomic pause/resume, replay/concurrency, stale/digest/missing/duplicate target refusal, resume qualification, scoped revert, bounded receipt pressure, global attention filters and opaque cursor conflicts, schedule projections, frozen client requests, stable run-now identities, immutable details, reference redaction and honest cancellation. A temporary real HTTP/service smoke exercises the services against isolated file-backed state without live model execution. Desktop/compact rendering and installed-host integration remain the integration owner's separately authorized validation; headless tests do not prove those surfaces.
+Consumer tests cover exact 100-row atomic pause/resume, replay/concurrency, stale/digest/missing/duplicate target refusal, resume qualification, scoped revert, bounded receipt pressure, global attention filters and opaque cursor conflicts, complete-census owner evidence, schedule projections, frozen client requests, stable run-now identities, immutable details, reference redaction and honest cancellation. Draft regressions exercise actual file-backed CAS conflicts, preservation of acknowledged pause receipts, conflicting selector/security/array edits, deletion/replacement and own-ACK/later-keystroke transitions. A temporary loopback HTTP/service smoke verifies delayed stale CAS rejection, V1-to-V2 acknowledgement, pause/receipt preservation, retained conflicting drafts and partial/complete census ownership without live model execution. Desktop/compact rendering and installed-host integration remain the integration owner's separately authorized validation; headless tests do not prove those surfaces.

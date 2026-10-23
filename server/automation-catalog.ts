@@ -124,7 +124,8 @@ function ledgerSummary(runs: RoutineRun[]) {
   return { latest, active };
 }
 
-function observedOwner(observed: ObservedAgent[]): AutomationRow["owner"] {
+function observedOwner(observed: ObservedAgent[], complete: boolean): AutomationRow["owner"] {
+  if (!complete) return null;
   const owners = observed.filter(
     (agent) => agent.status === "running" || agent.status === "initializing" || agent.permissionWaiting,
   );
@@ -160,7 +161,7 @@ function runEvidence(runs: RoutineRun[], observed: ObservedAgent[], complete: bo
       unknown: active.filter((run) => run.executionStatus === "unknown").length,
       source: "run_ledger" as const,
     },
-    owner: observedOwner(observed),
+    owner: observedOwner(observed, complete),
     permission: permissionEvidence(waiting, observed, complete),
     unknown: {
       value: runs.length ? unknown : null,

@@ -1,7 +1,7 @@
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { type RefObject, useRef, useState } from "react";
 import type { BotState, StateSnapshot } from "../shared/bot";
 import { stateReadRpc, stateWriteRpc } from "../shared/rpc";
 import { errorText } from "./native";
@@ -15,7 +15,7 @@ export type BotStoreState = (
   saving: boolean;
   saveError: string | null;
   /** Saves the whole document over `revision`. Never throws. */
-  save(values: BotState, revision: string): Promise<boolean>;
+  save(values: BotState, revision: string, onSaved?: (snapshot: StateSnapshot) => void): Promise<boolean>;
   reload(): Promise<void>;
 };
 
@@ -27,7 +27,7 @@ function useBotStoreState(): BotStoreState {
   const [saveError, setSaveError] = useState<string | null>(null);
   const query = useQuery(stateQuery(() => read({})));
 
-  const save = async (values: BotState, revision: string) => {
+  const save = async (values: BotState, revision: string, onSaved?: (snapshot: StateSnapshot) => void) => {
     setSaving(true);
     try {
       const result = await write({ revision, values });
@@ -35,7 +35,9 @@ function useBotStoreState(): BotStoreState {
         setSaveError(result.error);
         return false;
       }
-      await showSaved(queryClient, { revision: result.revision, values: result.values });
+      const snapshot = { revision: result.revision, values: result.values };
+      await showSaved(queryClient, snapshot);
+      onSaved?.(snapshot);
       setSaveError(null);
       return true;
     } catch (error) {
@@ -56,9 +58,10 @@ type SaveOutcome = "saved" | "conflict" | "unavailable";
 async function saveOnce(
   current: BotStoreState,
   mutate: (values: BotState) => BotState,
+  onSaved?: (snapshot: StateSnapshot) => void,
 ): Promise<SaveOutcome> {
   if (current.status !== "ready") return "unavailable";
-  if (await current.save(mutate(current.values), current.revision)) {
+  if (await current.save(mutate(current.values), current.revision, onSaved)) {
     // Let the hook render the new revision before the next queued write reads it.
     await new Promise((resolve) => setTimeout(resolve, 0));
     return "saved";
@@ -68,7 +71,22 @@ async function saveOnce(
   return "conflict";
 }
 
-export type CommitBotState = (mutate: (values: BotState) => BotState) => Promise<boolean>;
+export type CommitBotState = (
+  mutate: (values: BotState) => BotState,
+  onSaved?: (snapshot: StateSnapshot) => void,
+) => Promise<boolean>;
+
+async function saveWithRetry(
+  latest: RefObject<BotStoreState>,
+  mutate: (values: BotState) => BotState,
+  onSaved: (snapshot: StateSnapshot) => void,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const outcome = await saveOnce(latest.current, mutate, onSaved);
+    if (outcome !== "conflict") return outcome === "saved";
+  }
+  throw new Error(latest.current.saveError ?? "Couldn't save bots. Try again.");
+}
 
 /**
  * Writes queue, read the latest revision when they run and retry on a conflict, so autosaves,
@@ -81,13 +99,17 @@ export function useBotState() {
   latest.current = settings;
   const queue = useRef<Promise<unknown>>(Promise.resolve());
 
-  const commit: CommitBotState = (mutate) => {
+  const commit: CommitBotState = (mutate, onSaved) => {
+    const acknowledge = (snapshot: StateSnapshot) => {
+      latest.current = { ...latest.current, ...snapshot, status: "ready", saveError: null };
+      onSaved?.(snapshot);
+    };
     const run = async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const outcome = await saveOnce(latest.current, mutate);
-        if (outcome !== "conflict") return outcome === "saved";
+      try {
+        return await saveWithRetry(latest, mutate, acknowledge);
+      } catch (error) {
+        toast.error(errorText(error));
       }
-      toast.error(latest.current.saveError ?? "Couldn't save bots. Try again.");
       return false;
     };
     const result = queue.current.then(run);

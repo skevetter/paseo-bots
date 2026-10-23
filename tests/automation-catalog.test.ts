@@ -305,6 +305,26 @@ describe("opaque routine ownership", () => {
   });
 });
 
+describe("complete census ownership", () => {
+  it("cannot establish unique ownership from one visible agent in an incomplete census", async () => {
+    const { host, coordinator, observed } = await fixture(1);
+    observed.complete = false;
+    observed.agents.push({
+      id: "visible-A",
+      botId: "opaque:bot/0",
+      routineId: "opaque:routine/0",
+      status: "running",
+      waiting: true,
+    });
+    const partial = defined((await listAutomations(host, coordinator, {}, AT)).rows[0]);
+    expect(partial.attention.permission_requests.value).toBe(true);
+    expect(partial.owner).toBeNull();
+    observed.complete = true;
+    const complete = defined((await listAutomations(host, coordinator, {}, AT)).rows[0]);
+    expect(complete.owner).toEqual({ agentId: "visible-A", status: "running" });
+  });
+});
+
 describe("evidence-backed attention", () => {
   it("uses durable append order for last state when distinct runs share a timestamp", async () => {
     const { host, coordinator, runStore } = await fixture(1);
