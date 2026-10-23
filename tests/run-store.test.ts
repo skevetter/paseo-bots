@@ -244,14 +244,25 @@ describe("a broken run history file", () => {
     errors.mockRestore();
   });
 
-  it("is set aside when a newer plugin wrote it, so this one can't drop what it doesn't know", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+  it("refuses future history on every read and write without moving it away or running a change", async () => {
     const future = JSON.stringify({ version: 2, routines: {}, occurrences: [{ key: "x" }] });
     const store = await storeFrom(future);
+    const change = vi.fn();
+    await expect(store.read()).rejects.toThrow("Unsupported routine history version 2");
+    await expect(store.read()).rejects.toThrow("file left unchanged");
+    await expect(store.update(change)).rejects.toThrow("Unsupported routine history version 2");
+    await expect(store.write("missing", {})).rejects.toThrow("Unsupported routine history version 2");
+    await expect(new RunStore(store.path).update(change)).rejects.toThrow(
+      "Unsupported routine history version 2",
+    );
+    expect(change).not.toHaveBeenCalled();
+    expect(await readFile(store.path, "utf8")).toBe(future);
+    expect(await setAside()).toEqual([]);
+    expect(await readdir(pluginDataPath())).not.toContain(`routines-${file}.json.pre-run-store`);
+
+    // Refusal doesn't wedge the queue. Recovery requires an explicit restore, not an automatic reset.
+    await writeFile(store.path, JSON.stringify({ version: 1, routines: {} }));
     expect((await store.read()).routines).toEqual({});
-    const asides = await setAside();
-    expect(await readFile(join(pluginDataPath(), defined(asides[0])), "utf8")).toBe(future);
-    errors.mockRestore();
   });
 
   it("leaves an old file and its backup alone when the first save is refused", async () => {

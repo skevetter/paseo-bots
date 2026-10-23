@@ -131,7 +131,12 @@ describe("what routine control tools say about a finished run", () => {
       agents: { ref: () => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }) }) },
     } as unknown as PaseoApi);
     await Promise.all([original.stop(), context.scheduler.stop()]);
-    await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
+    const started = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
+    expect(started.data.run).toMatchObject({
+      status: "running",
+      executionStatus: "running",
+      taskOutcome: "unknown",
+    });
     const status = await call("routines_status");
     const routineId = defined(Object.keys(status.data.routines as object)[0]);
 
@@ -143,9 +148,14 @@ describe("what routine control tools say about a finished run", () => {
     expect(history.text).toMatch(/manual: Completed, not verified$/);
     expect(history.text).not.toMatch(/succe/i);
     expect((history.data.runs as unknown[])[0]).toMatchObject({
+      status: "succeeded",
       executionStatus: "completed",
       taskOutcome: "unknown",
       verification: null,
+    });
+    const latest = await call("routines_status");
+    expect((latest.data.routines as Record<string, unknown>)[routineId]).toMatchObject({
+      lastRun: { status: "succeeded", executionStatus: "completed", taskOutcome: "unknown" },
     });
   });
 });

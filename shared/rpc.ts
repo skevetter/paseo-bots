@@ -18,6 +18,7 @@ import {
   ExecutionIdSchema,
   ExecutionStatusSchema,
   fromLegacyStatus,
+  LEGACY_RUN_STATUSES,
   OccurrenceKeySchema,
   ProviderTurnIdSchema,
   PurposeSchema,
@@ -307,16 +308,26 @@ export const RoutineRecordSchema = z.object({
 });
 export type RoutineRecord = z.infer<typeof RoutineRecordSchema>;
 
+/** Outbound compatibility only. New clients must read executionStatus and taskOutcome, never status. */
+export const RoutineRunResponseSchema = RoutineRunSchema.safeExtend({
+  status: z.enum(LEGACY_RUN_STATUSES),
+});
+export type RoutineRunResponse = z.infer<typeof RoutineRunResponseSchema>;
+
+const RoutineRecordResponseSchema = RoutineRecordSchema.extend({
+  runs: z.array(RoutineRunResponseSchema),
+});
+
 export const routineStatusRpc = defineRpc({
   name: "bots.routines.status",
   input: z.object({}),
-  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordSchema) }),
+  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordResponseSchema) }),
 });
 
 export const routineRunNowRpc = defineRpc({
   name: "bots.routines.run-now",
   input: z.object({ botId: BotId, routineId: z.string() }),
-  output: z.object({ run: RoutineRunSchema }),
+  output: z.object({ run: RoutineRunResponseSchema }),
 });
 
 /** `rotate` replaces the secret so the old URL stops working. */

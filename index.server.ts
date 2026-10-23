@@ -29,6 +29,7 @@ import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from ".
 import { systemPrompt } from "./server/prompt";
 import { acceptProposal, dismissProposal, getProposal, listProposals } from "./server/proposals";
 import { Relay } from "./server/relay";
+import { routineRunResponse, routineStatusResponse } from "./server/routine-responses";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
@@ -244,13 +245,14 @@ export default function contribute(server: PluginServerContext) {
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
-  server.handle(routineStatusRpc, (_input, context) => {
+  server.handle(routineStatusRpc, async (_input, context) => {
     attach(context);
-    return scheduler.status();
+    return routineStatusResponse(await scheduler.status());
   });
-  server.handle(routineRunNowRpc, ({ botId, routineId }, context) => {
+  server.handle(routineRunNowRpc, async ({ botId, routineId }, context) => {
     attach(context);
-    return scheduler.runNow(botId, routineId);
+    const { run } = await scheduler.runNow(botId, routineId);
+    return { run: routineRunResponse(run) };
   });
   server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));
   server.handle(commandListRpc, async ({ botId }) => ({ rules: await commands.list(botId) }));

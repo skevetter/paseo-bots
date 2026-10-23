@@ -42,6 +42,10 @@ interface Loaded extends RunSnapshot {
   dropped: string[];
 }
 
+interface UnsupportedVersion {
+  unsupportedVersion: number;
+}
+
 const EnvelopeSchema = z.object({
   version: z.literal(VERSION),
   routines: z.record(z.string(), RoutineRecordSchema),
@@ -114,12 +118,14 @@ function readRecord(routineId: string, entry: unknown, dropped: string[]): Routi
   return { lastRunAt, runs: readRun(routineId, run, dropped) };
 }
 
-function parse(raw: string): Loaded {
+function parse(raw: string): Loaded | UnsupportedVersion {
   const saved: unknown = JSON.parse(raw);
   if (!isObject(saved)) throw new Error("Routine history isn't an object");
   const versioned = typeof saved.version === "number";
-  if (versioned && saved.version !== VERSION)
-    throw new Error(`Unknown routine history version ${saved.version}`);
+  // This is readable data from another version, not corruption. Let load refuse it outside readParsed's
+  // corruption recovery so a downgrade can't move it away and silently create an empty history.
+  if (typeof saved.version === "number" && saved.version !== VERSION)
+    return { unsupportedVersion: saved.version };
   const entries = versioned ? saved.routines : saved;
   if (!isObject(entries)) throw new Error("Routine history has no routines");
   const dropped: string[] = [];
@@ -208,6 +214,10 @@ export class RunStore {
   private async load(): Promise<Loaded> {
     const loaded = await readParsed(this.path, parse);
     if (!loaded) return { revision: "missing", routines: {}, unversioned: false, dropped: [] };
+    if ("unsupportedVersion" in loaded)
+      throw new Error(
+        `Unsupported routine history version ${loaded.unsupportedVersion} at ${this.path}; file left unchanged. Use a compatible plugin or explicitly restore a backup.`,
+      );
     if (loaded.dropped.length > 0 && this.reported !== loaded.revision) {
       this.reported = loaded.revision;
       console.error(`paseo-bots: dropped unreadable runs from ${this.path}:\n${loaded.dropped.join("\n")}`);
