@@ -16,11 +16,18 @@ import {
 import { assertPluginCompatibility } from "@getpaseo/protocol/plugin-requirements";
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest";
 import { z } from "zod";
-import { BOT_LABEL, EMPTY_LIBRARY } from "../shared/bot";
-import { type ChatApi, startBotChat } from "../shared/chat";
+import { BOT_LABEL, type BotState, EMPTY_LIBRARY } from "../shared/bot";
+import {
+  type CreationEvidence,
+  launchPreparedBotChat,
+  type PreparedBotChat,
+  prepareBotChat,
+  startBotChat,
+} from "../shared/chat";
 import { HostCapabilityError, toHostCapabilityError } from "../shared/host-capability";
+import { PolicySchema, unsetOverrides } from "../shared/policies";
 import { connectFakeDaemon, type FakeDaemon, type Features } from "./fake-daemon";
-import { makeBot } from "./helpers";
+import { defined, makeBot } from "./helpers";
 
 // These fixtures pin what the installed @getpaseo/client and @getpaseo/plugin do today, so an SDK bump
 // that changes it fails here instead of in a user's chat. docs/compatibility.md explains each one.
@@ -166,47 +173,214 @@ describe("agent create on a host without creationLifecycle", () => {
   );
 });
 
-describe("startBotChat over the real SDK", () => {
-  it("delivers the chosen agent id, labels, title, prompt and config to the daemon", async () => {
-    daemon = await connectFakeDaemon(MODERN);
-    const { api } = daemon;
-    const handle = workspace(daemon);
-    // Workspace lookups are stubbed; agents.create is the SDK's own.
-    const chatApi: ChatApi = {
-      projects: api.projects,
-      providers: api.providers,
-      workspaces: {
-        list: async () => ({ entries: [] }),
-        ref: api.workspaces.ref,
-        open: api.workspaces.open,
-        create: async () => handle,
+async function admittedRemoteChat() {
+  daemon = await connectFakeDaemon(MODERN);
+  daemon.setProviders([
+    {
+      provider: "claude",
+      enabled: true,
+      status: "ready",
+      models: [
+        {
+          id: "admitted-model",
+          label: "Admitted",
+          isDefault: true,
+          thinkingOptions: [{ id: "high" }],
+          defaultThinkingOptionId: "high",
+        },
+      ],
+      modes: [
+        { id: "default", label: "Ask" },
+        { id: "bypassPermissions", label: "Bypass" },
+      ],
+      defaultModeId: "default",
+    },
+  ]);
+  const bot = unsetOverrides(
+    makeBot({
+      hostId: "remote-1",
+      mcpServerIds: ["reviewed"],
+      alwaysAllow: ["reviewed/read"],
+    }),
+    ["provider"],
+  );
+  const library = {
+    skills: [],
+    mcpServers: [
+      {
+        id: "reviewed",
+        name: "reviewed",
+        description: "",
+        checkError: null,
+        createdAt: "2026-10-23T00:00:00Z",
+        updatedAt: "2026-10-23T00:00:00Z",
+        enabled: true,
+        checkedAt: null,
+        tools: null,
+        config: { type: "stdio" as const, command: "safe-tool", args: [], env: {} },
       },
-    };
-    const bot = makeBot({ id: "bot-1", name: "Inbox", provider: "claude", model: "claude-sonnet-5-5" });
+    ],
+  };
+  const policy: BotState = {
+    bots: [bot],
+    history: [],
+    policies: [
+      PolicySchema.parse({
+        id: "pol-admitted",
+        revision: 1,
+        createdAt: "2026-10-23T00:00:00Z",
+        name: "Admitted",
+        roles: { executor: { provider: "claude", model: null } },
+      }),
+    ],
+    globalPolicy: { policyId: "pol-admitted", revision: null },
+  };
+  const prepared = await prepareBotChat(daemon.api, {
+    bot,
+    library,
+    policy,
+    agentId: CREATE.agentId,
+    idempotencyKey: CREATE.idempotencyKey,
+    env: CREATE.env,
+    clientMessageId: CREATE.clientMessageId,
+    outputSchema: CREATE.outputSchema,
+    placement: { path: "/work", projectRoot: null },
+    prompt: "hello",
+    systemPrompt: "be brief",
+    title: "T".repeat(300),
+    labels: {
+      "paseo-bots.run": "run-1",
+      "paseo-bots.execution": "exe-1",
+      "paseo-bots.occurrence": "occ-1",
+    },
+  });
+  return { bot, library, policy, prepared };
+}
 
-    const id = await startBotChat(chatApi, {
-      bot,
-      library: EMPTY_LIBRARY,
-      policy: {},
-      agentId: "0b9f7c1e-4a2d-4f3b-9e6a-7c8d1e2f3a4b",
-      placement: { path: "/work", projectRoot: null },
-      prompt: "hello",
+it("keeps a remote chosen UUID and the admitted model, approval and grants after defaults and policy change", async () => {
+  const { bot, library, policy, prepared } = await admittedRemoteChat();
+  expect(daemon.sent.map((frame) => frame.type)).toEqual(["get_providers_snapshot_request"]);
+  const cold: PreparedBotChat = JSON.parse(JSON.stringify(prepared));
+  policy.policies = [
+    PolicySchema.parse({
+      id: "pol-admitted",
+      revision: 2,
+      createdAt: "2026-10-23T00:01:00Z",
+      name: "Changed",
+      roles: { executor: { provider: "claude", model: "new-model" } },
+    }),
+  ];
+  bot.modeId = "bypassPermissions";
+  bot.alwaysAllow.push("reviewed/write");
+  defined(library.mcpServers[0]).config.command = "unsafe-tool";
+  daemon.setProviders([
+    {
+      provider: "claude",
+      enabled: true,
+      status: "ready",
+      models: [{ id: "new-model", label: "Changed", isDefault: true }],
+      defaultModeId: "bypassPermissions",
+    },
+  ]);
+
+  expect(await launchPreparedBotChat(daemon.api, cold)).toBe(CREATE.agentId);
+  const request = daemon.sent.find((frame) => frame.type === "agent.create.request");
+  expect(request).toMatchObject({
+    agentId: CREATE.agentId,
+    idempotencyKey: CREATE.idempotencyKey,
+    env: CREATE.env,
+    clientMessageId: CREATE.clientMessageId,
+    outputSchema: CREATE.outputSchema,
+    initialPrompt: "hello",
+    labels: {
+      [BOT_LABEL]: bot.id,
+      "paseo-bots.run": "run-1",
+      "paseo-bots.execution": "exe-1",
+      "paseo-bots.occurrence": "occ-1",
+    },
+    config: {
+      provider: "claude",
+      model: "admitted-model",
+      modeId: "default",
+      thinkingOptionId: "high",
+      title: "T".repeat(200),
       systemPrompt: "be brief",
-      title: "T".repeat(300),
-      labels: { extra: "1" },
-      clientMessageId: "cm-1",
-    });
+      mcpServers: { reviewed: { command: "safe-tool" } },
+      toolPolicy: { preapproved: [{ kind: "mcp", server: "reviewed", tool: "read" }] },
+    },
+  });
+  expect(daemon.sent.filter((frame) => frame.type === "get_providers_snapshot_request")).toHaveLength(1);
+  expect(prepared.config.mcpServers?.reviewed).toMatchObject({ command: "safe-tool" });
+});
 
-    expect(id).toBe("0b9f7c1e-4a2d-4f3b-9e6a-7c8d1e2f3a4b");
-    const [request] = daemon.sent.filter((message) => message.type === "agent.create.request");
-    expect(request).toMatchObject({
-      agentId: "0b9f7c1e-4a2d-4f3b-9e6a-7c8d1e2f3a4b",
-      initialPrompt: "hello",
-      clientMessageId: "cm-1",
-      labels: { [BOT_LABEL]: "bot-1", extra: "1" },
-      config: { provider: "claude", model: "claude-sonnet-5-5", systemPrompt: "be brief" },
-    });
-    expect(request).toMatchObject({ config: { title: "T".repeat(200) } });
+it("surfaces a typed managed-identity refusal on old remote hosts without creating an unmanaged agent", async () => {
+  daemon = await connectFakeDaemon({});
+  const failure = await startBotChat(daemon.api, {
+    bot: makeBot({ hostId: "remote-old" }),
+    library: EMPTY_LIBRARY,
+    policy: {},
+    agentId: CREATE.agentId,
+    idempotencyKey: CREATE.idempotencyKey,
+    placement: { path: "/work", projectRoot: null },
+    prompt: "hello",
+    systemPrompt: "s",
+  }).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(HostCapabilityError);
+  expect(failure).toHaveProperty("capability", "managed-identity");
+  expect(daemon.sent.map((frame) => frame.type)).toEqual([
+    "get_providers_snapshot_request",
+    "fetch_workspaces_request",
+  ]);
+});
+
+it("retains unknown creation outcome and nullable repeated IDs when the SDK discards structured failure", async () => {
+  daemon = await connectFakeDaemon(MODERN);
+  daemon.creation(
+    [
+      { kind: "agent", revision: 1, phase: "accepted", agentId: null, workspaceId: null, error: null },
+      { kind: "agent", revision: 2, phase: "agent_ready", agentId: null, workspaceId: null, error: null },
+      {
+        kind: "agent",
+        revision: 3,
+        phase: "failed",
+        agentId: CREATE.agentId,
+        workspaceId: null,
+        error: "transport lost after submission",
+        failedStage: "prompt",
+        errorCode: "lost",
+        outcomeUnknown: true,
+      },
+    ],
+    "transport lost after submission",
+  );
+  const observed: CreationEvidence[] = [];
+  const prepared = await prepareBotChat(daemon.api, {
+    bot: makeBot(),
+    library: EMPTY_LIBRARY,
+    policy: {},
+    agentId: CREATE.agentId,
+    idempotencyKey: CREATE.idempotencyKey,
+    placement: { path: "/work", projectRoot: null },
+    prompt: "hello",
+    systemPrompt: "s",
+    onEvent: (event) => observed.push(event),
+  });
+  expect(JSON.stringify(prepared)).not.toContain("onEvent");
+  const failure = await launchPreparedBotChat(daemon.api, prepared, (event) => observed.push(event)).catch(
+    (error: unknown) => error,
+  );
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).not.toHaveProperty("outcomeUnknown");
+  expect(observed.map((event) => [event.revision, event.agentId, event.workspaceId])).toEqual([
+    [1, null, null],
+    [2, null, null],
+    [3, CREATE.agentId, null],
+  ]);
+  expect(observed[2]).toMatchObject({
+    idempotencyKey: CREATE.idempotencyKey,
+    outcomeUnknown: true,
+    failedStage: "prompt",
+    errorCode: "lost",
   });
 });
 

@@ -1,5 +1,7 @@
 import { createPaseoApi, type PaseoApi } from "@getpaseo/client";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { ProviderEntry } from "../shared/changes/context";
+import type { CreationEvidence } from "../shared/chat";
 
 // Drives the installed SDK's real DaemonClient over an in-memory transport, so fixtures observe what
 // the SDK puts on the wire and which errors it throws, with no network.
@@ -13,6 +15,8 @@ export interface FakeDaemon {
   /** Hold create replies until `release`, so a test can overlap in-flight requests. */
   hold(): void;
   release(): void;
+  setProviders(entries: ProviderEntry[]): void;
+  creation(events: Omit<CreationEvidence, "idempotencyKey">[], error?: string): void;
   close(): Promise<void>;
 }
 
@@ -47,6 +51,111 @@ export function agentSnapshot(id: string, patch: Record<string, unknown> = {}) {
   };
 }
 
+class DaemonReplies {
+  providers: ProviderEntry[] = [
+    {
+      provider: "claude",
+      enabled: true,
+      status: "ready",
+      models: [{ id: "claude-sonnet-5-5", label: "Sonnet", isDefault: true }],
+      modes: [{ id: "default", label: "Ask" }],
+      defaultModeId: "default",
+    },
+  ];
+  creationEvents: Omit<CreationEvidence, "idempotencyKey">[] = [];
+  creationError: string | null = null;
+
+  constructor(private readonly reply: (message: unknown) => void) {}
+
+  respond(message: Record<string, unknown>): void {
+    const requestId = message.requestId as string;
+    switch (message.type) {
+      case "get_daemon_config_request":
+        this.reply({
+          type: "get_daemon_config_response",
+          payload: { requestId, config: { mcp: { injectIntoAgents: true } } },
+        });
+        break;
+      case "get_providers_snapshot_request":
+        this.providerSnapshot(requestId);
+        break;
+      case "fetch_workspaces_request":
+        this.reply({
+          type: "fetch_workspaces_response",
+          payload: {
+            requestId,
+            entries: [FIXTURE_WORKSPACE],
+            pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
+          },
+        });
+        break;
+      case "agent.create.request":
+        this.agentCreate(message);
+        break;
+      case "create_agent_request": {
+        const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
+        this.reply({
+          type: "status",
+          payload: { status: "agent_created", requestId, agentId, agent: agentSnapshot(agentId) },
+        });
+        break;
+      }
+    }
+  }
+
+  private providerSnapshot(requestId: string): void {
+    this.reply({
+      type: "get_providers_snapshot_response",
+      payload: {
+        requestId,
+        generatedAt: NOW,
+        entries: this.providers.map((entry) => ({
+          ...entry,
+          models: entry.models?.map((model) => ({
+            ...model,
+            provider: entry.provider,
+            thinkingOptions: model.thinkingOptions?.map((option) => ({ ...option, label: option.id })),
+          })),
+        })),
+      },
+    });
+  }
+
+  private agentCreate(message: Record<string, unknown>): void {
+    const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
+    const snapshots = this.creationEvents.map((event) => ({
+      ...event,
+      idempotencyKey: message.idempotencyKey,
+    }));
+    for (const snapshot of snapshots) this.reply({ type: "agent.create.update", payload: snapshot });
+    this.reply({
+      type: "agent.create.response",
+      payload: {
+        requestId: message.requestId,
+        agent: this.creationError ? null : agentSnapshot(agentId),
+        error: this.creationError,
+        creation: snapshots.at(-1),
+      },
+    });
+  }
+}
+
+const FIXTURE_WORKSPACE = {
+  id: "ws-1",
+  projectId: "project-1",
+  projectDisplayName: "Work",
+  projectRootPath: "/work",
+  workspaceDirectory: "/work",
+  projectKind: "directory",
+  workspaceKind: "directory",
+  name: "Inbox",
+  title: "Inbox",
+  status: "done",
+  activityAt: null,
+  gitRuntime: null,
+  githubRuntime: null,
+};
+
 /**
  * `features` is the server_info feature map the daemon advertises. A host without
  * `creationLifecycle` takes the SDK's legacy `create_agent_request` path instead.
@@ -57,21 +166,7 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
   let deliver: (data: unknown, isBinary: boolean) => void = () => {};
   const reply = (message: unknown) => deliver(JSON.stringify({ type: "session", message }), false);
 
-  const respond = (message: Record<string, unknown>) => {
-    const requestId = message.requestId as string;
-    const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
-    if (message.type === "agent.create.request") {
-      reply({
-        type: "agent.create.response",
-        payload: { requestId, agent: agentSnapshot(agentId), error: null },
-      });
-    } else if (message.type === "create_agent_request") {
-      reply({
-        type: "status",
-        payload: { status: "agent_created", requestId, agentId, agent: agentSnapshot(agentId) },
-      });
-    }
-  };
+  const server = new DaemonReplies(reply);
 
   const transport = {
     send(data: string | ArrayBuffer | Uint8Array) {
@@ -83,15 +178,21 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
         queueMicrotask(() =>
           reply({
             type: "status",
-            payload: { status: "server_info", serverId: "fake", version: "0.11.1", features },
+            payload: {
+              status: "server_info",
+              serverId: "fake",
+              version: "0.11.1",
+              features: { workspaceMultiplicity: true, ...features },
+            },
           }),
         );
         return;
       }
       const message = (frame.message ?? frame) as Record<string, unknown>;
       sent.push(message);
-      if (held) held.push(() => respond(message));
-      else queueMicrotask(() => respond(message));
+      if (held && (message.type === "agent.create.request" || message.type === "create_agent_request"))
+        held.push(() => server.respond(message));
+      else queueMicrotask(() => server.respond(message));
     },
     close() {},
     onMessage(handler: typeof deliver) {
@@ -125,5 +226,12 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
       for (const run of queued) run();
     },
     close: () => client.close(),
+    setProviders(entries) {
+      server.providers = entries;
+    },
+    creation(events, error) {
+      server.creationEvents = events;
+      server.creationError = error ?? null;
+    },
   };
 }

@@ -22,6 +22,7 @@ export class HostCapabilityError extends Error {
 
 /** Typed form of an SDK creation error, or null when the error is about something else. */
 export function toHostCapabilityError(error: unknown): HostCapabilityError | null {
+  if (error instanceof HostCapabilityError) return error;
   return error instanceof Error && error.message === CALLER_SELECTED_IDS_UNSUPPORTED
     ? new HostCapabilityError("managed-identity")
     : null;
