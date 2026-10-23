@@ -15,6 +15,7 @@ import { type ChangeIds, RANDOM_IDS } from "./changes/ids";
 import { saveTeam } from "./groups";
 import { joinArgs, MCP_NAME, RESERVED_MCP_NAMES } from "./mcp-servers";
 import { PASEO_MCP_NAME } from "./paseo-tools";
+import { MAX_POLICY_REVISIONS, type Policy, PolicySchema } from "./policies";
 import { parseSkillFrontmatter } from "./skills";
 
 export type LibraryKind = "skill" | "mcp";
@@ -291,6 +292,27 @@ export interface ImportedBot {
   bot: Bot;
   skills: readonly Pick<LibrarySkill, "id" | "description" | "source">[];
   mcpServers: readonly BotMcpServer[];
+  policies?: readonly Policy[];
+}
+
+function withImportedPolicy(policies: Policy[], policy: Policy): Policy[] {
+  const existing = policies.find((held) => held.id === policy.id && held.revision === policy.revision);
+  if (existing) {
+    const original = { ...PolicySchema.parse(existing), createdAt: null };
+    const incoming = { ...PolicySchema.parse(policy), createdAt: null };
+    if (JSON.stringify(original) !== JSON.stringify(incoming))
+      throw new Error(`Imported policy ${policy.id} conflicts with an immutable revision.`);
+    return policies;
+  }
+  if (policies.length >= MAX_POLICY_REVISIONS) throw new Error("The policy revision limit has been reached.");
+  return [...policies, policy];
+}
+
+function importedPolicies(values: BotState, imported: readonly ImportedBot[]): Policy[] | undefined {
+  let policies = values.policies;
+  for (const entry of imported)
+    for (const policy of entry.policies ?? []) policies = withImportedPolicy(policies ?? [], policy);
+  return policies;
 }
 
 export function addImportedBots(
@@ -325,5 +347,6 @@ export function addImportedBots(
     };
     return memberIds.length ? saveTeam(current, { id: null, newId: ids.id("team"), draft, now }) : current;
   }, values.groups ?? []);
-  return { ...values, bots, library, groups };
+  const policies = importedPolicies(values, imported);
+  return { ...values, bots, library, groups, ...(policies ? { policies } : {}) };
 }
