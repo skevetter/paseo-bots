@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Routine, RoutineSchedule } from "./bot";
+import type { SchedulePolicy } from "./schedule-policy";
 import { localDay, localTime, pad2 } from "./time";
+import { latestZonedDue, nextZonedRun, type ZonedSchedule } from "./zoned-schedules";
 
 /** A run missed by more than this is skipped instead of caught up. */
 const CATCH_UP_MS = 12 * 60 * 60 * 1000;
@@ -45,8 +47,27 @@ function nextDailyRun(schedule: DailySchedule, now: Date): Date | null {
   return null;
 }
 
+function zonedSchedule(schedule: RoutineSchedule, policy?: SchedulePolicy): ZonedSchedule | null {
+  if (!policy) return null;
+  switch (schedule.kind) {
+    case "daily":
+      return { schedule, policy, cron: null };
+    case "cron":
+      return { schedule, policy, cron: tryParseCron(schedule.expression) };
+    default:
+      return null;
+  }
+}
+
 /** `since` is the last run, or the routine's creation when it never ran. */
-export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
+export function latestDue(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  policy?: SchedulePolicy,
+): Date | null {
+  const zoned = zonedSchedule(schedule, policy);
+  if (zoned) return latestZonedDue(zoned, since, now);
   switch (schedule.kind) {
     case "webhook":
       return null;
@@ -65,7 +86,14 @@ export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Da
   }
 }
 
-export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
+export function nextRun(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  policy?: SchedulePolicy,
+): Date | null {
+  const zoned = zonedSchedule(schedule, policy);
+  if (zoned) return nextZonedRun(zoned, now);
   switch (schedule.kind) {
     case "webhook":
       return null;
@@ -86,13 +114,23 @@ export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date
   }
 }
 
+export interface UpcomingRunOptions {
+  count: number;
+  policy?: SchedulePolicy;
+}
+
 /** An interval that's already due starts with `now`. */
-export function upcomingRuns(schedule: RoutineSchedule, since: Date, now: Date, count: number): Date[] {
+export function upcomingRuns(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  { count, policy }: UpcomingRunOptions,
+): Date[] {
   const runs: Date[] = [];
   let from = since;
   let after = now;
   while (runs.length < count) {
-    const next = nextRun(schedule, from, after);
+    const next = nextRun(schedule, from, after, policy);
     const last = runs.at(-1);
     if (!next || (last && next <= last)) break;
     runs.push(next);
@@ -136,7 +174,7 @@ export type RoutineDecision =
 export function decide(routine: Routine, lastRunAt: string | null, now: Date): RoutineDecision {
   if (!routine.enabled) return { action: "wait" };
   const since = new Date(lastRunAt ?? routine.createdAt);
-  const due = latestDue(routine.schedule, since, now);
+  const due = latestDue(routine.schedule, since, now, routine.schedulePolicy);
   if (!due) return { action: "wait" };
   return now.getTime() - due.getTime() <= CATCH_UP_MS
     ? { action: "run", due }
@@ -145,7 +183,7 @@ export function decide(routine: Routine, lastRunAt: string | null, now: Date): R
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function describeSchedule(schedule: RoutineSchedule): string {
+function describeBaseSchedule(schedule: RoutineSchedule): string {
   switch (schedule.kind) {
     case "webhook":
       return "When its webhook is called";
@@ -168,6 +206,12 @@ export function describeSchedule(schedule: RoutineSchedule): string {
       return `${which} at ${schedule.time}`;
     }
   }
+}
+
+export function describeSchedule(schedule: RoutineSchedule, policy?: SchedulePolicy): string {
+  const base = describeBaseSchedule(schedule);
+  if (!policy || (schedule.kind !== "daily" && schedule.kind !== "cron")) return base;
+  return `${base} (${policy.timeZone}; gap ${policy.gap}; repeat ${policy.repeat})`;
 }
 
 // Paseo's cron grammar (protocol/schedule/cron-expression.ts): every field must match (no

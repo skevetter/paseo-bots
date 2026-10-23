@@ -136,22 +136,22 @@ describe("routine schedules from chat", () => {
   it("lists the next runs", () => {
     // 2026-09-25 is a Friday.
     const now = local(25, 12);
-    expect(upcomingRuns({ kind: "cron", expression: "0 9 * * 1-5" }, now, now, 3)).toEqual([
+    expect(upcomingRuns({ kind: "cron", expression: "0 9 * * 1-5" }, now, now, { count: 3 })).toEqual([
       local(28, 9),
       local(29, 9),
       local(30, 9),
     ]);
     expect(
-      upcomingRuns({ kind: "daily", time: "18:00", weekdays: [0, 1, 2, 3, 4, 5, 6] }, now, now, 2),
+      upcomingRuns({ kind: "daily", time: "18:00", weekdays: [0, 1, 2, 3, 4, 5, 6] }, now, now, { count: 2 }),
     ).toEqual([local(25, 18), local(26, 18)]);
-    expect(upcomingRuns({ kind: "interval", minutes: 60 }, local(25, 11, 30), now, 2)).toEqual([
+    expect(upcomingRuns({ kind: "interval", minutes: 60 }, local(25, 11, 30), now, { count: 2 })).toEqual([
       local(25, 12, 30),
       local(25, 13, 30),
     ]);
-    expect(upcomingRuns({ kind: "once", at: local(26, 9).toISOString() }, now, now, 3)).toEqual([
+    expect(upcomingRuns({ kind: "once", at: local(26, 9).toISOString() }, now, now, { count: 3 })).toEqual([
       local(26, 9),
     ]);
-    expect(upcomingRuns({ kind: "webhook" }, now, now, 3)).toEqual([]);
+    expect(upcomingRuns({ kind: "webhook" }, now, now, { count: 3 })).toEqual([]);
   });
 
   it("hands a webhook's body to the bot as marked data", async () => {

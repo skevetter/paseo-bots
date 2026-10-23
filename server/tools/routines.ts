@@ -26,7 +26,7 @@ export const proposeRoutine = defineTool({
       kind: "routine",
       data: { name: name.trim(), prompt: instructions.trim(), schedule: parsed, resultsChatId: agentId },
     });
-    const next = upcomingRuns(parsed, now, now, 1)[0];
+    const next = upcomingRuns(parsed, now, now, { count: 1 })[0];
     const when =
       parsed.kind === "webhook"
         ? "It runs when its webhook is called; the URL is in the routine's settings."

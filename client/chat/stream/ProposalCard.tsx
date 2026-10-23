@@ -259,7 +259,7 @@ function skillView(
 function routineView(proposal: Extract<Proposal, { kind: "routine" }>, bot: Bot | undefined): ProposalView {
   const { name, prompt, schedule } = proposal.data;
   const now = new Date();
-  const next = upcomingRuns(schedule, now, now, 3);
+  const next = upcomingRuns(schedule, now, now, { count: 3 });
   const timing =
     schedule.kind === "webhook"
       ? "It runs when its webhook is called. Copy the URL from the routine's settings."
