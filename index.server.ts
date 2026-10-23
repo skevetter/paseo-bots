@@ -39,6 +39,7 @@ import {
 } from "./server/proposals";
 import { Relay } from "./server/relay";
 import { routineRunResponse, routineStatusResponse } from "./server/routine-responses";
+import { previewSchedule } from "./server/schedule-preview";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
@@ -105,6 +106,7 @@ import {
   systemPromptRpc,
   uploadRpc,
 } from "./shared/rpc";
+import { routinePreviewScheduleRpc } from "./shared/schedule-preview";
 
 interface ChatEventServices {
   host: BotsHost;
@@ -322,6 +324,7 @@ export default function contribute(server: PluginServerContext) {
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
+  server.handle(routinePreviewScheduleRpc, (input) => previewSchedule(input));
   server.handle(routineStatusRpc, async (_input, context) => {
     attach(context);
     return routineStatusResponse(await scheduler.status());

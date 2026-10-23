@@ -2,6 +2,7 @@ import { type Bot, type BotState, DEFAULT_BOT_DEFAULTS, EMPTY_LIBRARY } from "..
 import { withoutBot } from "../groups";
 import { applyDefaults } from "../presets";
 import { scheduleFrom } from "../routines";
+import { newSchedulePolicy } from "../schedule-policy";
 import { BOT_TEMPLATES, botFromPreset, newBot } from "../templates";
 import type { ApplyContext, ChangeContext } from "./context";
 import {
@@ -115,6 +116,7 @@ export function addRoutine(
     prompt: change.instructions.trim(),
     enabled: true,
     schedule: scheduleFrom(change.schedule, new Date(context.now)),
+    schedulePolicy: change.schedulePolicy ?? newSchedulePolicy(),
     resultsChatId: null,
     createdAt: context.now,
   };
@@ -133,6 +135,7 @@ export function updateRoutine(
     name: change.name?.trim() ?? routine.name,
     prompt: change.instructions?.trim() ?? routine.prompt,
     schedule: change.schedule ? scheduleFrom(change.schedule, new Date(context.now)) : routine.schedule,
+    ...(change.schedulePolicy ? { schedulePolicy: change.schedulePolicy } : {}),
     enabled: change.enabled ?? routine.enabled,
   };
   return withBot(

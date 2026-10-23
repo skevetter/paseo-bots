@@ -24,7 +24,8 @@ export function previewSchedule(input: RpcInput<typeof routinePreviewScheduleRpc
   });
   return {
     schedulePolicy: policy ?? null,
-    legacyLocalTime: policy === undefined,
+    legacyLocalTime:
+      policy === undefined && (input.schedule.kind === "daily" || input.schedule.kind === "cron"),
     elapsed: input.schedule.kind === "interval",
     occurrences: times.map((time) => ({ at: time.toISOString(), localTime: formatter.format(time) })),
   };

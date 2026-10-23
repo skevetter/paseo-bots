@@ -4,6 +4,7 @@ import { byRef, findBot, ROUTINE_REF } from "../../../shared/changes/refs";
 import type { Change } from "../../../shared/changes/schema";
 import { describeSchedule, nextRun, ScheduleInput } from "../../../shared/routines";
 import { describeRun } from "../../../shared/runs";
+import { SchedulePolicySchema } from "../../../shared/schedule-policy";
 import { routineRunResponse } from "../../routine-responses";
 import {
   applyOrPropose,
@@ -28,7 +29,7 @@ const ResultsChat = z
 function summary(bot: Bot, routine: Routine, lastRunAt: string | null) {
   const now = new Date();
   const next = routine.enabled
-    ? nextRun(routine.schedule, new Date(lastRunAt ?? routine.createdAt), now)
+    ? nextRun(routine.schedule, new Date(lastRunAt ?? routine.createdAt), now, routine.schedulePolicy)
     : null;
   return {
     id: routine.id,
@@ -36,7 +37,8 @@ function summary(bot: Bot, routine: Routine, lastRunAt: string | null) {
     botName: bot.name,
     name: routine.name,
     instructions: routine.prompt,
-    schedule: describeSchedule(routine.schedule),
+    schedule: describeSchedule(routine.schedule, routine.schedulePolicy),
+    schedulePolicy: routine.schedulePolicy ?? null,
     kind: routine.schedule.kind,
     enabled: routine.enabled,
     nextRun: next?.toISOString() ?? null,
@@ -118,12 +120,13 @@ const create = defineControlTool({
     name: z.string().min(1).max(80),
     instructions: z.string().min(1).max(20_000).describe("What to do on each run."),
     schedule: ScheduleInput,
+    schedule_policy: SchedulePolicySchema.optional(),
     results_chat_id: ResultsChat,
   }),
-  async run({ bot: ref, name, instructions, schedule, results_chat_id }, context) {
+  async run({ bot: ref, name, instructions, schedule, schedule_policy, results_chat_id }, context) {
     const bot = await botByRef(context, ref);
     const done = await change(context, `Add routine ${name}`, [
-      { type: "add_routine", bot: bot.id, name, instructions, schedule },
+      { type: "add_routine", bot: bot.id, name, instructions, schedule, schedulePolicy: schedule_policy },
     ]);
     if (done.pending) return done.pending;
     const known = new Set(bot.routines.map((entry) => entry.id));
@@ -131,7 +134,7 @@ const create = defineControlTool({
     let routine = after.routines.find((entry) => !known.has(entry.id));
     if (!routine) throw new Error("The routine wasn't saved.");
     if (results_chat_id) routine = await setResultsChat(context, bot.id, routine.id, results_chat_id);
-    return result(`Added ${routine.name}: ${describeSchedule(routine.schedule)}.`, {
+    return result(`Added ${routine.name}: ${describeSchedule(routine.schedule, routine.schedulePolicy)}.`, {
       routine: summary(after, routine, null),
     });
   },
@@ -146,13 +149,20 @@ const update = defineControlTool({
     name: z.string().min(1).max(80).optional(),
     instructions: z.string().min(1).max(20_000).optional(),
     schedule: ScheduleInput.optional(),
+    schedule_policy: SchedulePolicySchema.optional(),
     enabled: z.boolean().optional().describe("false pauses it."),
     results_chat_id: ResultsChat,
   }),
-  async run({ bot: botRef, routine: ref, results_chat_id, ...fields }, context) {
+  async run({ bot: botRef, routine: ref, results_chat_id, schedule_policy, ...fields }, context) {
     const { bot, routine } = await routineByRef(context, botRef, ref);
     const done = await change(context, `Update routine ${routine.name}`, [
-      { type: "update_routine", bot: bot.id, routine: routine.id, ...fields },
+      {
+        type: "update_routine",
+        bot: bot.id,
+        routine: routine.id,
+        ...fields,
+        schedulePolicy: schedule_policy,
+      },
     ]);
     if (done.pending) return done.pending;
     let updated = byRef(findBot(done.values, bot.id).routines, routine.id, ROUTINE_REF);
