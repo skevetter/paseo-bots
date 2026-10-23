@@ -306,7 +306,7 @@ describe("importing crafted and damaged files", () => {
     for (const json of [
       "{ not json",
       "null",
-      exportOf({ version: 3 }),
+      exportOf({ version: 4 }),
       exportOf({ format: "other-app" }),
       exportOf({ bot: { name: "No avatar" } }),
     ]) {

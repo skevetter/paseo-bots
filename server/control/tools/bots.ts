@@ -20,8 +20,11 @@ import { findBot } from "../../../shared/changes/refs";
 import { type Change, CreateBot, SetDefaults, UpdateBot } from "../../../shared/changes/schema";
 import { elevations } from "../../../shared/elevated";
 import { teamOf } from "../../../shared/groups";
+import { addImportedBots } from "../../../shared/library";
+import { prefixedId } from "../../../shared/uuid";
 import { applyContext } from "../../apply-context";
 import { generateAvatar, imageStatus } from "../../images";
+import { applyImportedBots } from "../../imports";
 import { systemPrompt } from "../../prompt";
 import { createProposal } from "../../proposals";
 import { exportBot, importBot } from "../../share";
@@ -198,10 +201,13 @@ const botsDuplicate = defineControlTool({
   input: z.object({ bot: BotRef }),
   async run({ bot: ref }, context) {
     const bot = await botByRef(context, ref);
-    const { json } = await exportBot({ bot, includeMemory: false }, await context.host.library());
-    const copy = duplicateOf(bot, (await importBot({ botId: newBotId(), json })).bot);
-    const values = await context.host.values();
-    const added = (current: BotState) => ({ ...current, bots: [...current.bots, copy] });
+    const snapshot = await context.host.store.read();
+    const values = snapshot.values;
+    const { json } = await exportBot({ bot, includeMemory: false }, values.library ?? EMPTY_LIBRARY, values);
+    const imported = await importBot({ botId: newBotId(), json });
+    const copy = duplicateOf(bot, imported.bot);
+    const entries = [{ ...imported, bot: copy, skills: [], mcpServers: [] }];
+    const added = (current: BotState) => addImportedBots(current, entries);
     const reasons = elevations(values, added(values), (await applyContext(context.host)).modes);
     if (await needsApproval(context, reasons)) {
       const proposal = await createProposal({
@@ -211,13 +217,19 @@ const botsDuplicate = defineControlTool({
         kind: "import",
         data: {
           summary: `Duplicate ${bot.name}`,
-          bots: [{ bot: copy, skills: [], mcpServers: [] }],
+          bots: entries,
           teams: [],
         },
       });
       return pendingResult(proposal, reasons);
     }
-    const saved = await context.host.store.update(added);
+    const saved = await applyImportedBots(context.host.store, {
+      operationId: prefixedId("duplicate"),
+      revision: snapshot.revision,
+      bots: entries,
+      teams: [],
+    });
+    if (saved.status === "conflict") throw new Error(saved.error);
     return savedBot(saved.values, copy.id, `Duplicated ${bot.name} as`);
   },
 });

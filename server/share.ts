@@ -19,10 +19,12 @@ import { botMcpServers, botSkills } from "../shared/bot-agent";
 import type { ProviderModesById } from "../shared/bot-checks";
 import { newBotId, newRoutineId } from "../shared/bot-ids";
 import { teamMembers } from "../shared/groups";
+import { INHERITABLE, type Policy, PolicyBodySchema, type PolicyState } from "../shared/policies";
 import { sanitizeSkillName } from "../shared/skills";
 import { botDataPath } from "./bot-home";
 import { exists } from "./files";
 import { type ImportedSkill, librarySkillPath } from "./library";
+import { importedRuntimePolicy, portableRuntimePolicy } from "./share-policy";
 
 const FORMAT = "paseo-bots";
 /** Files exported before the plugin was renamed. */
@@ -84,6 +86,11 @@ const ExportV2Schema = z.object({
   skills: z.array(SharedSkillSchema).max(200).default([]),
   mcpServers: SharedServers,
   files: SharedFiles,
+});
+
+const ExportV3Schema = ExportV2Schema.extend({
+  version: z.literal(3),
+  runtimePolicy: PolicyBodySchema.optional(),
 });
 
 const ExportV1Schema = z.object({
@@ -152,25 +159,30 @@ async function memoryFiles(botId: string): Promise<Record<string, string>> {
 export async function exportBot(
   { bot, includeMemory }: { bot: Bot; includeMemory: boolean },
   library: Library,
+  policy: PolicyState = {},
 ) {
   const skills = botSkills(bot, library);
   const files: Record<string, string> = {};
   for (const skill of skills)
     Object.assign(files, await collect(librarySkillPath(skill.id), `skills/${skill.id}`));
   if (includeMemory) Object.assign(files, await memoryFiles(bot.id));
-  const payload: z.input<typeof ExportV2Schema> = {
+  const runtimePolicy = portableRuntimePolicy(policy, bot);
+  const executor = runtimePolicy?.roles.executor;
+  const payload: z.input<typeof ExportV3Schema> = {
     format: FORMAT,
-    version: 2,
+    version: 3,
+    ...(runtimePolicy ? { runtimePolicy } : {}),
     bot: {
       name: bot.name,
       title: bot.title,
       description: bot.description,
       avatar: bot.avatar,
       soul: bot.soul,
-      provider: bot.provider,
-      model: bot.model,
+      provider: executor?.provider ?? bot.provider,
+      model: executor?.model === undefined ? bot.model : executor.model,
       modeId: bot.modeId,
-      thinkingOptionId: bot.thinkingOptionId,
+      thinkingOptionId:
+        executor?.thinkingOptionId === undefined ? bot.thinkingOptionId : executor.thinkingOptionId,
       // Results chats only exist on this host.
       routines: bot.routines.map((routine) => ({ ...routine, enabled: false, resultsChatId: null })),
       playbooks: bot.playbooks,
@@ -191,7 +203,7 @@ export async function exportBot(
 const NOT_AN_EXPORT = "That isn't a paseo-bots export.";
 const TOO_BIG = "That export holds more than paseo-bots imports.";
 
-function parseExport(json: string): z.infer<typeof ExportV2Schema> {
+function parseExport(json: string): z.infer<typeof ExportV3Schema> {
   let raw: unknown;
   try {
     raw = JSON.parse(json);
@@ -203,12 +215,14 @@ function parseExport(json: string): z.infer<typeof ExportV2Schema> {
   return parsed;
 }
 
-function parseVersions(raw: unknown): z.infer<typeof ExportV2Schema> {
+function parseVersions(raw: unknown): z.infer<typeof ExportV3Schema> {
+  const v3 = ExportV3Schema.safeParse(raw);
+  if (v3.success) return v3.data;
   const v2 = ExportV2Schema.safeParse(raw);
-  if (v2.success) return v2.data;
+  if (v2.success) return { ...v2.data, version: 3 };
   const v1 = ExportV1Schema.safeParse(raw);
   if (!v1.success) {
-    const tooBig = [v2.error, v1.error].some((error) =>
+    const tooBig = [v3.error, v2.error, v1.error].some((error) =>
       error.issues.some((issue) => issue.code === "too_big"),
     );
     throw new Error(tooBig ? TOO_BIG : NOT_AN_EXPORT);
@@ -216,7 +230,7 @@ function parseVersions(raw: unknown): z.infer<typeof ExportV2Schema> {
   const { mcpServers, skills, ...bot } = v1.data.bot;
   return {
     format: FORMAT,
-    version: 2,
+    version: 3,
     bot,
     skills: skills
       .filter((skill) => skill.enabled)
@@ -240,6 +254,7 @@ export interface ImportedEntry {
   bot: Bot;
   skills: ImportedSkill[];
   mcpServers: BotMcpServer[];
+  policies?: Policy[];
 }
 
 /** A skill already in the library is kept as is. */
@@ -257,6 +272,7 @@ export async function importBot({ botId, json }: { botId: string; json: string }
     await writeFile(target, text, "utf8");
   }
   const now = new Date().toISOString();
+  const runtimePolicy = parsed.runtimePolicy ? importedRuntimePolicy(parsed.runtimePolicy, now) : null;
   const bot: Bot = {
     ...parsed.bot,
     id: botId,
@@ -283,8 +299,21 @@ export async function importBot({ botId, json }: { botId: string; json: string }
     archived: false,
     createdAt: now,
     updatedAt: now,
+    ...(runtimePolicy
+      ? {
+          policy: {
+            binding: { policyId: runtimePolicy.id, revision: runtimePolicy.revision },
+            inherit: [...INHERITABLE],
+          },
+        }
+      : {}),
   };
-  return { bot, skills, mcpServers: parsed.mcpServers };
+  return {
+    bot,
+    skills,
+    mcpServers: parsed.mcpServers,
+    ...(runtimePolicy ? { policies: [runtimePolicy] } : {}),
+  };
 }
 
 const TEAM_FORMAT = "paseo-bots-team";
@@ -319,10 +348,12 @@ function teamsInFile(bots: readonly Bot[], groups: readonly BotGroup[]): TeamFil
 export async function exportTeam(
   { bots, groups, includeMemory }: { bots: Bot[]; groups: BotGroup[]; includeMemory: boolean },
   library: Library,
+  policy: PolicyState = {},
 ) {
   const shared = bots.slice(0, MAX_TEAM);
   const entries: unknown[] = [];
-  for (const bot of shared) entries.push(JSON.parse((await exportBot({ bot, includeMemory }, library)).json));
+  for (const bot of shared)
+    entries.push(JSON.parse((await exportBot({ bot, includeMemory }, library, { ...policy, groups })).json));
   return {
     json: JSON.stringify(
       { format: TEAM_FORMAT, version: 1, bots: entries, teams: teamsInFile(shared, groups) },

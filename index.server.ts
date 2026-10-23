@@ -21,6 +21,7 @@ import type { ControlContext } from "./server/control/tool";
 import { CONTROL_TOOLS } from "./server/control/tools";
 import { BotsHost } from "./server/host";
 import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./server/images";
+import { applyImportedBots } from "./server/imports";
 import { MemoryJournal } from "./server/journal";
 import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } from "./server/library";
 import { probeMcpServer } from "./server/mcp-probe";
@@ -42,8 +43,9 @@ import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
-import { botSettings } from "./shared/bot";
+import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
+import { importsApplyRpc } from "./shared/imports";
 import {
   appsAccountsRpc,
   appsCatalogRpc,
@@ -131,6 +133,23 @@ function handlePolicies(server: PluginServerContext, host: BotsHost) {
     const { snapshot, resolution } = await resolveForBot(host, { bot: botId, routineId, taskClass });
     return { revision: snapshot.revision, resolution };
   });
+}
+
+function handleSharing(server: PluginServerContext, host: BotsHost) {
+  server.handle(exportBotRpc, async (input) => {
+    const values = await host.values();
+    return exportBot(input, values.library ?? EMPTY_LIBRARY, values);
+  });
+  server.handle(exportTeamRpc, async (input) => {
+    const values = await host.values();
+    return exportTeam(input, values.library ?? EMPTY_LIBRARY, values);
+  });
+  server.handle(importBotRpc, importBot);
+  server.handle(importTeamRpc, async (input, context) => {
+    host.attach(context.paseo);
+    return importTeam(input, await newBotStart(host));
+  });
+  server.handle(importsApplyRpc, (input) => applyImportedBots(host.store, input));
 }
 
 function handleMemory(server: PluginServerContext, journal: MemoryJournal) {
@@ -297,13 +316,7 @@ export default function contribute(server: PluginServerContext) {
     rule: await commands.add(botId, command, cwd),
   }));
   server.handle(commandRemoveRpc, async ({ botId, id }) => ({ ok: await commands.remove(botId, id) }));
-  server.handle(exportBotRpc, async (input) => exportBot(input, await host.library()));
-  server.handle(importBotRpc, importBot);
-  server.handle(exportTeamRpc, async (input) => exportTeam(input, await host.library()));
-  server.handle(importTeamRpc, async (input, context) => {
-    attach(context);
-    return importTeam(input, await newBotStart(host));
-  });
+  handleSharing(server, host);
   server.handle(uploadRpc, saveUpload);
   handleChatEvents(server, { host, journal, scheduler, commands });
   const stopControl = handleControl(server, { host, relay, scheduler, journal, commands });

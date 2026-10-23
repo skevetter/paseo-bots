@@ -8,8 +8,9 @@ import { findBot, findTeam } from "../../../shared/changes/refs";
 import { type Change, LogoInput } from "../../../shared/changes/schema";
 import { importElevations } from "../../../shared/elevated";
 import { groupBots, teamLogoOf } from "../../../shared/groups";
-import { addImportedBots } from "../../../shared/library";
+import { prefixedId } from "../../../shared/uuid";
 import { newBotStart } from "../../apply-context";
+import { applyImportedBots } from "../../imports";
 import { createProposal } from "../../proposals";
 import { exportBot, exportTeam, importTeam } from "../../share";
 import type { ToolResult } from "../../tools/mcp";
@@ -189,8 +190,8 @@ const botsExport = defineControlTool({
     const kind = bots.length === 1 ? "bot" : "team";
     const { json } =
       kind === "bot"
-        ? await exportBot({ bot: only, includeMemory }, library)
-        : await exportTeam({ bots, groups: values.groups ?? [], includeMemory }, library);
+        ? await exportBot({ bot: only, includeMemory }, library, values)
+        : await exportTeam({ bots, groups: values.groups ?? [], includeMemory }, library, values);
     const names = fileBotNames(json);
     const what = `${kind === "bot" ? "Bot" : "Team"} file with ${plural(names.length, "bot")} (${names.join(", ")})`;
     if (!path) return result(`${what}:\n${json}`, { kind, bots: names, json });
@@ -227,7 +228,8 @@ const botsImport = defineControlTool({
   async run({ json, path }, context) {
     const start = await newBotStart(context.host);
     const imported = await importTeam({ json: path ? await importFile(path) : (json ?? "") }, start);
-    const values = await context.host.values();
+    const snapshot = await context.host.store.read();
+    const values = snapshot.values;
     const reasons = importElevations(values, imported, start.modes);
     const incoming = imported.bots.map((entry) => entry.bot.name).join(", ");
     if (await needsApproval(context, reasons)) {
@@ -241,9 +243,13 @@ const botsImport = defineControlTool({
       });
       return pendingResult(proposal, reasons, imported.notes);
     }
-    const saved = await context.host.store.update((current) =>
-      addImportedBots(current, imported.bots, imported.teams),
-    );
+    const saved = await applyImportedBots(context.host.store, {
+      operationId: prefixedId("import"),
+      revision: snapshot.revision,
+      bots: imported.bots,
+      teams: imported.teams,
+    });
+    if (saved.status === "conflict") throw new Error(saved.error);
     const ids = new Set(imported.bots.map((entry) => entry.bot.id));
     const bots = saved.values.bots
       .filter((bot) => ids.has(bot.id))
