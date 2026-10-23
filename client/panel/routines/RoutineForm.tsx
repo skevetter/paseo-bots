@@ -10,8 +10,10 @@ import type { PaseoAgent } from "../../paseo";
 import type { PanelProps } from "../BotPanel";
 import { Button, SheetFooter } from "../controls";
 import { InputField, TextAreaField } from "../fields";
-import { CadenceSection } from "./CadenceSection";
 import { useCadence } from "./cadence";
+import { SchedulePolicySection } from "./SchedulePolicySection";
+import { applyRoutineDraft } from "./schedule-editor";
+import { useScheduleEditor } from "./useScheduleEditor";
 
 type Colors = PanelProps["colors"];
 
@@ -61,18 +63,58 @@ function ResultsSection({
   );
 }
 
+function RoutineFields({
+  colors,
+  name,
+  prompt,
+  setName,
+  setPrompt,
+}: {
+  colors: Colors;
+  name: string;
+  prompt: string;
+  setName(value: string): void;
+  setPrompt(value: string): void;
+}) {
+  return (
+    <View style={{ marginBottom: 24 }}>
+      <SettingsCard>
+        <InputField
+          colors={colors}
+          label="Name"
+          initialValue={name}
+          placeholder="Morning check-in"
+          onChangeText={setName}
+        />
+        <TextAreaField
+          colors={colors}
+          label="Prompt"
+          hint="Sent as the first message of each run"
+          defaultValue={prompt}
+          onChangeText={setPrompt}
+          placeholder="What should the bot do each run?"
+        />
+      </SettingsCard>
+    </View>
+  );
+}
+
 export function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: RoutineFormProps) {
   const original: RoutineSchedule = routine?.schedule ?? { kind: "cron", expression: "0 9 * * 1-5" };
   // A new routine's id is picked now so its webhook URL can be shown before saving.
   const [id] = useState(() => routine?.id ?? newRoutineId());
+  const [createdAt] = useState(() => routine?.createdAt ?? new Date().toISOString());
   const [name, setName] = useState(routine?.name ?? "");
   const [prompt, setPrompt] = useState(routine?.prompt ?? "");
   const [resultsChatId, setResultsChatId] = useState<string | null>(routine?.resultsChatId ?? null);
   const cadence = useCadence(original);
+  const editor = useScheduleEditor(routine);
   const chats = useBotChats(host, bot.id);
-  const canSubmit = prompt.trim().length > 0 && !cadence.cronError && !cadence.onceError;
+  const invalid = !!(cadence.cronError || cadence.onceError || editor.policyError);
+  const canSubmit = prompt.trim().length > 0 && !invalid;
 
   const submit = () => {
+    if (!canSubmit) return;
     const [firstLine = ""] = prompt.trim().split("\n");
     const { schedule } = cadence;
     const base: Routine = routine ?? {
@@ -82,40 +124,31 @@ export function RoutineForm({ colors, bot, host, routine, onCancel, onSubmit }: 
       enabled: true,
       schedule,
       resultsChatId: null,
-      createdAt: new Date().toISOString(),
+      createdAt,
     };
-    onSubmit({
-      ...base,
-      name: name.trim().slice(0, 80) || firstLine.slice(0, 60),
-      prompt,
-      schedule,
-      resultsChatId,
-    });
+    onSubmit(
+      applyRoutineDraft(base, {
+        name: name.trim().slice(0, 80) || firstLine.slice(0, 60),
+        prompt,
+        schedule,
+        resultsChatId,
+        schedulePolicy: editor.policy,
+      }),
+    );
   };
 
   return (
     <Modal title={routine ? "Edit routine" : "New routine"} open onOpenChange={(open) => !open && onCancel()}>
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
-        <View style={{ marginBottom: 24 }}>
-          <SettingsCard>
-            <InputField
-              colors={colors}
-              label="Name"
-              initialValue={name}
-              placeholder="Morning check-in"
-              onChangeText={setName}
-            />
-            <TextAreaField
-              colors={colors}
-              label="Prompt"
-              hint="Sent as the first message of each run"
-              defaultValue={prompt}
-              onChangeText={setPrompt}
-              placeholder="What should the bot do each run?"
-            />
-          </SettingsCard>
-        </View>
-        <CadenceSection colors={colors} routineId={id} cadence={cadence} />
+        <RoutineFields colors={colors} name={name} prompt={prompt} setName={setName} setPrompt={setPrompt} />
+        <SchedulePolicySection
+          colors={colors}
+          editor={editor}
+          cadence={cadence}
+          routineId={id}
+          since={createdAt}
+          invalid={invalid}
+        />
         <ResultsSection chats={chats.data ?? []} resultsChatId={resultsChatId} onChange={setResultsChatId} />
         <SheetFooter>
           <Button colors={colors} size="md" label="Cancel" onPress={onCancel} style={{ flex: 1 }} />

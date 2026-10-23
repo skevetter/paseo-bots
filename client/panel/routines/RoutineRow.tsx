@@ -25,7 +25,7 @@ function formatNextRun(next: Date, now: number = Date.now()): string {
 
 /** Status is left to the badge. */
 function routineMeta(routine: Routine, run: RoutineRun | undefined, next: Date | null): string {
-  const parts = [describeSchedule(routine.schedule)];
+  const parts = [describeSchedule(routine.schedule, routine.schedulePolicy)];
   const when = relativeTime(run?.startedAt);
   if (!run) parts.push("Never run");
   else if (run.skipped === "busy") parts.push(`Skipped ${when}, still working`);
@@ -97,7 +97,12 @@ export function RoutineRow({
   onEdit(): void;
 }) {
   const menu = useMenu();
-  const next = nextRun(routine.schedule, new Date(record?.lastRunAt ?? routine.createdAt), now);
+  const next = nextRun(
+    routine.schedule,
+    new Date(record?.lastRunAt ?? routine.createdAt),
+    now,
+    routine.schedulePolicy,
+  );
   const start = actions.starts[routine.id];
   const lastRun = record?.runs.at(-1);
   const badge = routineState(routine, next, start);
