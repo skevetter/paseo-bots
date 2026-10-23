@@ -12,11 +12,15 @@ export function QueueList({
   queue,
   onEdit,
   onSendNow,
+  sendLabel,
+  sendDisabled,
 }: {
   colors: Colors;
   queue: QueuedMessage[];
   onEdit(item: QueuedMessage): void;
   onSendNow(item: QueuedMessage): void;
+  sendLabel: string;
+  sendDisabled: boolean;
 }) {
   if (queue.length === 0) return null;
   return (
@@ -28,6 +32,8 @@ export function QueueList({
           item={item}
           onEdit={() => onEdit(item)}
           onSendNow={() => onSendNow(item)}
+          sendLabel={sendLabel}
+          sendDisabled={sendDisabled}
         />
       ))}
     </View>
@@ -39,11 +45,15 @@ function QueuedRow({
   item,
   onEdit,
   onSendNow,
+  sendLabel,
+  sendDisabled,
 }: {
   colors: Colors;
   item: QueuedMessage;
   onEdit(): void;
   onSendNow(): void;
+  sendLabel: string;
+  sendDisabled: boolean;
 }) {
   const label = item.text || item.attachments.map((attachment) => attachment.name).join(", ");
   return (
@@ -87,8 +97,10 @@ function QueuedRow({
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Send queued message now"
-          {...tooltip("Send now")}
+          accessibilityLabel={`${sendLabel}: queued message`}
+          accessibilityState={{ disabled: sendDisabled }}
+          disabled={sendDisabled}
+          {...tooltip(sendLabel)}
           onPress={onSendNow}
           style={{
             width: 32,
@@ -97,6 +109,7 @@ function QueuedRow({
             alignItems: "center",
             justifyContent: "center",
             backgroundColor: colors.accent,
+            opacity: sendDisabled ? 0.5 : 1,
           }}
         >
           <Icon name="ArrowUp" size={14} color={colors.accentForeground} />

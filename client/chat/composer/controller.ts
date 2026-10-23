@@ -11,6 +11,7 @@ import { useAttachmentSources, useFileAttachments, usePasteSheet } from "./attac
 import { useSlashCommands } from "./commands";
 import { useComposerDraft } from "./draftState";
 import { useQueue } from "./drafts";
+import { conversationKind, conversationNotice, startsNewTask } from "./execution";
 import { useInputHeight } from "./height";
 import { createKeyHandler } from "./keys";
 import {
@@ -43,12 +44,16 @@ export interface ComposerProps {
   layout: ChatPaneProps["layout"];
   keyboardOpen: boolean;
   agent?: PaseoAgent | null;
+  agentReady: boolean;
   onStart(message: OutgoingMessage): Promise<void>;
 }
 
 export type ChatComposerProps = ComposerProps & { draftKey: string };
 
-function useComposerInput(text: string, desktopWeb: boolean) {
+function useComposerInput(text: string, layout: ComposerProps["layout"]) {
+  const desktopWeb = layout.platform === "web" && !layout.compact;
+  const outerRef = useRef<View>(null);
+  const attachRef = useRef<View>(null);
   const inputRef = useRef<NativeTextInput>(null);
   const { height: windowHeight } = useWindowDimensions();
   const inputHeight = useInputHeight({
@@ -66,7 +71,7 @@ function useComposerInput(text: string, desktopWeb: boolean) {
   const focusOnOpen = useRef(desktopWeb);
   useEffect(() => (focusOnOpen.current ? focusWithRetries(() => domNode(inputRef.current)) : undefined), []);
 
-  return { inputRef, inputHeight, focusInput };
+  return { inputRef, inputHeight, focusInput, desktopWeb, outerRef, attachRef };
 }
 
 interface SendAvailability {
@@ -85,6 +90,8 @@ interface SendAvailabilityInput {
   loading: boolean;
   hasContent: boolean;
   behavior: SendBehavior;
+  ready: boolean;
+  newTask: boolean;
 }
 
 function sendAvailability({
@@ -95,15 +102,17 @@ function sendAvailability({
   loading,
   hasContent,
   behavior,
+  ready,
+  newTask,
 }: SendAvailabilityInput): SendAvailability {
-  const canInterrupt = running && permissions.length > 0 && agentId !== null && !!host.api;
-  const canPressLoading = loading && canInterrupt;
+  const canInterrupt = ready && running && permissions.length > 0 && agentId !== null && !!host.api;
+  const canPressLoading = loading && canInterrupt && !newTask;
   return {
     canInterrupt,
     canPressLoading,
-    sendDisabled: !host.api || (!canPressLoading && loading),
+    sendDisabled: !ready || !host.api || (!canPressLoading && loading),
     primary: resolvePrimaryAction({ hasContent, running, loading }),
-    sendLabel: submitAccessibilityLabel({ canPressLoading, behavior, running }),
+    sendLabel: newTask ? "Start new task" : submitAccessibilityLabel({ canPressLoading, behavior, running }),
   };
 }
 
@@ -115,39 +124,40 @@ export function useComposerController({
   running,
   layout,
   agent,
+  agentReady,
   onStart,
   draftKey,
 }: ChatComposerProps) {
   const draft = useComposerDraft(draftKey);
+  const kind = conversationKind({ agentId, agent, agentReady, isLocal: host.isLocal });
+  const continuing = kind === "legacy" || kind === "remote";
+  const newTask = startsNewTask(kind, bot, host.isLocal);
   const paste = usePasteSheet(draft);
-  const outerRef = useRef<View>(null);
-  const attachRef = useRef<View>(null);
   const sendBehavior = useSendBehavior();
   const permissions: Permission[] = agent?.pendingPermissions ?? [];
   const behavior = resolveActiveSendBehavior(sendBehavior, permissions.length > 0);
   const queue = useQueue(draftKey);
-  const canQueue = agentId !== null;
-  const desktopWeb = layout.platform === "web" && !layout.compact;
-  const input = useComposerInput(draft.text, desktopWeb);
+  const input = useComposerInput(draft.text, layout);
   const files = useFileAttachments({ draftKey, draft, botId: bot.id, isLocal: host.isLocal });
   const sending = useSending({
     draftKey,
     draft,
-    target: { agentId, host, sendBehavior, onStart },
+    target: { agentId, kind, host, sendBehavior, onStart },
     running,
     queue,
     focusInput: input.focusInput,
   });
   const loading = sending.processing || files.pending.length > 0;
-  const hasContent = draft.text.trim().length > 0 || draft.attachments.length > 0;
   const availability = sendAvailability({
     running,
     permissions,
     agentId,
     host,
     loading,
-    hasContent,
+    hasContent: draft.text.trim().length > 0 || draft.attachments.length > 0,
     behavior,
+    ready: kind !== "loading",
+    newTask,
   });
   const { stopping, stop } = useStopAgent({
     permissions,
@@ -160,48 +170,51 @@ export function useComposerController({
     colors,
     host,
     inputRef: input.inputRef,
-    outerRef,
-    attachRef,
+    outerRef: input.outerRef,
+    attachRef: input.attachRef,
     loading,
     addFiles: files.addFiles,
     onPasteText: paste.show,
   });
-  const commands = useSlashCommands(agentId, host, draft, input.focusInput);
+  const commands = useSlashCommands(continuing ? agentId : null, host, draft, input.focusInput);
 
   const run = (action: SendAction) => {
+    if (availability.sendDisabled || loading) return;
     if (action === "queue") sending.enqueue();
     else if (action === "send") void sending.send();
   };
-  const defaultAction = () => run(resolveDefaultAction({ behavior, running, canQueue }));
-  const interrupt = () => void stop();
-
-  const onKeyPress = createKeyHandler({
-    enabled: layout.platform === "web",
-    commands,
-    canInterrupt: availability.canInterrupt,
-    stop: interrupt,
-    enter: { submitOnEnter: desktopWeb, running, canQueue },
-    blocked: availability.sendDisabled || loading,
-    defaultAction,
-    alternateAction: () => run(resolveAlternateAction({ behavior, running, canQueue })),
-  });
+  const defaultAction = () =>
+    run(resolveDefaultAction({ behavior, running: continuing && running, canQueue: continuing }));
 
   return {
     ...availability,
+    kind,
+    newTask,
+    notice: conversationNotice(kind, host.isLocal, bot.executionMode === "managed"),
     draft,
     input,
-    outerRef,
-    attachRef,
+    outerRef: input.outerRef,
+    attachRef: input.attachRef,
     queue,
     pending: files.pending,
     paste,
     sending,
     loading,
     stopping,
-    interrupt,
-    onSend: availability.canPressLoading ? interrupt : defaultAction,
+    interrupt: stop,
+    onSend: availability.canPressLoading ? stop : defaultAction,
     openAttachMenu,
     commands,
-    onKeyPress,
+    onKeyPress: createKeyHandler({
+      enabled: layout.platform === "web",
+      commands,
+      canInterrupt: availability.canInterrupt,
+      stop,
+      enter: { submitOnEnter: input.desktopWeb, running: continuing && running, canQueue: continuing },
+      blocked: availability.sendDisabled || loading,
+      defaultAction,
+      alternateAction: () =>
+        run(resolveAlternateAction({ behavior, running: continuing && running, canQueue: continuing })),
+    }),
   };
 }

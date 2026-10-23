@@ -37,7 +37,7 @@ export function getDraft(key: string): ComposerDraft | null {
 
 export function setDraft(
   key: string,
-  draft: { text: string; attachments: ComposerAttachment[] } | null,
+  draft: { text: string; attachments: ComposerAttachment[]; messageId?: string } | null,
 ): void {
   const current = drafts[key];
   if (draft === null || isDraftEmpty(draft)) {
@@ -45,7 +45,13 @@ export function setDraft(
     const { [key]: _removed, ...rest } = drafts;
     drafts = rest;
   } else {
-    if (current && current.text === draft.text && current.attachments === draft.attachments) return;
+    if (
+      current &&
+      current.text === draft.text &&
+      current.attachments === draft.attachments &&
+      current.messageId === draft.messageId
+    )
+      return;
     drafts = {
       ...drafts,
       [key]: { text: draft.text, attachments: draft.attachments, updatedAt: Date.now() },
