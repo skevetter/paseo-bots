@@ -1,8 +1,8 @@
 # Paseo compatibility baseline
 
-What the Paseo host and SDK do today, and what this plugin does with it. Written against `@getpaseo/client` and `@getpaseo/plugin` 0.11.1 (`package.json`, `package-lock.json`).
+The production build SDK remains `@getpaseo/client` and `@getpaseo/plugin` 0.11.1. A separate development-only lane pins client/protocol 0.12.0 through npm aliases; it does not raise the plugin's host requirement.
 
-Every statement is **Observed** (read in the installed SDK `.d.ts`/`.js` under `node_modules/@getpaseo`, or in this repository) or marked **[INFERRED]** (a conclusion the SDK does not state). No real daemon was exercised for this baseline, so daemon behavior is inferred from SDK code and types. `tests/sdk-contract.test.ts` pins the observed SDK behavior; it drives the real SDK `DaemonClient` over an in-memory transport (`tests/fake-daemon.ts`), with no network.
+Statements are **Observed** through actual SDK execution, installed declarations/source, or this repository, or marked **[INFERRED]**. The SDK fixtures drive real `DaemonClient` implementations over an in-memory transport, with no network or provider execution. They do not prove daemon replay, lifecycle delivery or provider accounting semantics.
 
 When the SDK is bumped, a failing fixture means a contract below changed: read the diff, update this document and the fixture together, and check every caller named here.
 
@@ -14,11 +14,26 @@ When the SDK is bumped, a failing fixture means a contract below changed: read t
 | Build SDK | `@getpaseo/client` and `@getpaseo/plugin` `0.11.1`, exact pins | `package.json` devDependencies |
 | CI | Node 24; `ubuntu-latest` and `macos-latest`; `npm ci`, lint, typecheck, test | `.github/workflows/ci.yml` |
 | Windows | Not tested, not claimed | no Windows entry in the CI matrix |
+| Candidate client/protocol SDK | `0.12.0`, exact `@getpaseo/client-012` / `@getpaseo/protocol-012` development aliases | `package.json`, lockfile; upstream release commit `cafe4b01c8522ff39560241c5deb01427dc8dc5b` |
+| Local fixture runtimes | Node `26.12.1`, Bun `1.4.4`; macOS arm64 | `node --version`, `bun --version`; distinct from CI's Node 24 |
+| Installed desktop app | `0.13.0-beta.2` | `/Applications/Paseo.app/Contents/Info.plist`, read independently of the daemon |
+| Inspected running daemon | `0.13.0-beta.2` | `paseo daemon status --json`; version observation is not a 0.12.0 runtime test |
 
 - The SDK ships `assertPluginCompatibility` (`@getpaseo/protocol/plugin-requirements`). Given this manifest it accepts 0.11.0 and 0.11.1, rejects 0.10.9 with "requires Paseo", and rejects an unknown host version. Pinned in the fixtures. That the host calls it before loading a plugin is **[INFERRED]** from its `runtime: "daemon" | "app"` input.
 - The minimum host (0.11.0) is older than the build SDK (0.11.1). Anything added to the SDK in 0.11.1 is not guaranteed on a 0.11.0 host **[INFERRED]**; the SDK has no per-call version check, only the feature flags below.
 - Paseo supplies the plugin's runtime libraries (see README Development): React 19.1, React Native 0.81, React Query 5.90. The host shim has no `useRevealedText`.
 - `@getpaseo/protocol` 0.11.1 is an exact, direct development dependency for the fixtures. Shipped code (`shared/`, `server/`, `client/`) does not import it.
+
+### Compatibility validation matrix
+
+| Lane | Evidence | Boundary |
+| --- | --- | --- |
+| Build SDK 0.11.1 | Typecheck and real-client transport fixtures | Simulated host feature maps; no model runs |
+| Client/protocol 0.12.0 | Typechecked create options and actual client requests: all five passthrough fields, chosen UUID, in-flight replay/conflict, missing usage, unsupported identity refusal, nullable turn evidence | `tests/sdk-012-contract.test.ts`; no claim of a physical 0.12.0 app/daemon run |
+| Plugin lifecycle 0.12.0 | [Pinned lifecycle source](https://github.com/getpaseo/paseo/blob/cafe4b01c8522ff39560241c5deb01427dc8dc5b/packages/plugin/src/server/lifecycle.ts) inspected | Create hook sees config/env, session-open sees actual identity and interactive/history purpose, turn IDs nullable; hook execution/order/env replacement not exercised by these fixtures |
+| Installed app and daemon 0.13.0-beta.2 | Independent version observations above; later package UI/integration evidence is reported separately | Not a substitute for the simulated SDK lanes or provider validation |
+
+The aliases avoid upgrading the production build dependency. The plugin 0.12.0 package requires a matching client peer; it is not force-installed beside the 0.11.1 build SDK. Its lifecycle source is inspected, not presented as a compiled or executed plugin-runtime lane. Missing `lastUsage` remains null in the 0.12 client fixture; this does not establish whether any provider's available counters are cumulative or per call.
 
 ## How the plugin reaches the host
 

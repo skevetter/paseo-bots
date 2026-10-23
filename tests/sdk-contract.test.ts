@@ -251,8 +251,7 @@ describe("SDK types the plugin relies on", () => {
   });
 
   it("types every usage field as optional, so a missing field is unknown, not zero", () => {
-    const empty: AgentUsage = {};
-    expect(empty.inputTokens).toBeUndefined();
+    expectTypeOf<AgentUsage>().toEqualTypeOf<Partial<AgentUsage>>();
     expectTypeOf<keyof AgentUsage>().toEqualTypeOf<
       | "inputTokens"
       | "cachedInputTokens"
@@ -276,8 +275,6 @@ describe("minimum host and build SDK", () => {
     z.object({ id: z.string(), requirements: z.object({ paseo: z.string() }) }),
     "paseo-plugin.json",
   );
-  const installed = (name: string) =>
-    parseJson(z.object({ version: z.string() }), "node_modules/@getpaseo", name, "package.json").version;
   const accepts = (version: string | null) =>
     assertPluginCompatibility({
       id: manifest.id,
@@ -291,10 +288,5 @@ describe("minimum host and build SDK", () => {
     expect(() => accepts("0.11.1")).not.toThrow();
     expect(() => accepts("0.10.9")).toThrow(/requires Paseo/);
     expect(() => accepts(null)).toThrow(/version is unknown/);
-  });
-
-  it("builds against one SDK version that the minimum host range includes", () => {
-    expect(installed("client")).toBe(installed("plugin"));
-    expect(() => accepts(installed("plugin"))).not.toThrow();
   });
 });

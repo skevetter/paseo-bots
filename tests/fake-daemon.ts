@@ -1,5 +1,7 @@
 import { createPaseoApi, type PaseoApi } from "@getpaseo/client";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import { createPaseoApi as createPaseoApi012 } from "@getpaseo/client-012";
+import { DaemonClient as DaemonClient012 } from "@getpaseo/client-012/internal/daemon-client";
 
 // Drives the installed SDK's real DaemonClient over an in-memory transport, so fixtures observe what
 // the SDK puts on the wire and which errors it throws, with no network.
@@ -51,7 +53,10 @@ export function agentSnapshot(id: string, patch: Record<string, unknown> = {}) {
  * `features` is the server_info feature map the daemon advertises. A host without
  * `creationLifecycle` takes the SDK's legacy `create_agent_request` path instead.
  */
-export async function connectFakeDaemon(features: Features): Promise<FakeDaemon> {
+export async function connectFakeDaemon(
+  features: Features,
+  version: "0.11.1" | "0.12.0" = "0.11.1",
+): Promise<FakeDaemon> {
   const sent: Record<string, unknown>[] = [];
   let held: (() => void)[] | null = null;
   let deliver: (data: unknown, isBinary: boolean) => void = () => {};
@@ -83,7 +88,7 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
         queueMicrotask(() =>
           reply({
             type: "status",
-            payload: { status: "server_info", serverId: "fake", version: "0.11.1", features },
+            payload: { status: "server_info", serverId: "fake", version, features },
           }),
         );
         return;
@@ -106,7 +111,8 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
     onError: () => () => {},
   };
 
-  const client = new DaemonClient({
+  const Client = version === "0.12.0" ? DaemonClient012 : DaemonClient;
+  const client = new Client({
     url: "ws://fake.invalid",
     clientId: "paseo-bots-fixture",
     transportFactory: () => transport,
@@ -114,7 +120,7 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
   });
   await client.connect();
   return {
-    api: createPaseoApi(client),
+    api: client instanceof DaemonClient012 ? createPaseoApi012(client) : createPaseoApi(client),
     sent,
     hold() {
       held = [];
