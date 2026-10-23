@@ -38,7 +38,8 @@ export interface PreviewState {
 }
 
 export type PreviewAction =
-  | { type: "invalidate" | "start"; token: number }
+  | { type: "invalidate"; token: number }
+  | { type: "start"; token: number }
   | { type: "result"; token: number; result: PreviewResult }
   | { type: "error"; token: number; error: string };
 
