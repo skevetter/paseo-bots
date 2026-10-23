@@ -51,6 +51,7 @@ interface BotSummary {
   provider: string;
   model: string | null;
   mode: string | null;
+  executionMode: "legacy" | "managed";
   archived: boolean;
   pinned: boolean;
   team: string | null;
@@ -64,6 +65,7 @@ function botSummary(bot: Bot, groups: readonly BotGroup[] | undefined): BotSumma
     provider: bot.provider,
     model: bot.model,
     mode: bot.modeId,
+    executionMode: bot.executionMode ?? "legacy",
     archived: bot.archived,
     pinned: bot.pinned,
     team: teamOf(bot.id, groups ?? [])?.name ?? null,

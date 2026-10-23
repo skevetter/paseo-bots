@@ -277,6 +277,7 @@ export async function importBot({ botId, json }: { botId: string; json: string }
     ...parsed.bot,
     id: botId,
     hostId: null,
+    executionMode: "legacy",
     cwd: null,
     // Permissions start as on a new bot.
     modeId: null,

@@ -1,18 +1,17 @@
 import { createHash } from "node:crypto";
 import { dirname } from "node:path";
-import type { Bot, Routine } from "../shared/bot";
-import type { CreationEvidence, PreparedBotChat } from "../shared/chat";
+import type { Bot, BotState, Routine } from "../shared/bot";
+import type { CreationEvidence, PreparedBotChat, PreparedChatMetadata } from "../shared/chat";
+import { HostCapabilityError } from "../shared/host-capability";
 import { EXECUTION_LABEL, type HostReadiness, OCCURRENCE_LABEL, RUN_LABEL } from "../shared/managed-runs";
-import type { RoutineRun } from "../shared/rpc";
+import type { RoutineRecord, RoutineRun } from "../shared/rpc";
 import {
   isTerminal,
   newAttemptId,
   newExecutionId,
-  newSessionEpoch,
-  OccurrenceKeySchema,
-  occurrenceKeyOf,
   type Purpose,
   providerTurnId,
+  SessionEpochSchema,
   type Trigger,
 } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
@@ -33,11 +32,29 @@ import {
   retryDelay,
 } from "./run-admission-policy";
 import { RunArtifacts } from "./run-artifacts";
+import { type CreationWaitResult, CreationWaits } from "./run-creation-wait";
+import { BoundedHostCalls, deadlineOf, expireBeforeLaunch } from "./run-deadlines";
+import type { HostTimelineEvidence } from "./run-host-evidence";
 import { type HostRunEvidence, hostRunEvidence } from "./run-host-evidence";
 import { admitRun, appendRun, emptyRecord, type RunSnapshot, RunStore } from "./run-store";
 
+export type { CreationWaitResult } from "./run-creation-wait";
+
+import {
+  existingRequest,
+  type LegacyAdmission,
+  type ReplayRequest,
+  rememberRequest,
+  requestHashOf,
+  requestKey,
+} from "./run-requests";
+import { type ManagedSessionOpening, type ManagedSessionReceipt, ManagedSessions } from "./run-sessions";
+
+export type { ManagedSessionOpening, ManagedSessionReceipt } from "./run-sessions";
+
 export interface Admission {
   bot: Bot;
+  state: BotState;
   routine?: Routine;
   trigger: Trigger;
   due: Date;
@@ -48,6 +65,9 @@ export interface Admission {
   purpose?: Purpose;
   resourceIds?: string[];
   overlap?: "skip" | "queue" | "coalesce";
+  requestHash?: string;
+  deferLaunch?: boolean;
+  deadlineAt?: number;
 }
 export interface PreparedAdmission {
   routineId?: string;
@@ -57,6 +77,10 @@ export interface PreparedAdmission {
   resourceIds?: string[];
   overlap?: "skip" | "queue" | "coalesce";
   capacity?: Partial<CapacityLimits>;
+  state?: BotState;
+  requestHash?: string;
+  deferLaunch?: boolean;
+  deadlineAt?: number;
 }
 export interface CoordinatorOptions {
   store?: RunStore;
@@ -67,6 +91,8 @@ export interface CoordinatorOptions {
   launch?: typeof launchPreparedChat;
   refresh?: typeof refreshPreparedChat;
   cancel?: (agentId: string) => Promise<void>;
+  launchTimeoutMs?: number;
+  reconcileIntervalMs?: number;
 }
 export interface RunFilter {
   cursor?: string;
@@ -86,33 +112,15 @@ export interface ExecutionEnd {
 const allRuns = (state: RunSnapshot) => Object.values(state.routines).flatMap((record) => record.runs);
 const lookup = (state: RunSnapshot, id: string) => allRuns(state).find((run) => run.id === id);
 const copy = <T>(value: T): T => structuredClone(value);
-const holds = (run: RoutineRun) =>
-  run.managed?.reservation ?? (!isTerminal(run.executionStatus) || run.executionStatus === "unknown");
+const holds = (run: RoutineRun) => run.managed?.reservation === true;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
-
-function admissionOccurrence(recordId: string, input: PreparedAdmission) {
-  if (input.trigger === "schedule")
-    return occurrenceKeyOf(recordId, input.trigger, input.due.toISOString(), input.requestId);
-  const digest = createHash("sha256")
-    .update(JSON.stringify([recordId, input.trigger, input.requestId]))
-    .digest("hex");
-  return OccurrenceKeySchema.parse(`request:${digest}`);
-}
-
-function existingOccurrence(state: RunSnapshot, key: string): RoutineRun | null {
-  const id = state.coordinator.occurrences[key];
-  if (!id) return null;
-  const run = lookup(state, id);
-  if (!run) throw new Error(`Occurrence ${key} already exists as ${id}; replay refused.`);
-  return run;
-}
 
 /** The sole admission boundary. An uncertain host call is reconciled, never replayed. */
 export class RunCoordinator {
   readonly store: RunStore;
   private readonly artifacts: RunArtifacts;
   private readonly lock: CoordinatorLock;
-  private readonly epoch = newSessionEpoch();
+  private readonly sessions: ManagedSessions;
   private readonly now: () => number;
   private readonly jitter: () => number;
   private readonly capacity: CapacityLimits;
@@ -123,6 +131,10 @@ export class RunCoordinator {
   private stopped = false;
   private closing = false;
   private wake: NodeJS.Timeout | undefined;
+  private periodic: NodeJS.Timeout | undefined;
+  private observing: Promise<void> | null = null;
+  private readonly calls: BoundedHostCalls;
+  private readonly creationWaits: CreationWaits;
   private readonly detach: () => void;
   private state: HostReadiness = "waiting_for_host_api";
 
@@ -138,6 +150,10 @@ export class RunCoordinator {
     this.now = options.now ?? Date.now;
     this.jitter = options.jitter ?? Math.random;
     this.capacity = { ...DEFAULT_CAPACITY, ...options.capacity };
+    this.sessions = new ManagedSessions(this.store, this.artifacts, this.now);
+    this.validateTiming();
+    this.calls = new BoundedHostCalls(options.launchTimeoutMs ?? 30_000);
+    this.creationWaits = new CreationWaits((id) => this.get(id), options.launchTimeoutMs ?? 30_000);
     this.opened = this.lock.acquire();
     void this.opened.catch(() => {});
     this.detach = host.onAttach(() => {
@@ -145,6 +161,12 @@ export class RunCoordinator {
         console.error("paseo-bots: coordinator recovery failed", error),
       );
     });
+  }
+
+  private validateTiming(): void {
+    for (const value of [this.options.launchTimeoutMs ?? 30_000, this.options.reconcileIntervalMs ?? 30_000])
+      if (!Number.isSafeInteger(value) || value < 1)
+        throw new Error("Coordinator timing limits must be positive safe integers.");
   }
 
   get readiness(): HostReadiness {
@@ -156,62 +178,73 @@ export class RunCoordinator {
     if (this.stopped) throw new Error("Run coordinator is stopped.");
     const next = this.queue.then(work);
     this.queue = next.catch(() => {});
+    void next.then(
+      () => this.creationWaits.signal(),
+      () => this.creationWaits.signal(),
+    );
     return next;
   }
 
   async stop(): Promise<void> {
     this.closing = true;
     clearTimeout(this.wake);
+    clearInterval(this.periodic);
+    this.calls.close();
+    await this.observing;
     this.detach();
     await Promise.allSettled([this.recovery]);
     await this.queue;
     await Promise.allSettled(this.launches.values());
     await this.queue;
+    await this.creationWaits.close();
     this.stopped = true;
     this.state = "stopped";
     await this.opened.then(() => this.lock.release());
   }
 
   async admit(input: Admission): Promise<RoutineRun> {
-    const key = admissionOccurrence(input.routine?.id ?? `chat:${input.bot.id}`, input);
-    const prior = await this.serial(async () => copy(existingOccurrence(await this.store.read(), key)));
+    const request = this.admissionRequest(input);
+    const key = requestKey(request);
+    const prior = await this.findRequest(request);
     if (prior) {
       await this.recovery;
       await this.pump();
       return (await this.get(prior.id)) ?? prior;
     }
+    input = this.captureAdmission(input, request.requestHash);
+    this.validateDeadline(input.deadlineAt);
     const identity = admitRun({
       routineId: input.routine?.id ?? `chat:${input.bot.id}`,
       trigger: input.trigger,
       due: input.due,
       now: new Date(this.now()),
-      epoch: this.epoch,
+      epoch: SessionEpochSchema.parse(1),
     });
     identity.occurrenceKey = key;
-    if (input.bot.hostId)
-      return this.rejectAdmission(
-        input,
-        identity,
-        "Routines run on the host that stores the bot; this bot runs on another host.",
-      );
+    if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
+      return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
     this.host.requirePaseo();
     const agentId = newUuid();
     let prepared: PreparedBotChat;
     try {
-      prepared = await (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
-        agentId,
-        idempotencyKey: identity.executionId,
-        prompt: input.prompt,
-        title: input.title,
-        routineId: input.routine?.id,
-        purpose: input.purpose,
-        labels: {
-          ...input.labels,
-          [RUN_LABEL]: identity.id,
-          [EXECUTION_LABEL]: identity.executionId,
-          [OCCURRENCE_LABEL]: key,
-        },
-      });
+      prepared = await this.calls.run(
+        (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
+          agentId,
+          idempotencyKey: identity.executionId,
+          prompt: input.prompt,
+          title: input.title,
+          routineId: input.routine?.id,
+          purpose: input.purpose,
+          state: input.state,
+          labels: {
+            ...input.labels,
+            [RUN_LABEL]: identity.id,
+            [EXECUTION_LABEL]: identity.executionId,
+            [OCCURRENCE_LABEL]: key,
+          },
+        }),
+        "Managed preparation",
+      );
     } catch (error) {
       return this.rejectAdmission(input, identity, errorText(error));
     }
@@ -228,6 +261,19 @@ export class RunCoordinator {
     );
   }
 
+  private captureAdmission(input: Admission, requestHash: string): Admission {
+    const state = copy(input.state);
+    const bot = state.bots.find((entry) => entry.id === input.bot.id);
+    if (bot?.executionMode !== "managed")
+      throw new Error("Managed admission requires an explicitly managed bot in the captured state.");
+    if (bot.hostId)
+      throw new Error("Remote managed execution is unsupported; use the visibly legacy manual path.");
+    const routine = input.routine ? bot.routines.find((entry) => entry.id === input.routine?.id) : undefined;
+    if (input.routine && !routine)
+      throw new Error("The routine is absent from the captured admission state.");
+    return { ...input, state, bot, routine, requestHash };
+  }
+
   private rejectAdmission(input: Admission, run: RoutineRun, error: string): Promise<RoutineRun> {
     return this.serial(() =>
       this.store.updateState((state) => this.recordRejection(state, run, { input, error })),
@@ -239,19 +285,58 @@ export class RunCoordinator {
     run: RoutineRun,
     { input, error }: { input: Admission; error: string },
   ): RoutineRun {
-    const existing = existingOccurrence(state, run.occurrenceKey);
+    const request = this.admissionRequest(input);
+    const existing = existingRequest(state, run.occurrenceKey, request.requestHash);
     if (existing) return copy(existing);
     run.executionStatus = "failed";
     run.taskOutcome = "no_change";
     run.error = error;
+    if (input.deadlineAt !== undefined && input.deadlineAt <= this.now()) run.executionStatus = "canceled";
     run.endedAt = new Date(this.now()).toISOString();
     const id = input.routine?.id ?? `chat:${input.bot.id}`;
     const record = state.routines[id] ?? emptyRecord();
     if (run.trigger === "schedule") record.lastRunAt = run.scheduledFor;
     appendRun(record, run);
     state.routines[id] = record;
-    state.coordinator.occurrences[run.occurrenceKey] = run.id;
+    rememberRequest(state, request, run);
     return copy(run);
+  }
+
+  private admissionRequest(input: Admission): ReplayRequest {
+    return {
+      botId: input.bot.id,
+      routineId: input.routine?.id,
+      trigger: input.trigger,
+      due: input.due,
+      requestId: input.requestId,
+      requestHash:
+        input.requestHash ??
+        requestHashOf({
+          botId: input.bot.id,
+          routineId: input.routine?.id,
+          trigger: input.trigger,
+          requestId: input.trigger === "schedule" ? undefined : input.requestId,
+          prompt: input.prompt,
+          title: input.title,
+          purpose: input.purpose,
+          labels: input.labels,
+          resourceIds: input.resourceIds,
+          overlap: input.overlap,
+          deferLaunch: input.deferLaunch,
+          deadlineAt: input.deadlineAt,
+        }),
+    };
+  }
+
+  findRequest(input: ReplayRequest): Promise<RoutineRun | null> {
+    return this.serial(async () =>
+      copy(existingRequest(await this.store.read(), requestKey(input), input.requestHash)),
+    );
+  }
+
+  private validateDeadline(value: number | undefined): void {
+    if (value !== undefined && (!Number.isSafeInteger(value) || value < 0))
+      throw new Error("deadlineAt must be a nonnegative safe epoch-millisecond instant.");
   }
 
   async admitPrepared(
@@ -260,6 +345,26 @@ export class RunCoordinator {
     identity?: RoutineRun,
   ): Promise<RoutineRun> {
     if (this.closing) throw new Error("Run coordinator is stopping.");
+    this.validateDeadline(input.deadlineAt);
+    input = {
+      ...input,
+      requestHash:
+        input.requestHash ??
+        requestHashOf({
+          botId: prepared.botId,
+          routineId: input.routineId,
+          trigger: input.trigger,
+          requestId: input.trigger === "schedule" ? undefined : input.requestId,
+          prompt: prepared.prompt,
+          title: prepared.title,
+          purpose: prepared.purpose,
+          labels: prepared.labels,
+          resourceIds: input.resourceIds,
+          overlap: input.overlap,
+          deferLaunch: input.deferLaunch,
+          deadlineAt: input.deadlineAt,
+        }),
+    };
     const admitted = await this.serial(async () => {
       const run =
         identity ??
@@ -268,28 +373,16 @@ export class RunCoordinator {
           trigger: input.trigger,
           due: input.due,
           now: new Date(this.now()),
-          epoch: this.epoch,
+          epoch: SessionEpochSchema.parse(1),
         });
       const recordId = input.routineId ?? `chat:${prepared.botId}`;
-      run.occurrenceKey = admissionOccurrence(recordId, input);
+      run.occurrenceKey = requestKey({ ...input, botId: prepared.botId });
       const saved = await this.store.read();
-      const existing = existingOccurrence(saved, run.occurrenceKey);
+      const existing = existingRequest(saved, run.occurrenceKey, input.requestHash ?? "");
       if (existing) return copy(existing);
+      await this.validatePreparedMode(prepared, input);
       this.validateAgentIdentity(saved, prepared.agentId);
-      const frozen = copy(prepared);
-      frozen.labels = {
-        ...frozen.labels,
-        [RUN_LABEL]: run.id,
-        [EXECUTION_LABEL]: run.executionId,
-        [OCCURRENCE_LABEL]: run.occurrenceKey,
-      };
-      frozen.clientMessageId ??= run.executionId;
-      frozen.metadata.systemPromptHash = createHash("sha256")
-        .update(frozen.config.systemPrompt)
-        .digest("hex");
-      frozen.metadata.userPromptHash = createHash("sha256").update(frozen.prompt).digest("hex");
-      if (!frozen.hostId)
-        frozen.metadata.environmentVersion ??= `paseo-bots/${PLUGIN_VERSION};node/${process.version};${process.platform}/${process.arch}`;
+      const frozen = this.freezePrepared(prepared, run);
       const artifact = await this.artifacts.put({ prepared: frozen, capacity: input.capacity ?? {} });
       this.initialize(run, frozen, input, artifact);
       await this.store.updateState((state) => this.recordAdmission(state, recordId, run));
@@ -298,6 +391,29 @@ export class RunCoordinator {
     await this.recovery;
     await this.pump();
     return (await this.get(admitted.id)) ?? admitted;
+  }
+
+  private async validatePreparedMode(prepared: PreparedBotChat, input: PreparedAdmission): Promise<void> {
+    const bot = (input.state?.bots ?? (await this.host.bots())).find((entry) => entry.id === prepared.botId);
+    if (bot?.executionMode !== "managed")
+      throw new Error("Prepared managed admission requires explicit local managed execution mode.");
+    if (prepared.hostId || bot.hostId) throw new Error("Remote managed execution is unsupported.");
+  }
+
+  private freezePrepared(prepared: PreparedBotChat, run: RoutineRun): PreparedBotChat {
+    const frozen = copy(prepared);
+    frozen.labels = {
+      ...frozen.labels,
+      [RUN_LABEL]: run.id,
+      [EXECUTION_LABEL]: run.executionId,
+      [OCCURRENCE_LABEL]: run.occurrenceKey,
+    };
+    frozen.clientMessageId ??= run.executionId;
+    frozen.metadata.systemPromptHash = createHash("sha256").update(frozen.config.systemPrompt).digest("hex");
+    frozen.metadata.userPromptHash = createHash("sha256").update(frozen.prompt).digest("hex");
+    if (!frozen.hostId)
+      frozen.metadata.environmentVersion ??= `paseo-bots/${PLUGIN_VERSION};node/${process.version};${process.platform}/${process.arch}`;
+    return frozen;
   }
 
   private validateAgentIdentity(state: RunSnapshot, agentId: string): void {
@@ -337,6 +453,11 @@ export class RunCoordinator {
       creation: null,
       cancelRequested: false,
       coalescedInto: null,
+      requestHash: input.requestHash,
+      launchIntent: !input.deferLaunch,
+      deadlineAt: input.deadlineAt ?? null,
+      firstReservedAt: null,
+      maxRunSeconds: prepared.metadata.resolvedPolicy.budget.maxRunSeconds.value,
     };
     run.managed.attempts.push(this.attempt(run, prepared));
   }
@@ -358,29 +479,69 @@ export class RunCoordinator {
     if (!managed) throw new Error("Missing admission metadata.");
     const record = state.routines[recordId] ?? emptyRecord();
     state.routines[recordId] = record;
-    const active = record.runs.some(holds);
+    const active = record.runs.some(
+      (entry) =>
+        holds(entry) ||
+        (!entry.managed && (!isTerminal(entry.executionStatus) || entry.executionStatus === "unknown")),
+    );
     const queued = record.runs.find((entry) => entry.executionStatus === "queued");
-    const webhookRoom =
-      managed.overlapLimit > 1 &&
-      record.runs.filter((entry) => holds(entry) || entry.executionStatus === "queued").length <
-        managed.overlapLimit;
+    const webhookRoom = this.webhookRoom(record, managed.overlapLimit);
     const decision = webhookRoom ? "admit" : overlapDecision(managed.overlap, active, !!queued);
     if (decision === "skip" || decision === "coalesce") {
-      run.executionStatus = "canceled";
-      run.taskOutcome = "no_change";
-      run.skipped = "busy";
-      run.endedAt = new Date(this.now()).toISOString();
-      managed.coalescedInto = decision === "coalesce" ? (queued?.id ?? null) : null;
+      this.recordBusy(run, decision === "coalesce" ? queued : undefined);
     }
     if (run.trigger === "schedule") record.lastRunAt = run.scheduledFor;
+    managed.admissionOrder = ++state.coordinator.admissionOrder;
+    managed.admittedAt = this.now();
+    rememberRequest(
+      state,
+      {
+        botId: managed.botId,
+        routineId: managed.routineId ?? undefined,
+        trigger: run.trigger,
+        due: new Date(run.scheduledFor),
+        requestId: managed.requestId,
+        requestHash: managed.requestHash ?? "",
+      },
+      run,
+    );
     state.coordinator.occurrences[run.occurrenceKey] = run.id;
     appendRun(record, run);
+  }
+
+  private recordBusy(run: RoutineRun, coalesced: RoutineRun | undefined): void {
+    if (!run.managed) throw new Error("Missing managed overlap metadata.");
+    run.executionStatus = "canceled";
+    run.taskOutcome = "no_change";
+    run.skipped = "busy";
+    run.endedAt = new Date(this.now()).toISOString();
+    run.managed.coalescedInto = coalesced?.id ?? null;
+  }
+
+  private webhookRoom(record: RoutineRecord, limit: number): boolean {
+    if (
+      record.runs.some(
+        (entry) =>
+          !entry.managed && (!isTerminal(entry.executionStatus) || entry.executionStatus === "unknown"),
+      )
+    )
+      return false;
+    return (
+      limit > 1 &&
+      record.runs.filter((entry) => holds(entry) || entry.executionStatus === "queued").length < limit
+    );
   }
 
   async recordMissed(routineId: string, due: Date, now: Date): Promise<RoutineRun> {
     return this.serial(() =>
       this.store.updateState((state) => {
-        const run = admitRun({ routineId, trigger: "schedule", due, now, epoch: this.epoch });
+        const run = admitRun({
+          routineId,
+          trigger: "schedule",
+          due,
+          now,
+          epoch: SessionEpochSchema.parse(0),
+        });
         const prior = state.coordinator.occurrences[run.occurrenceKey];
         const existing = prior ? lookup(state, prior) : null;
         if (existing) return copy(existing);
@@ -399,46 +560,136 @@ export class RunCoordinator {
     );
   }
 
+  async startPrepared(planId: string): Promise<RoutineRun> {
+    const admitted = await this.serial(() =>
+      this.store.updateState((state) => {
+        const run = lookup(state, planId);
+        if (!run?.managed) throw new Error("Managed execution plan not found.");
+        if (run.executionStatus === "canceled") return copy(run);
+        if (!isTerminal(run.executionStatus) && !expireBeforeLaunch(run, this.now()))
+          run.managed.launchIntent = true;
+        return copy(run);
+      }),
+    );
+    await this.recovery;
+    await this.pump();
+    return (await this.get(planId)) ?? admitted;
+  }
+
+  async snapshot(
+    runId: string,
+  ): Promise<
+    { status: "available"; metadata: PreparedChatMetadata } | { status: "unavailable"; reason: string }
+  > {
+    const run = await this.get(runId);
+    if (!run?.managed)
+      return {
+        status: "unavailable",
+        reason: "This legacy or missing run has no immutable managed admission snapshot.",
+      };
+    try {
+      const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
+      return { status: "available", metadata: copy(artifact.prepared.metadata) };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        reason: `The retained admission artifact cannot be verified: ${errorText(error)}`,
+      };
+    }
+  }
+
+  async sessionOpened(input: ManagedSessionOpening): Promise<ManagedSessionReceipt | null> {
+    await this.opened;
+    if (this.closing) throw new Error("Managed coordinator is stopping.");
+    return this.sessions.opened(input);
+  }
+
+  async sessionActive(agentId: string): Promise<void> {
+    await this.opened;
+    await this.sessions.active(agentId);
+    this.creationWaits.signal();
+  }
+
+  recordLegacy(
+    input: LegacyAdmission,
+    initialize?: (record: RoutineRecord, run: RoutineRun) => void,
+  ): Promise<{ run: RoutineRun; created: boolean }> {
+    return this.serial(() =>
+      this.store.updateState((state) => {
+        const existing = existingRequest(state, requestKey(input), input.requestHash);
+        if (existing) return { run: copy(existing), created: false };
+        const run = admitRun({ ...input, now: new Date(this.now()), epoch: SessionEpochSchema.parse(0) });
+        run.occurrenceKey = requestKey(input);
+        run.executionStatus = "starting";
+        const record = state.routines[input.routineId] ?? emptyRecord();
+        initialize?.(record, run);
+        if (input.trigger === "schedule") record.lastRunAt = run.scheduledFor;
+        appendRun(record, run);
+        state.routines[input.routineId] = record;
+        rememberRequest(state, input, run);
+        return { run: copy(run), created: true };
+      }),
+    );
+  }
+
+  finishLegacy(runId: string, patch: Partial<RoutineRun>): Promise<RoutineRun> {
+    return this.serial(() => this.store.updateState((state) => this.patchLegacy(state, runId, patch)));
+  }
+
+  private patchLegacy(state: RunSnapshot, runId: string, patch: Partial<RoutineRun>): RoutineRun {
+    const run = lookup(state, runId);
+    if (!run || run.managed) throw new Error("Legacy run not found.");
+    if (isTerminal(run.executionStatus)) {
+      if (patch.agentId) run.agentId = patch.agentId;
+    } else Object.assign(run, patch);
+    return copy(run);
+  }
+
   async get(id: string): Promise<RoutineRun | null> {
     await this.opened;
-    return copy(lookup(await this.store.read(), id) ?? null);
+    return copy(await this.store.get(id));
   }
 
   async list(
     filter: RunFilter = {},
   ): Promise<{ runs: RoutineRun[]; cursor: string | null; readiness: HostReadiness }> {
     await this.opened;
-    const runs = allRuns(await this.store.read())
-      .filter(
-        (run) =>
-          (!filter.botId || run.managed?.botId === filter.botId) &&
-          (!filter.routineId || run.managed?.routineId === filter.routineId) &&
-          (!filter.executionStatus || run.executionStatus === filter.executionStatus),
-      )
-      .sort((a, b) => b.startedAt.localeCompare(a.startedAt) || b.id.localeCompare(a.id));
-    const offset = filter.cursor ? runs.findIndex((run) => run.id === filter.cursor) + 1 : 0;
-    if (filter.cursor && offset === 0) throw new Error("Run cursor no longer exists. Reload the first page.");
-    const page = runs.slice(offset, offset + Math.min(100, Math.max(1, filter.limit ?? 30)));
-    return {
-      runs: copy(page),
-      cursor: offset + page.length < runs.length ? (page.at(-1)?.id ?? null) : null,
-      readiness: this.state,
-    };
+    const page = await this.store.list(filter);
+    return { runs: page.runs, cursor: page.nextCursor, readiness: this.state };
   }
 
   async pump(): Promise<void> {
-    if (!this.host.paseo || this.stopped || this.closing || this.state === "reconciling") return;
-    const admitted = await this.serial(async () => {
-      const selected: string[] = [];
-      await this.store.updateState(async (state) => {
-        for (const run of allRuns(state)) {
-          if (run.executionStatus === "reserved" || (await this.reserve(state, run))) selected.push(run.id);
-        }
-      });
-      return selected;
-    });
+    if (this.stopped || this.closing || this.state === "reconciling") return;
+    await this.enforceActiveDeadlines();
+    const admitted = await this.serial(() => this.store.updateState((state) => this.selectLaunches(state)));
     await Promise.all(admitted.map((id) => this.launch(id)));
     await this.armWake();
+  }
+
+  private async selectLaunches(state: RunSnapshot): Promise<string[]> {
+    const all = allRuns(state);
+    const pending = all.filter((run) => run.managed && ["queued", "reserved"].includes(run.executionStatus));
+    for (const run of pending) expireBeforeLaunch(run, this.now());
+    const active = all.filter(holds);
+    pending.sort(
+      (a, b) =>
+        (a.managed?.admissionOrder ?? Date.parse(a.startedAt)) -
+        (b.managed?.admissionOrder ?? Date.parse(b.startedAt)),
+    );
+    const selected: string[] = [];
+    for (const run of pending) {
+      if (!this.canStart(run) || expireBeforeLaunch(run, this.now())) continue;
+      if (run.executionStatus !== "reserved") {
+        if (!(await this.reserve(state, run, active))) continue;
+        active.push(run);
+      }
+      selected.push(run.id);
+    }
+    return selected;
+  }
+
+  private canStart(run: RoutineRun): boolean {
+    return !!this.host.paseo && run.managed?.launchIntent !== false && !isTerminal(run.executionStatus);
   }
 
   private async armWake(): Promise<void> {
@@ -446,10 +697,14 @@ export class RunCoordinator {
     if (this.closing) return;
     const state = await this.store.read();
     const times = allRuns(state)
-      .filter((run) => run.executionStatus === "queued" && run.managed)
-      .map((run) => {
-        const circuit = state.coordinator.circuits[run.managed?.provider ?? ""];
-        return Math.max(run.managed?.notBefore ?? 0, circuit?.openUntil ?? 0);
+      .flatMap((run) => {
+        if (!run.managed) return [];
+        const deadline = deadlineOf(run);
+        const deadlines =
+          Number.isFinite(deadline) && (!isTerminal(run.executionStatus) || holds(run)) ? [deadline] : [];
+        if (run.executionStatus !== "queued" || run.managed.launchIntent === false) return deadlines;
+        const circuit = state.coordinator.circuits[run.managed.provider];
+        return [...deadlines, Math.max(run.managed.notBefore, circuit?.openUntil ?? 0)];
       })
       .filter((at) => at > this.now());
     if (times.length === 0) return;
@@ -464,14 +719,26 @@ export class RunCoordinator {
     this.wake.unref?.();
   }
 
-  private async reserve(state: RunSnapshot, run: RoutineRun): Promise<boolean> {
+  private async reserve(state: RunSnapshot, run: RoutineRun, active: RoutineRun[]): Promise<boolean> {
     const managed = run.managed;
-    if (!managed || run.executionStatus !== "queued" || managed.notBefore > this.now()) return false;
-    const active = allRuns(state).filter((entry) => entry.id !== run.id && holds(entry));
+    if (
+      !managed ||
+      managed.launchIntent === false ||
+      run.executionStatus !== "queued" ||
+      managed.notBefore > this.now()
+    )
+      return false;
+    active = active.filter(holds);
     const sameRoutine = active.filter(
       (entry) => entry.managed?.routineId === managed.routineId && managed.routineId !== null,
     );
     if (sameRoutine.length >= managed.overlapLimit) return false;
+    const legacySameRoutine = managed.routineId
+      ? state.routines[managed.routineId]?.runs.some(
+          (entry) => entry.id !== run.id && !entry.managed && !isTerminal(entry.executionStatus),
+        )
+      : false;
+    if (legacySameRoutine) return false;
     const artifact = await this.artifacts.get<{
       prepared: PreparedBotChat;
       capacity: Partial<CapacityLimits>;
@@ -491,7 +758,7 @@ export class RunCoordinator {
     state.coordinator.circuits[managed.provider] = circuit.state;
     managed.reservation = true;
     run.executionStatus = "reserved";
-    run.sessionEpoch = this.epoch;
+    managed.firstReservedAt ??= this.now();
     return true;
   }
 
@@ -525,6 +792,7 @@ export class RunCoordinator {
       await this.store.updateState(async (state) => {
         const run = lookup(state, id);
         if (!run?.managed || run.executionStatus !== "reserved") return;
+        if (run.managed.launchIntent === false || expireBeforeLaunch(run, this.now())) return;
         const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
         result = artifact.prepared;
         run.executionStatus = "starting";
@@ -535,29 +803,39 @@ export class RunCoordinator {
     if (!prepared) return;
     let evidence: CreationEvidence | null = null;
     try {
-      const agentId = await (this.options.launch ?? launchPreparedChat)(
-        this.host,
-        this.relay,
-        prepared,
-        (value) => {
+      const agentId = await this.calls.run(
+        (this.options.launch ?? launchPreparedChat)(this.host, this.relay, prepared, (value) => {
           evidence = value;
-        },
+        }),
+        "Managed agent creation",
       );
       if (agentId !== prepared.agentId)
         throw new Error("Host did not preserve the admitted agent identity; reconcile required.");
-      await this.launched(id, evidence);
+      await this.launched(id, evidence, prepared.labels[EXECUTION_LABEL]);
     } catch (error) {
-      await this.launchFailed(id, error, evidence);
+      await this.launchFailed(id, error, evidence, prepared.labels[EXECUTION_LABEL]);
     }
   }
 
-  private async launched(id: string, evidence: CreationEvidence | null): Promise<void> {
-    await this.serial(() => this.store.updateState((state) => this.recordLaunched(state, id, evidence)));
+  private async launched(
+    id: string,
+    evidence: CreationEvidence | null,
+    executionId: string | undefined,
+  ): Promise<void> {
+    await this.serial(() =>
+      this.store.updateState((state) => this.recordLaunched(state, id, evidence, executionId)),
+    );
   }
 
-  private recordLaunched(state: RunSnapshot, id: string, evidence: CreationEvidence | null): void {
+  private recordLaunched(
+    state: RunSnapshot,
+    id: string,
+    evidence: CreationEvidence | null,
+    executionId: string | undefined,
+  ): void {
     const run = lookup(state, id);
-    if (!run?.managed) return;
+    if (!run?.managed || run.executionId !== executionId) return;
+    run.managed.hostCreatedAt ??= this.now();
     this.creation(run, evidence);
     if (run.executionStatus === "starting") {
       run.executionStatus = evidence?.outcomeUnknown ? "unknown" : "running";
@@ -588,24 +866,49 @@ export class RunCoordinator {
     }
   }
 
-  private async launchFailed(id: string, error: unknown, evidence: CreationEvidence | null): Promise<void> {
+  private async launchFailed(
+    id: string,
+    error: unknown,
+    evidence: CreationEvidence | null,
+    executionId: string | undefined,
+  ): Promise<void> {
     await this.serial(() =>
       this.store.updateState(async (state) => {
         const run = lookup(state, id);
-        if (!run?.managed || run.executionStatus !== "starting") return;
+        if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
         this.creation(run, evidence);
         run.error = errorText(error);
-        if (
-          !(error instanceof ProvenInfrastructureError) ||
-          error.provider !== run.managed.provider ||
-          evidence?.outcomeUnknown
-        ) {
+        if (this.noEffectCapability(error, evidence)) {
+          run.executionStatus = "failed";
+          run.taskOutcome = "no_change";
+          run.endedAt = new Date(this.now()).toISOString();
+          run.managed.reservation = false;
+          this.setAttempt(run, "failed");
+          return;
+        }
+        if (!this.retryable(run, error, evidence)) {
           run.executionStatus = "unknown";
           this.setAttempt(run, "unknown");
           return;
         }
         await this.safeFailure(state, run, error);
       }),
+    );
+  }
+
+  private noEffectCapability(error: unknown, evidence: CreationEvidence | null): boolean {
+    return error instanceof HostCapabilityError && !evidence?.outcomeUnknown;
+  }
+
+  private retryable(
+    run: RoutineRun,
+    error: unknown,
+    evidence: CreationEvidence | null,
+  ): error is ProvenInfrastructureError {
+    return (
+      error instanceof ProvenInfrastructureError &&
+      error.provider === run.managed?.provider &&
+      !evidence?.outcomeUnknown
     );
   }
 
@@ -628,7 +931,7 @@ export class RunCoordinator {
       retryAfterMs: error.retryAfterMs,
       jitter: this.jitter,
     });
-    if (next === null) {
+    if (next === null || next >= deadlineOf(run)) {
       run.executionStatus = "failed";
       run.taskOutcome = "no_change";
       run.endedAt = new Date(this.now()).toISOString();
@@ -640,6 +943,7 @@ export class RunCoordinator {
     }>(managed.artifact);
     run.attemptId = newAttemptId();
     run.executionId = newExecutionId();
+    run.sessionEpoch = SessionEpochSchema.parse(1);
     run.agentId = newUuid();
     artifact.prepared.agentId = run.agentId;
     artifact.prepared.idempotencyKey = run.executionId;
@@ -654,6 +958,10 @@ export class RunCoordinator {
     managed.attempts.push(this.attempt(run, artifact.prepared));
   }
 
+  waitForCreation(runId: string, options: { timeoutMs?: number } = {}): Promise<CreationWaitResult> {
+    return this.creationWaits.wait(runId, options);
+  }
+
   async finished(agentId: string, input: ExecutionEnd): Promise<RoutineRun | null> {
     const run = await this.serial(() =>
       this.store.updateState((state) => this.settleExecution(state, agentId, input)),
@@ -662,10 +970,35 @@ export class RunCoordinator {
     return run;
   }
 
-  private settleExecution(state: RunSnapshot, agentId: string, input: ExecutionEnd): RoutineRun | null {
+  private async settleExecution(
+    state: RunSnapshot,
+    agentId: string,
+    input: ExecutionEnd,
+  ): Promise<RoutineRun | null> {
     const found = allRuns(state).find((entry) => entry.agentId === agentId && holds(entry));
     if (!found?.managed || (input.executionId && found.executionId !== input.executionId)) return null;
     if (input.routineId && found.managed.routineId !== input.routineId) return null;
+    const artifact = await this.artifacts.put({
+      version: 1,
+      runId: found.id,
+      executionId: found.executionId,
+      attemptId: found.attemptId,
+      sessionEpoch: found.sessionEpoch,
+      source: "lifecycle",
+      kind: input.kind,
+      reply: input.reply ?? null,
+      providerTurnId: input.turnId ?? null,
+      observedAt: this.now(),
+    });
+    found.managed.result = artifact;
+    found.managed.evidence = {
+      artifact,
+      source: "lifecycle",
+      replyComplete: input.reply !== undefined,
+      timelineComplete: false,
+      observedAt: this.now(),
+    };
+    found.managed.hostCreatedAt ??= this.now();
     found.executionStatus = input.kind;
     found.providerTurnId = providerTurnId(input.turnId);
     found.taskOutcome = "unknown";
@@ -683,6 +1016,7 @@ export class RunCoordinator {
         const run = lookup(state, id);
         if (!run) throw new Error("Run not found.");
         if (!run.managed) throw new Error("Legacy runs require manual host reconciliation.");
+        const alreadyRequested = run.managed.cancelRequested;
         run.managed.cancelRequested = true;
         const beforeLaunch = run.executionStatus === "queued" || run.executionStatus === "reserved";
         if (beforeLaunch) {
@@ -690,20 +1024,35 @@ export class RunCoordinator {
           run.taskOutcome = "no_change";
           run.endedAt = new Date(this.now()).toISOString();
           run.managed.reservation = false;
+          run.managed.launchIntent = false;
           this.setAttempt(run, "canceled");
         }
-        return { run: copy(run), beforeLaunch };
+        return { run: copy(run), beforeLaunch, alreadyRequested };
       }),
     );
     if (result.beforeLaunch || !holds(result.run)) return { run: result.run, error: null };
+    if (result.alreadyRequested) return { run: result.run, error: result.run.managed?.cancelError ?? null };
+    let error: string | null = null;
     if (!this.options.cancel)
-      return {
-        run: result.run,
-        error:
-          "The attached Paseo API does not expose active cancellation. Stop the agent in Paseo, then reconcile; capacity remains reserved.",
-      };
-    await this.options.cancel(result.run.agentId ?? "");
-    return { run: result.run, error: null };
+      error =
+        "The attached Paseo API does not expose active cancellation. Stop the agent in Paseo, then reconcile; capacity remains reserved.";
+    else {
+      try {
+        await this.calls.run(
+          this.options.cancel(result.run.agentId ?? ""),
+          "Managed cancellation acknowledgement",
+        );
+      } catch (failure) {
+        error = errorText(failure);
+      }
+    }
+    await this.serial(() =>
+      this.store.updateState((state) => {
+        const run = lookup(state, id);
+        if (run?.managed) run.managed.cancelError = error;
+      }),
+    );
+    return { run: (await this.get(id)) ?? result.run, error };
   }
 
   async ready(): Promise<void> {
@@ -722,7 +1071,41 @@ export class RunCoordinator {
       .finally(() => {
         this.recovery = null;
       });
-    return this.recovery.then(() => this.pump());
+    return this.recovery.then(() => {
+      this.armPeriodic();
+      return this.pump();
+    });
+  }
+
+  private armPeriodic(): void {
+    if (this.periodic || this.closing) return;
+    this.periodic = setInterval(() => {
+      if (this.observing || this.closing) return;
+      this.observing = this.observe()
+        .catch((error: unknown) => console.error("paseo-bots: periodic reconciliation failed", error))
+        .finally(() => {
+          this.observing = null;
+        });
+    }, this.options.reconcileIntervalMs ?? 30_000);
+    this.periodic.unref?.();
+  }
+
+  private async observe(): Promise<void> {
+    await this.enforceActiveDeadlines();
+    await this.reconcile();
+    await this.pump();
+  }
+
+  private async enforceActiveDeadlines(): Promise<void> {
+    const state = await this.store.read();
+    const expired = allRuns(state).filter(
+      (run) =>
+        holds(run) &&
+        !run.managed?.cancelRequested &&
+        !["queued", "reserved"].includes(run.executionStatus) &&
+        this.now() >= deadlineOf(run),
+    );
+    await Promise.all(expired.map((run) => this.cancel(run.id)));
   }
 
   async reconcile(id?: string): Promise<{ runs: RoutineRun[]; readiness: HostReadiness }> {
@@ -737,7 +1120,7 @@ export class RunCoordinator {
         )
         .map(copy),
     );
-    for (const run of candidates) await this.reconcileOne(run);
+    await Promise.all(candidates.map((run) => this.reconcileOne(run)));
     const runs = id
       ? [await this.get(id)].filter((run): run is RoutineRun => run !== null)
       : (await this.list({ limit: 100 })).runs;
@@ -748,54 +1131,123 @@ export class RunCoordinator {
     if (!run.agentId || !this.host.paseo) return;
     try {
       const handle = this.host.paseo.agents.ref(run.agentId);
-      const snapshot = await handle.refresh();
+      const snapshot = await this.calls.run(handle.refresh(), "Host agent reconciliation");
       if (!snapshot) {
         if (run.executionStatus !== "reserved")
-          await this.unknown(run.id, "No matching host agent evidence; external effects remain unknown.");
+          await this.unknown(run, "No matching host agent evidence; external effects remain unknown.");
         return;
       }
-      if (!run.managed || snapshot.agent.labels[EXECUTION_LABEL] !== run.executionId) {
-        await this.unknown(run.id, "Host agent identity did not match the admitted execution.");
+      if (
+        !run.managed ||
+        snapshot.agent.id !== run.agentId ||
+        snapshot.agent.labels[RUN_LABEL] !== run.id ||
+        snapshot.agent.labels[EXECUTION_LABEL] !== run.executionId
+      ) {
+        await this.unknown(run, "Host agent identity did not match the admitted execution.");
         return;
       }
       const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
-      await (this.options.refresh ?? refreshPreparedChat)(this.relay, artifact.prepared);
-      const timeline = await handle.timeline.refetch({
-        direction: "tail",
-        limit: 100,
-        projection: "canonical",
-      });
-      await this.applyHostEvidence(run, hostRunEvidence(run, snapshot.agent, timeline));
+      await this.calls.run(
+        (this.options.refresh ?? refreshPreparedChat)(this.relay, artifact.prepared),
+        "Frozen relay restoration",
+      );
+      const timeline = await this.calls.run(
+        handle.timeline.refetch({
+          direction: "tail",
+          limit: 100,
+          projection: "canonical",
+        }),
+        "Host timeline reconciliation",
+      );
+      const evidence = hostRunEvidence(run, snapshot.agent, timeline);
+      await this.applyHostEvidence(run, evidence, timeline);
+      if (evidence.status !== "unknown") await this.sessions.active(run.agentId, run.sessionEpoch);
     } catch (error) {
-      await this.unknown(run.id, `Host reconciliation unavailable: ${errorText(error)}`);
+      await this.unknown(run, `Host reconciliation unavailable: ${errorText(error)}`);
     }
   }
 
-  private applyHostEvidence(run: RoutineRun, evidence: HostRunEvidence): Promise<void> {
+  private applyHostEvidence(
+    run: RoutineRun,
+    evidence: HostRunEvidence,
+    timeline: HostTimelineEvidence,
+  ): Promise<void> {
     return this.serial(() =>
-      this.store.updateState((state) => {
+      this.store.updateState(async (state) => {
         const saved = lookup(state, run.id);
         if (!saved?.managed || !holds(saved) || saved.executionId !== run.executionId) return;
-        saved.managed.timeline = evidence.cursor;
-        saved.executionStatus = evidence.status;
-        saved.providerTurnId = providerTurnId(evidence.providerTurnId);
-        saved.output = evidence.output;
-        saved.error = evidence.error;
-        if (evidence.status === "completed" || evidence.status === "failed") {
-          saved.managed.reservation = false;
-          saved.endedAt = new Date(this.now()).toISOString();
-          this.setAttempt(saved, evidence.status);
-          state.coordinator.circuits[saved.managed.provider] = providerCircuitSuccess();
-        }
+        if (saved.sessionEpoch !== run.sessionEpoch) return;
+        await this.retainTimeline(saved, evidence, timeline);
+        this.applyObserved(state, saved, evidence);
       }),
     );
   }
 
-  private unknown(id: string, error: string): Promise<void> {
+  private async retainTimeline(
+    run: RoutineRun,
+    evidence: HostRunEvidence,
+    timeline: HostTimelineEvidence,
+  ): Promise<void> {
+    if (!run.managed) throw new Error("Missing managed timeline evidence.");
+    const observedAt = this.now();
+    const artifact = await this.artifacts.put({
+      version: 1,
+      runId: run.id,
+      executionId: run.executionId,
+      sessionEpoch: run.sessionEpoch,
+      source: "timeline",
+      timeline,
+      observedAt,
+    });
+    const complete = this.timelineComplete(timeline);
+    const terminal = evidence.status === "completed" || evidence.status === "failed";
+    run.managed.evidence = {
+      artifact,
+      source: "timeline",
+      replyComplete: complete && evidence.output !== null && terminal,
+      timelineComplete: complete,
+      observedAt,
+    };
+    run.managed.hostCreatedAt ??= observedAt;
+    if (terminal) run.managed.result = artifact;
+  }
+
+  private timelineComplete(timeline: HostTimelineEvidence): boolean {
+    return (
+      !timeline.error &&
+      !timeline.gap &&
+      !timeline.staleCursor &&
+      !timeline.hasNewer &&
+      timeline.hasOlder === false
+    );
+  }
+
+  private applyObserved(state: RunSnapshot, run: RoutineRun, evidence: HostRunEvidence): void {
+    if (!run.managed) throw new Error("Missing managed execution evidence.");
+    run.managed.timeline = evidence.cursor;
+    run.executionStatus = evidence.status;
+    run.providerTurnId = providerTurnId(evidence.providerTurnId);
+    run.output = evidence.output;
+    run.error = evidence.error;
+    if (evidence.status === "completed" || evidence.status === "failed") {
+      run.managed.reservation = false;
+      run.endedAt = new Date(this.now()).toISOString();
+      this.setAttempt(run, evidence.status);
+      state.coordinator.circuits[run.managed.provider] = providerCircuitSuccess();
+    }
+  }
+
+  private unknown(observed: RoutineRun, error: string): Promise<void> {
     return this.serial(() =>
       this.store.updateState((state) => {
-        const run = lookup(state, id);
-        if (!run || !holds(run)) return;
+        const run = lookup(state, observed.id);
+        if (
+          !run ||
+          !holds(run) ||
+          run.executionId !== observed.executionId ||
+          run.sessionEpoch !== observed.sessionEpoch
+        )
+          return;
         run.executionStatus = "unknown";
         run.error = error;
         this.setAttempt(run, "unknown");

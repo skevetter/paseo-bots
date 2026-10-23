@@ -118,7 +118,11 @@ async function harness(
   attached = true,
   agents = new Map<string, AgentEvidence>(),
 ): Promise<Harness> {
-  const host = fakeHost([makeBot({ provider: "omp", model: "frozen-model" })]);
+  const host = fakeHost(
+    ["bot-1", "other", "another", "third"].map((id) =>
+      makeBot({ id, executionMode: "managed", provider: "omp", model: "frozen-model" }),
+    ),
+  );
   const api = {
     agents: {
       ref: (id: string) => ({
@@ -243,6 +247,7 @@ describe("admission snapshot replay", () => {
     const h = await harness({ prepare });
     const input = {
       bot: makeBot(),
+      state: await h.host.values(),
       trigger: "manual" as const,
       due: new Date(START),
       requestId: "manual-once",
@@ -789,7 +794,7 @@ describe("opaque occurrence request identity", () => {
     expect(webhook.occurrenceKey).not.toBe(manual.occurrenceKey);
     const replay = await h.coordinator.admitPrepared(
       makePrepared(),
-      occurrence({ trigger: "manual", requestId: "opaque:@/# request" }),
+      occurrence({ trigger: "manual", requestId: "opaque:@/# request", overlap: "queue" }),
     );
     expect(replay.id).toBe(manual.id);
   });

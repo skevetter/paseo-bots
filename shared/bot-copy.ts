@@ -8,6 +8,7 @@ export function duplicateOf(original: Bot, imported: Bot): Bot {
     name: `${original.name} copy`,
     hostId: original.hostId,
     cwd: original.cwd,
+    executionMode: "legacy",
     modeId: original.modeId,
     alwaysAllow: original.alwaysAllow,
     skillIds: original.skillIds,
