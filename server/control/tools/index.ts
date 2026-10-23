@@ -2,6 +2,7 @@ import type { ControlTool } from "../tool";
 import { APP_TOOLS } from "./apps";
 import { BOTS_TOOLS } from "./bots";
 import { CHAT_TOOLS } from "./chats";
+import { FLEET_TOOLS } from "./fleet";
 import { LIBRARY_TOOLS } from "./library";
 import { MEMORY_TOOLS } from "./memory";
 import { POLICY_TOOLS } from "./policies";
@@ -20,4 +21,5 @@ export const CONTROL_TOOLS: readonly ControlTool[] = [
   ...APP_TOOLS,
   ...PROPOSAL_TOOLS,
   ...POLICY_TOOLS,
+  ...FLEET_TOOLS,
 ];
