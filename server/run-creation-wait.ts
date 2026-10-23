@@ -63,6 +63,6 @@ export class CreationWaits {
       return { status: "created", agentId: run.agentId, run };
     if (isTerminal(run.executionStatus) && run.taskOutcome === "no_change")
       return { status: "not_created", run };
-    return expired ? { status: "pending", run } : null;
+    return expired || isTerminal(run.executionStatus) ? { status: "pending", run } : null;
   }
 }

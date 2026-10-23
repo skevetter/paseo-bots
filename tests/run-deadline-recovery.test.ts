@@ -130,9 +130,35 @@ async function runOf(h: Harness, id: string): Promise<RoutineRun> {
   return defined(await h.coordinator.get(id));
 }
 
+async function created(h: Harness, run: RoutineRun): Promise<RoutineRun> {
+  const result = await h.coordinator.waitForCreation(run.id);
+  expect(result.status).toBe("created");
+  return result.run;
+}
+
+async function observed(
+  h: Harness,
+  run: RoutineRun,
+  status: RoutineRun["executionStatus"],
+): Promise<RoutineRun> {
+  await vi.waitFor(async () => expect((await runOf(h, run.id)).executionStatus).toBe(status));
+  return runOf(h, run.id);
+}
+
+async function retryAt(h: Harness, run: RoutineRun, next: number): Promise<RoutineRun> {
+  await vi.waitFor(async () => {
+    const saved = await runOf(h, run.id);
+    expect(saved.executionStatus).toBe("queued");
+    expect(saved.managed?.notBefore).toBe(next);
+    expect(saved.managed?.reservation).toBe(false);
+  });
+  return runOf(h, run.id);
+}
+
 async function complete(h: Harness, run: RoutineRun): Promise<void> {
   await h.coordinator.finished(defined(run.agentId), {
     executionId: run.executionId,
+    sessionEpoch: run.sessionEpoch,
     kind: "completed",
     reply: "Observed terminal result",
   });
@@ -236,7 +262,7 @@ describe("execution wall-time budgets", () => {
     const run = await h.coordinator.admitPrepared(budgeted(1), occurrence("budget"));
     now = START + 60_000;
     await attach(h);
-    const running = await runOf(h, run.id);
+    const running = await created(h, run);
     expect(running.executionStatus).toBe("running");
     expect(running.managed?.firstReservedAt).toBe(now);
     now += 999;
@@ -257,13 +283,17 @@ describe("execution wall-time budgets", () => {
         throw new ProvenInfrastructureError("No create", "omp");
       },
     });
-    const run = await h.coordinator.admitPrepared(budgeted(5), occurrence("retry-budget"));
+    const run = await retryAt(
+      h,
+      await h.coordinator.admitPrepared(budgeted(5), occurrence("retry-budget")),
+      START + 2_250,
+    );
     expect(run.executionStatus).toBe("queued");
     expect(run.managed?.firstReservedAt).toBe(START);
     await close(h);
     now = START + 2_250;
     const reopened = await harness();
-    const retried = await runOf(reopened, run.id);
+    const retried = await created(reopened, run);
     expect(retried.executionStatus).toBe("running");
     expect(retried.managed?.firstReservedAt).toBe(START);
     now = START + 5_000;
@@ -282,6 +312,7 @@ describe("execution wall-time budgets", () => {
       makePrepared(),
       occurrence("cancel", { deadlineAt: START + 1_000 }),
     );
+    await created(h, run);
     now += 1_000;
     await h.coordinator.pump();
     const pending = await runOf(h, run.id);
@@ -318,16 +349,17 @@ describe("bounded host launch waits", () => {
         return prepared.agentId;
       },
     });
-    const admission = h.coordinator.admitPrepared(makePrepared(), occurrence("hung"));
+    const admission = await h.coordinator.admitPrepared(makePrepared(), occurrence("hung"));
+    expect(admission.managed?.reservation).toBe(true);
     const frozen = await entered.promise;
     const independent = await h.coordinator.admitPrepared(
       makePrepared({ botId: "bot-b", provider: "other-provider" }),
       occurrence("independent", { routineId: "routine-b" }),
     );
-    expect(independent.executionStatus).toBe("running");
+    expect((await created(h, independent)).executionStatus).toBe("running");
     now += 100;
     await vi.advanceTimersByTimeAsync(100);
-    const uncertain = await admission;
+    const uncertain = await observed(h, admission, "unknown");
     expect(uncertain.executionStatus).toBe("unknown");
     expect(uncertain.managed?.reservation).toBe(true);
     expect(uncertain.managed?.attempts).toHaveLength(1);
@@ -345,10 +377,10 @@ describe("bounded host launch waits", () => {
         return pending.promise;
       },
     });
-    const admission = h.coordinator.admitPrepared(makePrepared(), occurrence("stop-hung"));
+    const admission = await h.coordinator.admitPrepared(makePrepared(), occurrence("stop-hung"));
     await entered.promise;
     await close(h);
-    await admission;
+    expect(admission.managed?.reservation).toBe(true);
     const disk = await h.store.read();
     const saved = defined(disk.routines["routine-a"]?.runs[0]);
     expect(saved.executionStatus).toBe("unknown");
@@ -365,7 +397,7 @@ describe("bounded host launch waits", () => {
         return pending.promise;
       },
     });
-    const admission = h.coordinator.admitPrepared(makePrepared(), occurrence("default-bound"));
+    const admission = await h.coordinator.admitPrepared(makePrepared(), occurrence("default-bound"));
     await entered.promise;
     now += 29_999;
     await vi.advanceTimersByTimeAsync(29_999);
@@ -373,7 +405,7 @@ describe("bounded host launch waits", () => {
     expect(before.executionStatus).toBe("starting");
     now += 1;
     await vi.advanceTimersByTimeAsync(1);
-    expect((await admission).executionStatus).toBe("unknown");
+    expect((await observed(h, admission, "unknown")).executionStatus).toBe("unknown");
     expect(h.launches).toHaveLength(1);
   });
 });
@@ -414,13 +446,16 @@ describe("late launch result fencing", () => {
           return pending.promise;
         },
       });
-      const admission = h.coordinator.admitPrepared(makePrepared(), occurrence("late-terminal"));
+      await h.coordinator.admitPrepared(makePrepared(), occurrence("late-terminal"));
       const prepared = await entered.promise;
       const run = await runOf(h, prepared.labels[RUN_LABEL]);
       await complete(h, run);
       if (outcome === "resolve") pending.resolve(prepared.agentId);
       else pending.reject(new Error("Late transport failure"));
-      const terminal = await admission;
+      await pending.promise.catch(() => {});
+      await runOf(h, run.id);
+      await close(h);
+      const terminal = defined(await h.store.get(run.id));
       expect(terminal).toMatchObject({
         executionStatus: "completed",
         output: "Observed terminal result",
@@ -440,14 +475,16 @@ describe("late launch result fencing", () => {
         return pending.promise;
       },
     });
-    const admission = h.coordinator.admitPrepared(makePrepared(), occurrence("late-execution"));
+    await h.coordinator.admitPrepared(makePrepared(), occurrence("late-execution"));
     const prepared = await entered.promise;
     const run = await runOf(h, prepared.labels[RUN_LABEL]);
     const nextExecution = await replaceExecution(h, run);
     if (outcome === "resolve") pending.resolve(prepared.agentId);
     else pending.reject(new ProvenInfrastructureError("Old attempt rejected", "omp"));
-    await admission;
-    const current = await runOf(h, run.id);
+    await pending.promise.catch(() => {});
+    await runOf(h, run.id);
+    await close(h);
+    const current = defined(await h.store.get(run.id));
     expect(current).toMatchObject({ executionId: nextExecution, executionStatus: "starting", error: null });
     expect(current.managed?.reservation).toBe(true);
     expect(current.managed?.hostCreatedAt).toBeUndefined();
@@ -459,6 +496,7 @@ describe("periodic supported host reconciliation", () => {
   it("recovers missed completion hooks and captures timeline evidence", async () => {
     const h = await harness({ reconcileIntervalMs: 100 });
     const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("missed-completion"));
+    await created(h, run);
     const record = defined(h.agents.get(defined(run.agentId)));
     record.agent.status = "idle";
     record.agent.attentionReason = "finished";
@@ -483,6 +521,7 @@ describe("periodic supported host reconciliation", () => {
   it("discovers permission wait without a lifecycle callback", async () => {
     const h = await harness({ reconcileIntervalMs: 100 });
     const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("missed-permission"));
+    await created(h, run);
     defined(h.agents.get(defined(run.agentId))).agent.pendingPermissions = [{ id: "approval" }];
     await periodicTick(h, 100);
     const waiting = await runOf(h, run.id);
@@ -496,6 +535,7 @@ describe("periodic supported host reconciliation", () => {
     async (field) => {
       const h = await harness({ reconcileIntervalMs: 100 });
       const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("incomplete-timeline"));
+      await created(h, run);
       const record = defined(h.agents.get(defined(run.agentId)));
       record.agent.status = "idle";
       record.agent.attentionReason = "finished";
@@ -523,6 +563,7 @@ describe("overlap-safe periodic recovery", () => {
       },
     });
     const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("slow-observation"));
+    await created(h, run);
     const reconcile = vi.spyOn(h.coordinator, "reconcile");
     now += 100;
     await vi.advanceTimersByTimeAsync(100);
@@ -541,7 +582,8 @@ describe("overlap-safe periodic recovery", () => {
 describe("stopped periodic recovery", () => {
   it("stops host observation and refuses new admissions after shutdown", async () => {
     const h = await harness({ reconcileIntervalMs: 100 });
-    await h.coordinator.admitPrepared(makePrepared(), occurrence("before-stop"));
+    const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("before-stop"));
+    await created(h, run);
     const ref = vi.spyOn(h.api.agents, "ref");
     await periodicTick(h, 100);
     const observed = ref.mock.calls.length;
@@ -561,6 +603,7 @@ describe("durable FIFO admission", () => {
       makePrepared({ botId: "bot-b" }),
       occurrence("first-b", { routineId: "b" }),
     );
+    await created(h, firstB);
     const oldA = await h.coordinator.admitPrepared(makePrepared(), occurrence("old-a", { routineId: "a" }));
     const newB = await h.coordinator.admitPrepared(
       makePrepared({ botId: "bot-b" }),
@@ -572,6 +615,7 @@ describe("durable FIFO admission", () => {
     await close(h);
     const reopened = await harness({ capacity: { global: 1 } }, true, h.agents);
     await complete(reopened, firstB);
+    await created(reopened, oldA);
     expect((await runOf(reopened, oldA.id)).executionStatus).toBe("running");
     expect((await runOf(reopened, newB.id)).executionStatus).toBe("queued");
     expect(reopened.launches.map((prepared) => prepared.labels[RUN_LABEL])).toEqual([oldA.id]);
@@ -583,17 +627,20 @@ describe("durable FIFO admission", () => {
       makePrepared(),
       occurrence("writer", { resourceIds: ["a/../b", "a/../b"] }),
     );
+    await created(h, writer);
     const independent = await h.coordinator.admitPrepared(
       makePrepared({ botId: "bot-b" }),
       occurrence("different-resource", { routineId: "b", resourceIds: ["b"] }),
     );
+    await created(h, independent);
     const blocked = await h.coordinator.admitPrepared(
       makePrepared({ botId: "bot-c" }),
       occurrence("same-resource", { routineId: "c", resourceIds: ["a/../b"] }),
     );
-    expect(independent.executionStatus).toBe("running");
+    expect((await runOf(h, independent.id)).executionStatus).toBe("running");
     expect(blocked.executionStatus).toBe("queued");
     await complete(h, writer);
+    await created(h, blocked);
     expect((await runOf(h, blocked.id)).executionStatus).toBe("running");
   });
 });
@@ -605,10 +652,11 @@ describe("retry deadlines and deterministic host refusal", () => {
         throw new ProvenInfrastructureError("Provider refused before create", "omp", 10_000);
       },
     });
-    const run = await h.coordinator.admitPrepared(
+    const admission = await h.coordinator.admitPrepared(
       makePrepared(),
       occurrence("retry-deadline", { deadlineAt: START + 5_000 }),
     );
+    const run = await observed(h, admission, "failed");
     expect(run).toMatchObject({ executionStatus: "failed", taskOutcome: "no_change" });
     expect(run.managed?.reservation).toBe(false);
     expect(run.managed?.attempts).toHaveLength(1);
@@ -622,17 +670,21 @@ describe("retry deadlines and deterministic host refusal", () => {
       throw new ProvenInfrastructureError("No agent created", "omp");
     };
     const first = await harness({ launch });
-    const run = await first.coordinator.admitPrepared(makePrepared(), occurrence("three-attempts"));
+    const run = await retryAt(
+      first,
+      await first.coordinator.admitPrepared(makePrepared(), occurrence("three-attempts")),
+      START + 2_250,
+    );
     expect(run.managed?.notBefore).toBe(START + 2_250);
     await close(first);
     now = START + 2_250;
     const second = await harness({ launch });
-    const retried = await runOf(second, run.id);
+    const retried = await retryAt(second, run, START + 10_500);
     expect(retried.managed?.notBefore).toBe(START + 10_500);
     await close(second);
     now = START + 10_500;
     const third = await harness({ launch });
-    const exhausted = await runOf(third, run.id);
+    const exhausted = await observed(third, run, "failed");
     expect(exhausted.executionStatus).toBe("failed");
     expect(exhausted.managed?.attempts).toHaveLength(3);
     expect(exhausted.managed?.reservation).toBe(false);
@@ -647,7 +699,11 @@ describe("retry deadlines and deterministic host refusal", () => {
         throw new HostCapabilityError("managed-identity");
       },
     });
-    const run = await h.coordinator.admitPrepared(makePrepared(), occurrence("unsupported"));
+    const run = await observed(
+      h,
+      await h.coordinator.admitPrepared(makePrepared(), occurrence("unsupported")),
+      "failed",
+    );
     expect(run).toMatchObject({ executionStatus: "failed", taskOutcome: "no_change" });
     expect(run.managed?.reservation).toBe(false);
     expect(run.managed?.attempts).toHaveLength(1);

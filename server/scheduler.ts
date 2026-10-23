@@ -88,11 +88,14 @@ function webhookReply(run: RoutineRun): { code: number; state: "running" | "skip
 
 function hookRunReply(run: RoutineRun): HookReply {
   const { code, state } = webhookReply(run);
+  const created = run.managed
+    ? run.managed.hostCreatedAt !== undefined
+    : run.agentId !== null && run.executionStatus !== "starting";
   return {
     status: code,
     body: {
       status: state,
-      ...(run.agentId && !run.skipped ? { chat: run.agentId } : {}),
+      ...(created && run.agentId && !run.skipped ? { chat: run.agentId } : {}),
       ...(run.error ? { error: run.error } : {}),
     },
   };
@@ -131,6 +134,8 @@ export class RoutineScheduler {
   private timer: NodeJS.Timeout | undefined;
   private readonly detach: () => void;
   private ticking: Promise<void> | null = null;
+  private stopping = false;
+  private readonly occurrences = new Map<string, Promise<unknown>>();
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
   readonly coordinator: RunCoordinator;
@@ -161,12 +166,15 @@ export class RoutineScheduler {
 
   /** Resolves once a tick that's under way has finished, so nothing writes routine state after it. */
   async stop(): Promise<void> {
+    this.stopping = true;
     clearInterval(this.timer);
     this.timer = undefined;
     this.detach();
+    const legacyStopped = this.legacy.stop();
     await this.ticking;
-    await this.legacy.stop();
+    await legacyStopped;
     await this.coordinator.stop();
+    await Promise.allSettled(this.occurrences.values());
   }
 
   async status() {
@@ -180,6 +188,7 @@ export class RoutineScheduler {
   }
 
   async runNow(botId: string, routineId: string, requestId = newUuid()): Promise<{ run: RoutineRun }> {
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
     const requestHash = requestHashOf({ botId, routineId, requestId });
     const existing = await this.coordinator.findRequest({
       botId,
@@ -210,14 +219,26 @@ export class RoutineScheduler {
   async finished(
     routineId: string,
     agentId: string,
-    { outcome, reply, turnId = null }: { outcome: PluginTurnOutcome; reply: string; turnId?: string | null },
+    {
+      outcome,
+      reply,
+      turnId = null,
+      sessionEpoch,
+    }: {
+      outcome: PluginTurnOutcome;
+      reply: string;
+      turnId?: string | null;
+      sessionEpoch?: number;
+    },
   ): Promise<void> {
+    if (this.stopping) return;
     const managed = await this.coordinator.finished(agentId, {
       kind: outcome.kind,
       reply,
       turnId,
       error: turnError(outcome),
       routineId,
+      sessionEpoch,
     });
     const run =
       managed ??
@@ -248,6 +269,7 @@ export class RoutineScheduler {
 
   /** Only explicitly opted-in bots use managed admission and its enforcement. */
   private async run(request: RunRequest): Promise<RoutineRun> {
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
     const requestId = request.requestId ?? newUuid();
     const requestHash = request.requestHash ?? requestDigest(request, requestId);
     const prior = await this.coordinator.findRequest({
@@ -259,9 +281,10 @@ export class RoutineScheduler {
       due: request.due,
     });
     if (prior) return prior;
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
     const input = { ...request, requestId, requestHash, prompt: runPrompt(request.routine, request.event) };
     const seconds = request.routine.runtime?.deadlineSeconds;
-    const run =
+    let run =
       request.bot.executionMode === "managed"
         ? await this.coordinator.admit({
             ...input,
@@ -270,12 +293,14 @@ export class RoutineScheduler {
             deadlineAt: seconds === undefined ? undefined : request.due.getTime() + seconds * 1000,
           })
         : await this.legacy.run(input);
+    if (run.managed && ["reserved", "starting"].includes(run.executionStatus))
+      run = (await this.coordinator.waitForCreation(run.id)).run;
     await this.postCard(request.routine, run);
     return run;
   }
 
   private async postCard(routine: Routine, run: RoutineRun): Promise<void> {
-    if (!routine.resultsChatId || !this.paseo || run.skipped === "busy") return;
+    if (this.stopping || !routine.resultsChatId || !this.paseo || run.skipped === "busy") return;
     const data: RoutineRunCard = {
       routineName: routine.name,
       trigger: run.trigger,
@@ -297,7 +322,7 @@ export class RoutineScheduler {
   }
 
   private tick(): Promise<void> {
-    if (!this.ticking && this.paseo)
+    if (!this.stopping && !this.ticking && this.paseo)
       this.ticking = this.tickSafely().finally(() => {
         this.ticking = null;
       });
@@ -333,11 +358,30 @@ export class RoutineScheduler {
     try {
       const decision = decide(routine, lastRunAt, now);
       if (decision.action === "run")
-        await this.run({ ...target, routine, trigger: "schedule", due: decision.due });
-      else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
+        this.dispatch(routine, decision.due, () =>
+          this.run({ ...target, routine, trigger: "schedule", due: decision.due }),
+        );
+      else if (decision.action === "skip-missed")
+        this.dispatch(routine, decision.due, () => this.recordMissed(routine, decision.due, now));
     } catch (error) {
       console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
     }
+  }
+
+  private dispatch(routine: Routine, due: Date, work: () => Promise<unknown>): void {
+    if (this.stopping) return;
+    const key = requestKey({ routineId: routine.id, trigger: "schedule", requestId: "schedule", due });
+    if (this.occurrences.has(key)) return;
+    const pending = Promise.resolve()
+      .then(() => {
+        if (!this.stopping) return work();
+      })
+      .catch((error: unknown) => {
+        if (!this.stopping)
+          console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
+      })
+      .finally(() => this.occurrences.delete(key));
+    this.occurrences.set(key, pending);
   }
 
   private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {

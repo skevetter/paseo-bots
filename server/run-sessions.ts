@@ -25,6 +25,7 @@ export class ManagedSessions {
     private readonly store: RunStore,
     private readonly artifacts: RunArtifacts,
     private readonly now: () => number,
+    private readonly isLive: () => boolean = () => true,
   ) {}
 
   opened(input: ManagedSessionOpening): Promise<ManagedSessionReceipt | null> {
@@ -41,6 +42,7 @@ export class ManagedSessions {
       .find((entry) => entry.agentId === input.agentId && entry.managed);
     if (!run?.managed) return null;
     await this.validateRun(run, input);
+    this.checkLifetime();
     const history = state.coordinator.sessions[input.agentId] ?? [];
     const previous = history.at(-1);
     this.checkPlacement(previous, input);
@@ -70,8 +72,10 @@ export class ManagedSessions {
   }
 
   private async validateRun(run: RoutineRun, input: ManagedSessionOpening): Promise<void> {
+    this.checkLifetime();
+    this.checkTerminal(run);
     if (
-      !run.managed ||
+      !run.managed?.reservation ||
       run.managed.launchIntent === false ||
       ["queued", "reserved", "canceled"].includes(run.executionStatus) ||
       run.skipped
@@ -91,6 +95,7 @@ export class ManagedSessions {
 
   active(agentId: string, expectedEpoch?: number): Promise<void> {
     return this.store.updateState((state) => {
+      this.checkLifetime();
       const opening = state.coordinator.sessions[agentId]?.at(-1);
       if (!opening || opening.state === "active") return;
       if (expectedEpoch !== undefined && opening.sessionEpoch !== expectedEpoch) return;
@@ -99,6 +104,7 @@ export class ManagedSessions {
         .find((entry) => entry.agentId === agentId && entry.executionId === opening.executionId);
       if (!run?.managed || run.managed.launchIntent === false)
         throw new Error("Provider-session activation has no matching managed execution.");
+      this.checkTerminal(run);
       opening.state = "active";
       opening.activeAt = this.now();
       this.acknowledgeAgent(run);
@@ -109,6 +115,18 @@ export class ManagedSessions {
     if (!run.managed) throw new Error("Missing managed agent activation.");
     run.managed.hostCreatedAt ??= this.now();
     if (run.executionStatus === "starting") run.executionStatus = "running";
+  }
+
+  private checkLifetime(): void {
+    if (!this.isLive())
+      throw new Error("Managed coordinator is stopping; provider-session opening is refused.");
+  }
+
+  private checkTerminal(run: RoutineRun): void {
+    if (["completed", "failed", "canceled"].includes(run.executionStatus))
+      throw new Error(
+        "Terminal managed execution requires a new managed plan before interactive provider startup.",
+      );
   }
 
   private checkPlacement(previous: SessionOpening | undefined, input: ManagedSessionOpening): void {

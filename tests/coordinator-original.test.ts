@@ -7,7 +7,7 @@ import { RunCoordinator } from "../server/run-coordinator";
 import { RunStore } from "../server/run-store";
 import { HostCapabilityError } from "../shared/host-capability";
 import { makePrepared } from "./coordinator-fixture";
-import { fakeHost, makeBot } from "./helpers";
+import { defined, fakeHost, makeBot } from "./helpers";
 
 let directory: string;
 let coordinator: RunCoordinator;
@@ -67,7 +67,10 @@ describe("original durable coordinator boundaries", () => {
     });
     host.attach({ agents: { ref: () => ({ refresh: async () => null }) } } as never);
     await coordinator.ready();
-    const run = await coordinator.admitPrepared(makePrepared(), request("unsupported"));
+    const admitted = await coordinator.admitPrepared(makePrepared(), request("unsupported"));
+    const receipt = await coordinator.waitForCreation(admitted.id, { timeoutMs: 5_000 });
+    expect(receipt.status).toBe("not_created");
+    const run = defined(await coordinator.get(admitted.id));
     expect(run.executionStatus).toBe("failed");
     expect(run.taskOutcome).toBe("no_change");
     expect(run.managed?.reservation).toBe(false);
