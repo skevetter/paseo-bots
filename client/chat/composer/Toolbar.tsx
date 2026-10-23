@@ -1,8 +1,9 @@
 import type { PluginTheme } from "@getpaseo/plugin";
 import { Icon } from "@getpaseo/plugin/client/react-native";
 import type { ReactNode, RefObject } from "react";
-import { ActivityIndicator, Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { useHover } from "../../native";
+import { ui } from "../../typography";
 import { tooltip } from "../../ui/Tooltip";
 import { ContextMeter } from "./ContextMeter";
 import type { ContextUsage, PrimaryActionKind } from "./logic";
@@ -16,6 +17,7 @@ interface PrimaryButtonProps {
   primary: PrimaryActionKind;
   iconSize: number;
   sendLabel: string;
+  newTask: boolean;
   sendDisabled: boolean;
   loading: boolean;
   canInterrupt: boolean;
@@ -29,6 +31,7 @@ export function PrimaryButton({
   primary,
   iconSize,
   sendLabel,
+  newTask,
   sendDisabled,
   loading,
   canInterrupt,
@@ -38,12 +41,21 @@ export function PrimaryButton({
 }: PrimaryButtonProps) {
   if (primary === "send") {
     return (
-      <RoundButton label={sendLabel} background={colors.accent} disabled={sendDisabled} onPress={onSend}>
+      <RoundButton
+        label={sendLabel}
+        showLabel={newTask}
+        background={colors.accent}
+        disabled={sendDisabled}
+        onPress={onSend}
+      >
         {loading ? (
           <ActivityIndicator size="small" color={colors.accentForeground} />
         ) : (
           <Icon name="ArrowUp" size={iconSize} color={colors.accentForeground} />
         )}
+        {newTask ? (
+          <Text style={{ color: colors.accentForeground, fontSize: ui(12) }}>{sendLabel}</Text>
+        ) : null}
       </RoundButton>
     );
   }
@@ -180,12 +192,14 @@ function RoundButton({
   label,
   background,
   disabled,
+  showLabel = false,
   onPress,
   children,
 }: {
   label: string;
   background: string;
   disabled: boolean;
+  showLabel?: boolean;
   onPress(): void;
   children: ReactNode;
 }) {
@@ -197,7 +211,10 @@ function RoundButton({
       disabled={disabled}
       onPress={onPress}
       style={{
-        width: 28,
+        minWidth: 28,
+        paddingHorizontal: showLabel ? 10 : 0,
+        flexDirection: "row",
+        gap: 6,
         height: 28,
         borderRadius: 14,
         marginLeft: 4,

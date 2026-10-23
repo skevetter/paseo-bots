@@ -6,10 +6,12 @@ import type { ComposerAttachment } from "../../shared/attachments";
 import { AttachmentPill, PendingAttachmentPill } from "../AttachmentPill";
 import { homeIndicatorInset } from "../keyboard";
 import { CONTENT_MAX_WIDTH, nativeTokens, placeholderColor } from "../native";
+import type { PaseoAgent } from "../paseo";
 import { content, ui } from "../typography";
 import type { PendingFile } from "./composer/attachments";
 import { CommandMenu } from "./composer/CommandMenu";
 import { type ChatComposerProps, type ComposerProps, useComposerController } from "./composer/controller";
+import type { ConversationKind } from "./composer/execution";
 import { composerDraftKey, contextUsage } from "./composer/logic";
 import { PasteTextSheet } from "./composer/PasteTextSheet";
 import { QueueList } from "./composer/QueueList";
@@ -26,7 +28,13 @@ export function Composer(props: ComposerProps) {
   return <ChatComposer key={draftKey} draftKey={draftKey} {...props} />;
 }
 
-function composerPlaceholder(botName: string, agentId: string | null, compact: boolean): string {
+function composerPlaceholder(
+  botName: string,
+  agentId: string | null,
+  compact: boolean,
+  newTask: boolean,
+): string {
+  if (newTask) return `New task for ${botName} (no conversation history)`;
   if (!agentId) return `Message ${botName}`;
   return compact ? "Message, /commands" : `Message ${botName}, or use /commands and /skills`;
 }
@@ -70,6 +78,7 @@ interface ComposerTextInputProps {
   colors: Colors;
   inputRef: RefObject<NativeTextInput | null>;
   botName: string;
+  newTask: boolean;
   placeholder: string;
   text: string;
   onChangeText(next: string): void;
@@ -82,6 +91,7 @@ function ComposerTextInput({
   colors,
   inputRef,
   botName,
+  newTask,
   placeholder,
   text,
   onChangeText,
@@ -95,7 +105,7 @@ function ComposerTextInput({
   return (
     <TextInput
       ref={inputRef}
-      accessibilityLabel={`Message ${botName}`}
+      accessibilityLabel={newTask ? `New task for ${botName}` : `Message ${botName}`}
       value={text}
       onChangeText={onChangeText}
       placeholder={placeholder}
@@ -156,6 +166,29 @@ function SendErrorText({ message }: { message: string | null }) {
     </Text>
   );
 }
+function ConversationContext({
+  colors,
+  agent,
+  kind,
+  running,
+  glyphSize,
+}: {
+  colors: Colors;
+  agent: PaseoAgent | null | undefined;
+  kind: ConversationKind;
+  running: boolean;
+  glyphSize: number;
+}) {
+  if (kind !== "legacy" && kind !== "remote") return null;
+  return (
+    <ContextMeterSlot
+      colors={colors}
+      usage={contextUsage(agent?.lastUsage)}
+      pending={agent?.status === "initializing" || running}
+      glyphSize={glyphSize}
+    />
+  );
+}
 
 function ChatComposer(props: ChatComposerProps) {
   const { colors, bot, host, agentId, running, layout, keyboardOpen, agent } = props;
@@ -181,8 +214,13 @@ function ChatComposer(props: ChatComposerProps) {
           colors={colors}
           queue={composer.queue}
           onEdit={sending.editQueued}
+          sendLabel={composer.newTask ? "Start new task" : "Send now"}
+          sendDisabled={composer.sendDisabled || composer.loading}
           onSendNow={(item) => void sending.sendQueuedNow(item)}
         />
+        <Text accessibilityRole="text" style={{ color: colors.foregroundMuted, fontSize: ui(12) }}>
+          {composer.notice}
+        </Text>
         <SendErrorText message={sending.sendError} />
         <View style={{ position: "relative", width: "100%", flexShrink: 1 }}>
           {commands.visible ? (
@@ -211,10 +249,11 @@ function ChatComposer(props: ChatComposerProps) {
               colors={colors}
               inputRef={composer.input.inputRef}
               botName={bot.name}
-              placeholder={composerPlaceholder(bot.name, agentId, layout.compact)}
+              newTask={composer.newTask}
+              placeholder={composerPlaceholder(bot.name, agentId, layout.compact, composer.newTask)}
               text={draft.text}
               onChangeText={draft.updateText}
-              editable={!!host.api}
+              editable={!!host.api && composer.kind !== "loading"}
               onKeyPress={composer.onKeyPress}
               height={composer.input.inputHeight}
             />
@@ -225,19 +264,19 @@ function ChatComposer(props: ChatComposerProps) {
               attachDisabled={!host.api}
               onAttach={() => void composer.openAttachMenu()}
             >
-              {agentId ? (
-                <ContextMeterSlot
-                  colors={colors}
-                  usage={contextUsage(agent?.lastUsage)}
-                  pending={agent?.status === "initializing" || running}
-                  glyphSize={layout.compact ? 16 : buttonIconSize}
-                />
-              ) : null}
+              <ConversationContext
+                colors={colors}
+                agent={agent}
+                kind={composer.kind}
+                running={running}
+                glyphSize={layout.compact ? 16 : buttonIconSize}
+              />
               <PrimaryButton
                 colors={colors}
                 primary={composer.primary}
                 iconSize={buttonIconSize}
                 sendLabel={composer.sendLabel}
+                newTask={composer.newTask}
                 sendDisabled={composer.sendDisabled}
                 loading={composer.loading}
                 canInterrupt={composer.canInterrupt}

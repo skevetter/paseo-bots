@@ -6,6 +6,7 @@ import {
   SettingsRow,
   SettingsSection,
   SettingsSelect,
+  SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -245,6 +246,26 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
   return (
     <>
       <AgentSection bot={bot} providers={providers.data} loading={providers.isLoading} onPatch={onPatch} />
+      <SettingsSection
+        title="Execution"
+        info="Separate from model policy and approval. Changes apply to future tasks and routine runs, not existing conversations."
+      >
+        <SettingsCard>
+          <SettingsSwitch
+            label="Managed execution"
+            hint={
+              host.isLocal
+                ? "Opt in to durable task admission and capacity reservations. Each task starts separately; this does not enable routing or Memory Bridge, or enforce an in-flight spend cap."
+                : "Unavailable on another host. Manual chats use that host without local managed accounting, budgets or Memory Bridge."
+            }
+            value={host.isLocal && bot.executionMode === "managed"}
+            disabled={!host.isLocal}
+            onValueChange={(enabled) => {
+              if (host.isLocal) onPatch({ hostId: null, executionMode: enabled ? "managed" : "legacy" });
+            }}
+          />
+        </SettingsCard>
+      </SettingsSection>
 
       <AdvancedToggle colors={colors} open={advanced} onToggle={() => setAdvanced(!advanced)} />
       {advanced ? (
@@ -366,6 +387,7 @@ function WhereItRunsSection({
           onValueChange={(value) =>
             onPatch({
               hostId: value || null,
+              executionMode: "legacy",
               provider: "",
               model: null,
               modeId: null,
