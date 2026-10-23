@@ -27,7 +27,13 @@ import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
 import { systemPrompt } from "./server/prompt";
-import { acceptProposal, dismissProposal, getProposal, listProposals } from "./server/proposals";
+import {
+  acceptProposal,
+  dismissProposal,
+  getProposal,
+  listProposals,
+  recoverProposals,
+} from "./server/proposals";
 import { Relay } from "./server/relay";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
@@ -210,6 +216,9 @@ export default function contribute(server: PluginServerContext) {
   const scheduler = new RoutineScheduler(host, relay);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
+  void recoverProposals(store).catch((error: unknown) =>
+    console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
+  );
   const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
   server.handle(helloRpc, (_input, context) => {

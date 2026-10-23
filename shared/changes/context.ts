@@ -1,3 +1,5 @@
+import type { ChangeIds } from "./ids";
+
 export interface ProviderInfo {
   id: string;
   models: {
@@ -72,6 +74,13 @@ export interface ApplyContext {
   accounts?: readonly AppAccountInfo[] | null;
   /** When given, collects what a change couldn't do as asked, such as a new bot's approval mode. */
   notes?: string[];
+  /** When given, what changes create gets ids made from it, so applying them again makes the same ones. */
+  operationId?: string;
+}
+
+/** What one change sees: the context, and the ids it makes things with. */
+export interface ChangeContext extends ApplyContext {
+  ids: ChangeIds;
 }
 
 type ProviderModel = ProviderInfo["models"][number];

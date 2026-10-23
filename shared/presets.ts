@@ -1,11 +1,15 @@
 import { startingMode } from "./approval";
 import type { Bot, BotDefaults, Preset } from "./bot";
 import type { ProviderModesById } from "./bot-checks";
-import { prefixedId } from "./uuid";
+import { type ChangeIds, RANDOM_IDS } from "./changes/ids";
 
-export function presetFromBot(bot: Bot, now: string = new Date().toISOString()): Preset {
+export function presetFromBot(
+  bot: Bot,
+  now: string = new Date().toISOString(),
+  ids: ChangeIds = RANDOM_IDS,
+): Preset {
   return {
-    id: prefixedId("pr"),
+    id: ids.id("pr"),
     name: bot.name,
     title: bot.title,
     description: bot.description,
