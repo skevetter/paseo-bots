@@ -472,3 +472,40 @@ describe("fleet observability without usage aggregation", () => {
     expect((await listFleet(host)).rows[0]?.activeWork).toBeNull();
   });
 });
+
+describe("fleet provider-default model eligibility", () => {
+  it("refuses the whole change when a default-model target has no selectable model", async () => {
+    const { store, host, entries } = await fixture([
+      makeBot({ id: "bot-a", provider: "claude", modeId: null }),
+      makeBot({ id: "bot-b", provider: "omp", modeId: null }),
+    ]);
+    const unavailable = { id: "hidden", label: "Not selectable", isDefault: true, isSelectable: false };
+    defined(entries[0]).models = [unavailable];
+    const request = await requestFor(store, { patch: { model: null, thinkingOptionId: null } });
+    const original = await store.read();
+    const shown = await preview(host, request);
+    expect(shown.compatible).toBe(false);
+    expect(shown.rows.find(({ botId }) => botId === "bot-a")?.incompatibilities).toEqual(
+      expect.arrayContaining([expect.objectContaining({ field: "model" })]),
+    );
+    expect((await applyFleetChange(host, { request, previewDigest: shown.digest })).status).toBe("conflict");
+    expect(await store.read()).toEqual(original);
+  });
+
+  it("accepts thinking supported by the first selectable model when no default marker exists", async () => {
+    const { store, host, entries } = await fixture([makeBot({ modeId: null })]);
+    const fallback = {
+      id: "fallback",
+      label: "First selectable",
+      isDefault: false,
+      thinkingOptions: [{ id: "high" }],
+    };
+    defined(entries[0]).models = [fallback];
+    const request = await requestFor(store, { patch: { model: null, thinkingOptionId: "high" } });
+    const shown = await preview(host, request);
+    expect(shown.compatible).toBe(true);
+    expect(shown.rows[0]?.incompatibilities).toEqual([]);
+    expect((await applyFleetChange(host, { request, previewDigest: shown.digest })).status).toBe("applied");
+    expect((await store.read()).values.bots[0]).toMatchObject({ model: null, thinkingOptionId: "high" });
+  });
+});

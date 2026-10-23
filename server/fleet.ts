@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { BOT_LABEL, type Bot, type BotState, type StateSnapshot } from "../shared/bot";
+import { defaultModelId } from "../shared/bot-agent";
 import type { ProviderInfo } from "../shared/changes/context";
 import { findReceipt, type OperationChange } from "../shared/changes/operation";
 import { type FleetSettings, FleetSettingsSchema } from "../shared/changes/receipt";
@@ -82,17 +83,17 @@ function selectionIssues(resolution: Resolution, providers: readonly ProviderInf
         message: "The selected provider is unavailable on this host.",
       },
     ];
-  const model = resolution.model.value;
-  if (model && !provider.models.some((entry) => entry.id === model))
-    return issue("model", `${provider.id} has no selectable model ${model}.`);
+  const model = resolution.model.value ?? defaultModelId(provider.models);
+  if (!model) return issue("model", `${provider.id} has no selectable models.`);
+  const selected = provider.models.find((entry) => entry.id === model);
+  if (!selected) return issue("model", `${provider.id} has no selectable model ${model}.`);
   const mode = resolution.modeId.value;
   if (mode && !provider.modes.some((entry) => entry.id === mode))
     return [
       { code: "mode_not_on_provider", field: "modeId", message: `${provider.id} has no mode ${mode}.` },
     ];
-  const selected = provider.models.find((entry) => (model ? entry.id === model : entry.isDefault));
   const thinking = resolution.thinkingOptionId.value;
-  return thinking && !selected?.thinking.includes(thinking)
+  return thinking && !selected.thinking.includes(thinking)
     ? issue("thinkingOptionId", `The selected model has no thinking option ${thinking}.`)
     : [];
 }

@@ -17,6 +17,10 @@ incompatibilities. All rows must qualify before apply. Permission fields are not
 Explicit unset uses the policy resolver's dependent inheritance closure; clearing provider also
 inherits model and thinking. A null binding removes only the bot policy, not team/global policies.
 
+Provider-default selection uses the marked default or the first selectable model, exactly as chat
+launch does. A provider with no selectable model makes the operation incompatible, including when
+the stored model is null. Thinking options are checked against that same effective model.
+
 A preview digest binds the parsed request, entire config state, exact before/after rows and host
 provider evidence. Resolution uses one provider snapshot for both sides, with no artificial observation
 timestamp in the digest. Apply reacquires that evidence inside the authoritative writer queue and
