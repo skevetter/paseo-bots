@@ -19,6 +19,8 @@ export async function seeded(): Promise<BotStore> {
 export function dyingAfterCommit(store: BotStore): AcceptServices["store"] {
   return {
     read: () => store.read(),
+    reconcileOperation: (operation, reconcile) => store.reconcileOperation(operation, reconcile),
+    completeOperation: (operation) => store.completeOperation(operation),
     apply: async (operation, run) => {
       await store.apply(operation, run);
       throw new Error("crash after the config write");
@@ -30,6 +32,8 @@ export function dyingAfterCommit(store: BotStore): AcceptServices["store"] {
 export function dyingBeforeCommit(store: BotStore): AcceptServices["store"] {
   return {
     read: () => store.read(),
+    reconcileOperation: (operation, reconcile) => store.reconcileOperation(operation, reconcile),
+    completeOperation: (operation) => store.completeOperation(operation),
     apply: async () => {
       throw new Error("crash before the config write");
     },

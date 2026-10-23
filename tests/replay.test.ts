@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
@@ -49,7 +49,7 @@ const KINDS: [string, () => Promise<Proposal>][] = [
 describe.each(KINDS)("accepting a %s proposal across a crash", (_kind, create) => {
   useTempPaseoHome("paseo-bots-replay-");
 
-  it("writes nothing more when it died after the config write", async () => {
+  it("recovers the committed configuration without applying it again", async () => {
     const store = await seeded();
     const proposal = await create();
     await expect(acceptProposal(proposal.id, { store: dyingAfterCommit(store), commands })).rejects.toThrow(
@@ -63,12 +63,12 @@ describe.each(KINDS)("accepting a %s proposal across a crash", (_kind, create) =
     const again = await acceptProposal(proposal.id, { store, commands });
     expect(again.proposal.status).toBe("accepted");
     expect(again.receipt).toEqual(receipt);
-    // Same revision: the same entities with the same ids, and not a byte written.
-    expect((await store.read()).revision).toBe(saved.revision);
+    const { pendingOperations: _pin, ...committed } = saved.values;
+    expect((await store.read()).values).toEqual(committed);
     expect(await stagedIds()).toEqual([]);
   });
 
-  it("writes nothing more when it died between the config write and the accept mark", async () => {
+  it("does not reapply when the accept mark failed after the config commit", async () => {
     const store = await seeded();
     const proposal = await create();
     crash.beforeProposalWrite = true;
@@ -80,7 +80,8 @@ describe.each(KINDS)("accepting a %s proposal across a crash", (_kind, create) =
 
     expect((await acceptProposal(proposal.id, { store, commands })).proposal.status).toBe("accepted");
     await expect(acceptProposal(proposal.id, { store, commands })).rejects.toThrow("already saved");
-    expect((await store.read()).revision).toBe(saved.revision);
+    const { pendingOperations: _pin, ...committed } = saved.values;
+    expect((await store.read()).values).toEqual(committed);
   });
 
   it("applies once when it died before the config write", async () => {
@@ -193,13 +194,13 @@ describe("recovering at startup", () => {
     expect((await getProposal(proposal.id))?.status).toBe("accepted");
   });
 
-  it("publishes from the proposal when the staged file is damaged too", async () => {
+  it("publishes from the verified proposal when its staged file is missing", async () => {
     const store = await seeded();
-    const proposal = await skillProposal();
+    const proposal = await skillProposal("lost-stage");
     await expect(acceptProposal(proposal.id, { store: dyingAfterCommit(store), commands })).rejects.toThrow();
-    await writeFile(join(pluginDataPath(), "staging", "skills", proposal.id, "SKILL.md"), "damaged");
+    await rm(join(pluginDataPath(), "staging", "skills", proposal.id, "SKILL.md"));
     await recoverProposals(store);
-    expect((await readSkill({ id: "triage" })).text).toBe(SKILL_TEXT);
+    expect((await readSkill({ id: "lost-stage" })).text).toBe(SKILL_TEXT);
   });
 
   it("discards skill files staged by an operation that never saved", async () => {
@@ -220,10 +221,10 @@ describe("recovering at startup", () => {
     const saved = await routineProposal();
     const waiting = await changesProposal();
     await expect(acceptProposal(saved.id, { store: dyingAfterCommit(store), commands })).rejects.toThrow();
-    const { revision } = await store.read();
+    const { pendingOperations: _pin, ...committed } = (await store.read()).values;
 
     expect((await recoverProposals(store)).accepted).toEqual([saved.id]);
     expect((await getProposal(waiting.id))?.status).toBe("pending");
-    expect((await store.read()).revision).toBe(revision);
+    expect((await store.read()).values).toEqual(committed);
   });
 });

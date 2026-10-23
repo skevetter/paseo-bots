@@ -216,9 +216,17 @@ export default function contribute(server: PluginServerContext) {
   const scheduler = new RoutineScheduler(host, relay);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
-  void recoverProposals(store).catch((error: unknown) =>
-    console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
-  );
+  void recoverProposals(store)
+    .then(({ conflicts }) => {
+      if (conflicts.length)
+        console.error(
+          "paseo-bots: proposal recovery needs reconciliation; staged files were preserved",
+          conflicts,
+        );
+    })
+    .catch((error: unknown) =>
+      console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
+    );
   const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
   server.handle(helloRpc, (_input, context) => {

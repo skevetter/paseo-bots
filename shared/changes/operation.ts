@@ -1,6 +1,6 @@
 import type { BotState } from "../bot";
 import { OPERATION_ID } from "./ids";
-import { type ApplicationReceipt, MAX_RECEIPT_CREATED, MAX_RECEIPTS } from "./receipt";
+import { type ApplicationReceipt, MAX_RECEIPT_CREATED, MAX_RECEIPTS, type SkillPublication } from "./receipt";
 
 /** One request to change the setup. The caller makes the id and hashes the body; nothing here reads a clock. */
 export interface Operation {
@@ -10,6 +10,8 @@ export interface Operation {
   bodyHash: string;
   /** What the operation counts as the time it ran, which its changes stamp on what they make. */
   at: string;
+  /** Pins the receipt until the caller durably records completion of its remaining work. */
+  pending?: boolean;
 }
 
 export class OperationConflictError extends Error {
@@ -33,6 +35,43 @@ export type OperationOutcome = {
 
 export function findReceipt(values: BotState, operationId: string): ApplicationReceipt | undefined {
   return values.receipts?.find((receipt) => receipt.operationId === operationId);
+}
+
+/** Receipt identity must be checked before any retry performs I/O. */
+export function checkedReceipt(values: BotState, operation: Operation): ApplicationReceipt | undefined {
+  if (!OPERATION_ID.test(operation.id)) throw new Error(`"${operation.id}" isn't a usable operation id.`);
+  const receipt = findReceipt(values, operation.id);
+  if (receipt && (receipt.bodyHash !== operation.bodyHash || receipt.kind !== operation.kind))
+    throw new OperationConflictError(operation.id);
+  return receipt;
+}
+
+/** Only call after the operation's external completion record is durable. The receipt itself never changes. */
+export function completeOperation(values: BotState, operation: Operation): BotState {
+  if (!checkedReceipt(values, operation)) throw new Error(`Operation ${operation.id} has no receipt.`);
+  if (!values.pendingOperations?.includes(operation.id)) return values;
+  const pendingOperations = values.pendingOperations.filter((id) => id !== operation.id);
+  const { pendingOperations: _pending, ...rest } = values;
+  return pendingOperations.length ? { ...rest, pendingOperations } : rest;
+}
+
+export interface OperationChange {
+  values: BotState;
+  notes?: readonly string[];
+  skill?: SkillPublication;
+}
+
+/** Refuse before running the callback if saving it would evict unresolved work. */
+function retainedReceipts(values: BotState): ApplicationReceipt[] {
+  const receipts = [...(values.receipts ?? [])];
+  const pending = new Set(values.pendingOperations ?? []);
+  while (receipts.length >= MAX_RECEIPTS) {
+    const oldest = receipts.findIndex((receipt) => !pending.has(receipt.operationId));
+    if (oldest === -1)
+      throw new Error("All application receipts are unresolved. Recover them before applying more changes.");
+    receipts.splice(oldest, 1);
+  }
+  return receipts;
 }
 
 function entities(values: BotState): string[] {
@@ -64,14 +103,11 @@ export function createdEntities(before: BotState, after: BotState): string[] {
 export function applyOperation(
   values: BotState,
   operation: Operation,
-  run: (values: BotState, scope: OperationScope) => { values: BotState; notes?: readonly string[] },
+  run: (values: BotState, scope: OperationScope) => OperationChange,
 ): OperationOutcome {
-  if (!OPERATION_ID.test(operation.id)) throw new Error(`"${operation.id}" isn't a usable operation id.`);
-  const earlier = findReceipt(values, operation.id);
-  if (earlier) {
-    if (earlier.bodyHash !== operation.bodyHash) throw new OperationConflictError(operation.id);
-    return { status: "replayed", values, receipt: earlier };
-  }
+  const earlier = checkedReceipt(values, operation);
+  if (earlier) return { status: "replayed", values, receipt: earlier };
+  const receipts = retainedReceipts(values);
   const done = run(values, { now: operation.at, operationId: operation.id });
   const created = createdEntities(values, done.values);
   const receipt: ApplicationReceipt = {
@@ -82,10 +118,18 @@ export function applyOperation(
     created: created.slice(0, MAX_RECEIPT_CREATED),
     createdCount: created.length,
     notes: [...(done.notes ?? [])],
+    ...(done.skill ? { skill: done.skill } : {}),
   };
   return {
     status: "applied",
-    values: { ...done.values, receipts: [...(values.receipts ?? []), receipt].slice(-MAX_RECEIPTS) },
+    values: {
+      ...done.values,
+      receipts: [...receipts, receipt],
+      pendingOperations: values.pendingOperations,
+      ...(operation.pending
+        ? { pendingOperations: [...(values.pendingOperations ?? []), operation.id] }
+        : {}),
+    },
     receipt,
   };
 }

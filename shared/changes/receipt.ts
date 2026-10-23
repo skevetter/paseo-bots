@@ -1,13 +1,18 @@
 import { z } from "zod";
 
-/**
- * Receipts are kept for the last 200 operations, as many as the proposals the host keeps, so every proposal
- * that can still be accepted has its receipt until it is. Older ones are dropped first.
- */
+/** At most 200 receipts; unresolved operations pin theirs. If all are pinned, new operations refuse. */
 export const MAX_RECEIPTS = 200;
 
 /** A receipt names this many of the things its operation made, and counts the rest. */
 export const MAX_RECEIPT_CREATED = 20;
+
+/** The live file hash admitted before the config commit guards publication against intervening edits. */
+const SkillPublicationSchema = z.object({
+  id: z.string(),
+  sha: z.string(),
+  previousSha: z.string().nullable(),
+});
+export type SkillPublication = z.infer<typeof SkillPublicationSchema>;
 
 /** What an applied operation left behind, saved in the same write as its changes. */
 export const ReceiptSchema = z.object({
@@ -21,5 +26,6 @@ export const ReceiptSchema = z.object({
   created: z.array(z.string()).default([]),
   createdCount: z.number().int().default(0),
   notes: z.array(z.string()).default([]),
+  skill: SkillPublicationSchema.optional(),
 });
 export type ApplicationReceipt = z.infer<typeof ReceiptSchema>;

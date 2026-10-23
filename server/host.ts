@@ -12,7 +12,9 @@ export class BotsHost {
   private api: PaseoApi | null = null;
   private readonly listeners = new Set<Listener>();
 
-  constructor(readonly store: Pick<BotStore, "read" | "update" | "apply">) {}
+  constructor(
+    readonly store: Pick<BotStore, "read" | "update" | "apply" | "reconcileOperation" | "completeOperation">,
+  ) {}
 
   attach(paseo: PaseoApi): void {
     if (this.api === paseo) return;
