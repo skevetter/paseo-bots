@@ -155,7 +155,7 @@ export function botDetails(values: BotState, ref: string): string {
       bot.routines
         .map(
           (routine) =>
-            `- ${routine.name} (id ${routine.id}, ${routine.enabled ? describeSchedule(routine.schedule) : "paused"}):\n${routine.prompt}`,
+            `- ${routine.name} (id ${routine.id}, ${routine.enabled ? describeSchedule(routine.schedule, routine.schedulePolicy) : "paused"}):\n${routine.prompt}`,
         )
         .join("\n\n"),
     ),
