@@ -22,10 +22,6 @@ const summary = (entries: JournalEntry[]) =>
 describe("journal attribution", () => {
   useTempPaseoHome("paseo-bots-journal-");
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it("does not hand one chat's edit to the person when another chat starts mid-turn", async () => {
     const journal = new MemoryJournal();
     const main = await memoryFile("bot-overlap", "# Memory\n");
@@ -99,14 +95,20 @@ describe("journal attribution", () => {
     await journal.end("bot-stale", A, "t2");
     expect(summary(await journal.list("bot-stale"))).toEqual([["MEMORY.md", "bot", "chat", []]]);
   });
+});
 
-  it("stops waiting for a turn whose end never arrived", async () => {
+describe("journal long-running turns", () => {
+  useTempPaseoHome("paseo-bots-journal-long-turn-");
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps long-running chats ambiguous until their end is observed", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const journal = new MemoryJournal();
     const main = await memoryFile("bot-ttl", "# Memory\n");
     await journal.begin("bot-ttl", A, "lost");
 
-    // Within a few hours the first chat may still be running, so it can't be ruled out.
     vi.setSystemTime(Date.now() + 60 * 60 * 1000);
     await journal.begin("bot-ttl", B, "t2");
     await writeFile(main, "# Memory\n- from B\n");
@@ -117,6 +119,11 @@ describe("journal attribution", () => {
     await journal.begin("bot-ttl", B, "t3");
     await writeFile(main, "# Memory\n- again\n");
     await journal.end("bot-ttl", B, "t3");
+    expect((await journal.list("bot-ttl"))[0]).toMatchObject({ actor: "ambiguous", chat: null });
+    await journal.end("bot-ttl", A, "lost");
+    await journal.begin("bot-ttl", B, "t4");
+    await writeFile(main, "# Memory\n- after A ended\n");
+    await journal.end("bot-ttl", B, "t4");
     expect((await journal.list("bot-ttl"))[0]).toMatchObject({ actor: "bot", chat: B });
   });
 });
