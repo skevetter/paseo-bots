@@ -8,6 +8,7 @@ import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-nativ
 import type { Bot, BotGroup, Library } from "../shared/bot";
 import { SETUP_PROMPT, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
+import type { PolicyState } from "../shared/policies";
 import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
@@ -201,6 +202,7 @@ function renderPane(ctx: SurfaceContext): ReactElement {
       colors={ctx.colors}
       bot={selectedBot}
       library={ctx.library}
+      policy={ctx.values}
       selection={selection}
       localHost={ctx.localHost}
       panelOpen={panel.open}
@@ -431,6 +433,7 @@ interface SelectedChatProps {
   colors: Colors;
   bot: Bot;
   library: Library;
+  policy: PolicyState;
   selection: Selection;
   localHost: LocalHost;
   panelOpen: boolean;
@@ -447,13 +450,14 @@ interface SelectedChatProps {
 interface StartChatOptions {
   bot: Bot;
   library: Library;
+  policy: PolicyState;
   host: BotHost;
   onStarted(chatId: string): void;
 }
 
 type StartChat = (message: OutgoingMessage) => Promise<void>;
 
-function useStartChat({ bot, library, host, onStarted }: StartChatOptions): StartChat {
+function useStartChat({ bot, library, policy, host, onStarted }: StartChatOptions): StartChat {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const compose = useRpc(systemPromptRpc);
   const mountServers = useRpc(mountRpc);
@@ -473,6 +477,7 @@ function useStartChat({ bot, library, host, onStarted }: StartChatOptions): Star
     const id = await startBotChat(host.api, {
       bot,
       library,
+      policy,
       ...(host.isLocal ? { agentId } : {}),
       plugin,
       placement,
@@ -531,6 +536,7 @@ function SelectedChat({
   colors,
   bot,
   library,
+  policy,
   selection,
   localHost,
   panelOpen,
@@ -545,7 +551,7 @@ function SelectedChat({
 }: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
-  const start = useStartChat({ bot, library, host, onStarted });
+  const start = useStartChat({ bot, library, policy, host, onStarted });
   useWorkspaceTitle(bot, host);
   useAutoStart(selection, host, start, onStartHandled);
 

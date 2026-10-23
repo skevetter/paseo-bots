@@ -17,6 +17,7 @@ import { Button, SheetActions } from "./controls";
 import { FormTextArea, InputField, TextAreaField } from "./fields";
 import { LibraryPicker } from "./LibraryPicker";
 import { ChangesSheet, LogSheet, useDailyLog, useMemoryJournal } from "./MemoryActivity";
+import { memoryBudgetError, memoryFileHint } from "./memory-hints";
 import { CardNote, DrillRow, SectionLink, SectionMeta } from "./rows";
 import { Alert } from "./status";
 
@@ -141,8 +142,6 @@ export function SkillsSection(props: PanelProps) {
 }
 
 const TOPIC_NAME = /^[A-Za-z0-9 ._-]+$/;
-const MEMORY_LINES = 200;
-const MEMORY_BYTES = 24_000;
 
 export function MemorySection({ colors, bot, localHost }: PanelProps) {
   const host = useBotHost(bot.hostId, localHost);
@@ -204,24 +203,6 @@ export function MemorySection({ colors, bot, localHost }: PanelProps) {
   );
 }
 
-interface MemoryFileInfo {
-  name: string;
-  bytes: number;
-  lines: number;
-  topic: boolean;
-}
-
-interface MemoryBudget {
-  injectedLines: number;
-  injectedBytes: number;
-}
-
-function memoryFileHint(file: MemoryFileInfo, budget: MemoryBudget | undefined): string {
-  if (!budget) return "Loading...";
-  if (file.topic) return `${file.lines} lines · ${kb(file.bytes)} KB`;
-  return `${budget.injectedLines} of ${MEMORY_LINES} lines · ${kb(budget.injectedBytes)} of ${MEMORY_BYTES / 1000} KB loaded into every chat`;
-}
-
 function MemoryFilesSection({
   colors,
   botId,
@@ -241,7 +222,7 @@ function MemoryFilesSection({
     refetchInterval: 20_000,
   });
   const data = files.data;
-  const over = data ? data.injectedLines > MEMORY_LINES || data.injectedBytes > MEMORY_BYTES : false;
+  const budgetError = memoryBudgetError(data?.injected);
 
   return (
     <SettingsSection
@@ -255,12 +236,28 @@ function MemoryFilesSection({
             key={file.name}
             colors={colors}
             label={file.topic ? `memory/${file.name}` : file.name}
-            hint={memoryFileHint(file, data)}
-            error={!file.topic && over ? "Over the budget, so the end is left out" : null}
+            hint={memoryFileHint(file, data?.injected)}
+            error={!file.topic ? budgetError : null}
             hintLines={2}
             onPress={() => onOpen(file.name)}
           />
         ))}
+        {budgetError ? (
+          <>
+            <SettingsAction
+              label="Trim MEMORY.md"
+              hint="Remove notes that are out of date, or shorten them."
+              actionLabel="Edit"
+              onPress={() => onOpen("MEMORY.md")}
+            />
+            <SettingsAction
+              label="Split into topic files"
+              hint="Topic files are read on demand and don't count toward the limit."
+              actionLabel="New topic file"
+              onPress={onNewTopic}
+            />
+          </>
+        ) : null}
         {data ? (
           <SettingsAction
             label="Folder"

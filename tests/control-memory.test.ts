@@ -31,18 +31,21 @@ describe("memory control tools", () => {
     });
 
     const listed = await call("memory_list", { bot: "Memo" });
-    expect(listed.data).toMatchObject({ files: [{ name: "MEMORY.md", lines: 1 }], injectedLines: 1 });
+    expect(listed.data).toMatchObject({
+      files: [{ name: "MEMORY.md", lines: 1 }],
+      injected: { totalLines: 1, includedLines: 1, omittedLines: 0, truncation: null },
+    });
 
     const journal = await call("memory_journal", { bot: "Memo" });
     const { entries } = z
       .object({
         entries: z.array(
-          z.object({ id: z.string(), kind: z.string(), via: z.string(), canUndo: z.boolean() }),
+          z.object({ id: z.string(), kind: z.string(), via: z.string(), undoBlocked: z.null() }),
         ),
       })
       .parse(journal.data);
     const edit = entries.find((entry) => entry.kind === "edited");
-    expect(edit).toMatchObject({ via: "app", canUndo: true });
+    expect(edit).toMatchObject({ via: "app", undoBlocked: null });
     expect(entries.some((entry) => entry.kind === "created")).toBe(true);
 
     await call("memory_undo", { bot: "Memo", id: edit?.id });

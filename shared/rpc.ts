@@ -11,7 +11,28 @@ import {
   SkillIdSchema,
   TeamFileTeamSchema,
 } from "./bot";
+import { MemoryBudgetStatsSchema } from "./memory-budget";
+import { PolicyBodySchema, PolicyIdSchema, PolicySchema, ReferrerSchema, ResolutionSchema } from "./policies";
 import { ProposalSchema } from "./proposals";
+import {
+  AttemptIdSchema,
+  CycleIdSchema,
+  ExecutionIdSchema,
+  ExecutionStatusSchema,
+  fromLegacyStatus,
+  LEGACY_RUN_STATUSES,
+  OccurrenceKeySchema,
+  ProviderTurnIdSchema,
+  PurposeSchema,
+  RunIdSchema,
+  runStateIssue,
+  SessionEpochSchema,
+  SkippedSchema,
+  TaskOutcomeSchema,
+  TRIGGERS,
+  VerificationSchema,
+} from "./runs";
+import { TaskClassSchema } from "./task-contract";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
 /** "MEMORY.md" or a topic file such as "projects.md" (stored under memory/). */
@@ -48,6 +69,55 @@ export const stateWriteRpc = defineRpc({
   ]),
 });
 
+/** The newest revision of each policy, with the state revision a save must name. */
+export const policiesListRpc = defineRpc({
+  name: "bots.policies.list",
+  input: z.object({}),
+  output: z.object({ revision: z.string(), policies: z.array(PolicySchema) }),
+});
+
+/** `revision` left out is the newest. `revisions` lists the ones that exist. */
+export const policiesGetRpc = defineRpc({
+  name: "bots.policies.get",
+  input: z.object({ id: PolicyIdSchema, revision: z.number().int().min(1).optional() }),
+  output: z.object({ policy: PolicySchema.nullable(), revisions: z.array(z.number().int()) }),
+});
+
+/**
+ * Saves over the state `revision`; a newer one answers "conflict". Without an `id` it makes a policy at
+ * revision 1; with one it adds the next immutable revision, even when the body is unchanged.
+ */
+export const policiesSaveRpc = defineRpc({
+  name: "bots.policies.save",
+  input: z.object({ revision: z.string(), id: PolicyIdSchema.optional(), policy: PolicyBodySchema }),
+  output: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("saved"), revision: z.string(), policy: PolicySchema }),
+    z.object({ status: z.literal("conflict"), error: z.string() }),
+  ]),
+});
+
+/** Refused, with who still uses it, while any bot, team or the global setting is bound to the policy. */
+export const policiesDeleteRpc = defineRpc({
+  name: "bots.policies.delete",
+  input: z.object({ revision: z.string(), id: PolicyIdSchema }),
+  output: z.discriminatedUnion("status", [
+    z.object({ status: z.literal("deleted"), revision: z.string() }),
+    z.object({ status: z.literal("conflict"), error: z.string() }),
+    z.object({ status: z.literal("referenced"), referrers: z.array(ReferrerSchema) }),
+  ]),
+});
+
+/** What a bot, or one of its routines, runs with, and which layer each setting came from. */
+export const policyResolveRpc = defineRpc({
+  name: "bots.policy.resolve",
+  input: z.object({
+    botId: BotId,
+    routineId: z.string().optional(),
+    taskClass: TaskClassSchema.optional(),
+  }),
+  output: z.object({ revision: z.string(), resolution: ResolutionSchema }),
+});
+
 const PromptSectionSchema = z.object({ title: z.string(), text: z.string() });
 
 /** `message`, a new chat's first, picks the playbooks. */
@@ -70,8 +140,7 @@ export const memoryListRpc = defineRpc({
   output: z.object({
     folder: z.string(),
     files: z.array(MemoryFileSchema),
-    injectedLines: z.number(),
-    injectedBytes: z.number(),
+    injected: MemoryBudgetStatsSchema,
   }),
 });
 
@@ -113,18 +182,22 @@ export const memoryLogDeleteRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
+const JournalChatSchema = z.object({ id: z.string(), title: z.string() });
+
 const JournalEntrySchema = z.object({
   id: z.string(),
   at: z.string(),
   file: z.string(),
-  actor: z.enum(["bot", "you"]),
+  actor: z.enum(["bot", "you", "ambiguous"]),
   via: z.enum(["chat", "app", "disk", "undo"]),
-  chat: z.object({ id: z.string(), title: z.string() }).nullable(),
+  chat: JournalChatSchema.nullable(),
+  /** The chats that overlapped when `actor` is "ambiguous". */
+  chats: z.array(JournalChatSchema),
   kind: z.enum(["created", "edited", "deleted"]),
   diff: z.string(),
   added: z.number(),
   removed: z.number(),
-  canUndo: z.boolean(),
+  undoBlocked: z.enum(["too-large", "unverified"]).nullable(),
 });
 export type JournalRow = z.infer<typeof JournalEntrySchema>;
 
@@ -220,34 +293,69 @@ export const avatarGenerateRpc = defineRpc({
   output: z.object({ image: z.string() }),
 });
 
-const RoutineRunSchema = z.object({
-  id: z.string(),
-  trigger: z.enum(["schedule", "manual", "webhook"]),
+/**
+ * One run of a routine. `id` is its run id; the other ids are described in shared/runs.ts. What the
+ * execution did (`executionStatus`) and whether the task worked (`taskOutcome`) are separate facts:
+ * a completed turn has an unknown outcome until a pinned verifier says otherwise.
+ * The shape alone is `RoutineRunShape`; `RoutineRunSchema` also checks that the two facts can both be true.
+ */
+export const RoutineRunShape = z.object({
+  id: RunIdSchema,
+  cycleId: CycleIdSchema,
+  attemptId: AttemptIdSchema,
+  executionId: ExecutionIdSchema,
+  sessionEpoch: SessionEpochSchema,
+  occurrenceKey: OccurrenceKeySchema,
+  parentRunId: RunIdSchema.nullable(),
+  /** What the host called the turn, once it ended; evidence only. */
+  providerTurnId: ProviderTurnIdSchema.nullable(),
+  purpose: PurposeSchema,
+  trigger: z.enum(TRIGGERS),
   /** When the run was due; for manual and webhook runs, when it was asked for. */
   scheduledFor: z.string(),
   startedAt: z.string(),
   endedAt: z.string().nullable(),
-  status: z.enum(["running", "succeeded", "failed", "skipped-busy", "skipped-missed"]),
+  executionStatus: ExecutionStatusSchema,
+  taskOutcome: TaskOutcomeSchema,
+  verification: VerificationSchema.nullable(),
+  /** Set when the run never launched, because the routine was still working or the time was missed. */
+  skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   /** The start of the bot's reply once the run finished. */
   output: z.string().nullable(),
   error: z.string().nullable(),
 });
+export const RoutineRunSchema = RoutineRunShape.superRefine((run, context) => {
+  const issue = runStateIssue(run);
+  if (issue) context.addIssue({ code: "custom", path: ["taskOutcome"], message: issue });
+});
 export type RoutineRun = z.infer<typeof RoutineRunSchema>;
 
+const RoutineRunCardShape = z.object({
+  routineName: z.string(),
+  trigger: z.enum(TRIGGERS),
+  scheduledFor: z.string(),
+  executionStatus: ExecutionStatusSchema,
+  taskOutcome: TaskOutcomeSchema,
+  skipped: SkippedSchema.nullable(),
+  agentId: z.string().nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+/** Cards posted before the split carry one `status`, which says nothing about the outcome. */
+function upgradeCard(data: unknown): unknown {
+  if (!data || typeof data !== "object" || "executionStatus" in data || !("status" in data)) return data;
+  const { status, ...rest } = data;
+  return { ...rest, ...fromLegacyStatus(status) };
+}
+
 /** A plugin timeline item, replaced (same id) when the run finishes. */
-export const RoutineRunCardSchema = RoutineRunSchema.pick({
-  trigger: true,
-  scheduledFor: true,
-  status: true,
-  agentId: true,
-  output: true,
-  error: true,
-}).extend({ routineName: z.string() });
-export type RoutineRunCard = z.infer<typeof RoutineRunCardSchema>;
+export const RoutineRunCardSchema = z.preprocess(upgradeCard, RoutineRunCardShape);
+export type RoutineRunCard = z.infer<typeof RoutineRunCardShape>;
 export const ROUTINE_RUN_CARD = { kind: "routine-run", version: 1 } as const;
 
-const RoutineRecordSchema = z.object({
+export const RoutineRecordSchema = z.object({
   /** The last time the schedule fired (runs, skips and misses), which the next due time counts from. */
   lastRunAt: z.string().nullable(),
   /** The latest runs, oldest first. */
@@ -255,16 +363,26 @@ const RoutineRecordSchema = z.object({
 });
 export type RoutineRecord = z.infer<typeof RoutineRecordSchema>;
 
+/** Outbound compatibility only. New clients must read executionStatus and taskOutcome, never status. */
+export const RoutineRunResponseSchema = RoutineRunSchema.safeExtend({
+  status: z.enum(LEGACY_RUN_STATUSES),
+});
+export type RoutineRunResponse = z.infer<typeof RoutineRunResponseSchema>;
+
+const RoutineRecordResponseSchema = RoutineRecordSchema.extend({
+  runs: z.array(RoutineRunResponseSchema),
+});
+
 export const routineStatusRpc = defineRpc({
   name: "bots.routines.status",
   input: z.object({}),
-  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordSchema) }),
+  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordResponseSchema) }),
 });
 
 export const routineRunNowRpc = defineRpc({
   name: "bots.routines.run-now",
   input: z.object({ botId: BotId, routineId: z.string() }),
-  output: z.object({ run: RoutineRunSchema }),
+  output: z.object({ run: RoutineRunResponseSchema }),
 });
 
 /** `rotate` replaces the secret so the old URL stops working. */

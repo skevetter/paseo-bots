@@ -92,19 +92,24 @@ describe("the control endpoint", () => {
     await expect(readFile(controlPaths().infoFile, "utf8")).rejects.toThrow();
 
     flip(true);
-    await vi.waitFor(async () => expect(server.url).not.toBeNull());
-    const info = JSON.parse(await readFile(controlPaths().infoFile, "utf8")) as {
-      url: string;
-      tokenFile: string;
-    };
-    expect(info).toEqual({ url: server.url, tokenFile: controlPaths().tokenFile });
+    const info = await vi.waitFor(async () => {
+      const published = JSON.parse(await readFile(controlPaths().infoFile, "utf8")) as {
+        url: string;
+        tokenFile: string;
+      };
+      expect(server.url).not.toBeNull();
+      expect(published).toEqual({ url: server.url, tokenFile: controlPaths().tokenFile });
+      return published;
+    });
     const live = info.url;
     expect((await fetch(live, { method: "POST", body: "{}" })).status).toBe(401);
 
     flip(false);
-    await vi.waitFor(async () => expect(server.url).toBeNull());
-    await expect(fetch(live, { method: "POST", body: "{}" })).rejects.toThrow();
-    await expect(readFile(controlPaths().infoFile, "utf8")).rejects.toThrow();
+    await vi.waitFor(async () => {
+      expect(server.url).toBeNull();
+      await expect(fetch(live, { method: "POST", body: "{}" })).rejects.toThrow();
+      await expect(readFile(controlPaths().infoFile, "utf8")).rejects.toThrow();
+    });
     await stop();
   });
 });

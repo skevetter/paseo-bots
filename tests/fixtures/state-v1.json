@@ -1,0 +1,87 @@
+{
+  "version": 1,
+  "values": {
+    "bots": [
+      {
+        "id": "inbox",
+        "name": "Inbox",
+        "title": "Triage",
+        "description": "Sorts mail",
+        "avatar": { "seed": "s1", "palette": null, "shape": "circle", "imageUrl": null },
+        "hostId": null,
+        "provider": "claude",
+        "model": "opus",
+        "modeId": "acceptEdits",
+        "thinkingOptionId": "high",
+        "soul": "Be brief.",
+        "mcpServerIds": [],
+        "alwaysAllow": [],
+        "skillIds": [],
+        "apps": [],
+        "appRules": {},
+        "voice": { "name": null, "readReplies": false },
+        "contactBots": "ask",
+        "routines": [
+          {
+            "id": "rt-morning",
+            "name": "Morning sweep",
+            "prompt": "Sort the inbox.",
+            "enabled": true,
+            "schedule": { "kind": "daily", "time": "08:00" },
+            "resultsChatId": null,
+            "createdAt": "2026-09-01T00:00:00.000Z"
+          }
+        ],
+        "playbooks": [],
+        "cwd": null,
+        "pinned": false,
+        "archived": false,
+        "createdAt": "2026-09-01T00:00:00.000Z",
+        "updatedAt": "2026-09-02T00:00:00.000Z"
+      },
+      {
+        "id": "scribe",
+        "name": "Scribe",
+        "avatar": { "seed": "s2", "palette": null, "shape": "square", "imageUrl": null },
+        "provider": "omp",
+        "model": null,
+        "modeId": null,
+        "thinkingOptionId": null,
+        "createdAt": "2026-09-01T00:00:00.000Z",
+        "updatedAt": "2026-09-01T00:00:00.000Z"
+      }
+    ],
+    "history": [],
+    "defaults": {
+      "provider": "claude",
+      "model": null,
+      "thinkingOptionId": null,
+      "approval": "ask",
+      "modeByProvider": { "omp": "ask" },
+      "contactBots": "ask"
+    },
+    "groups": [
+      {
+        "id": "team-ops",
+        "name": "Ops",
+        "leadId": "inbox",
+        "memberIds": ["inbox", "scribe"],
+        "instructions": "Keep it tidy.",
+        "createdAt": "2026-09-01T00:00:00.000Z",
+        "updatedAt": "2026-09-01T00:00:00.000Z"
+      }
+    ],
+    "receipts": [
+      {
+        "operationId": "op-1",
+        "kind": "proposal",
+        "bodyHash": "abc123",
+        "appliedAt": "2026-09-03T00:00:00.000Z",
+        "created": ["bot:scribe"],
+        "createdCount": 1,
+        "notes": []
+      }
+    ],
+    "pendingOperations": ["op-1"]
+  }
+}

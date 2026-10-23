@@ -24,6 +24,10 @@ import { CardNote, DrillRow } from "./rows";
 type Colors = PanelProps["colors"];
 
 const SHOWN = 20;
+const UNDO_BLOCKED = {
+  "too-large": "The earlier version was too large to keep, so this can't be undone.",
+  unverified: "This was recorded before undo checked for newer edits, so it can't be undone safely.",
+} as const;
 const DAYS = 14;
 const journalKey = (botId: string) => ["paseo-bots", "memory-journal", botId];
 const logKey = (botId: string) => ["paseo-bots", "memory-log", botId];
@@ -153,9 +157,15 @@ function ChangeDetail({
         style={{ fontSize: ui(14), color: colors.foregroundMuted }}
       >{`${file} · ${relativeTime(row.at)} · ${journalSource(row)}`}</Text>
       <ChangeDiff colors={colors} row={row} file={file} />
-      {!row.canUndo ? (
+      {row.actor === "ambiguous" ? (
         <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
-          The earlier version was too large to keep, so this can't be undone.
+          More than one chat was running, so this can't be traced to one of them, and it may have been your
+          own edit.
+        </Text>
+      ) : null}
+      {row.undoBlocked ? (
+        <Text style={{ fontSize: ui(13), color: colors.foregroundMuted }}>
+          {UNDO_BLOCKED[row.undoBlocked]}
         </Text>
       ) : null}
       <SheetActions>
@@ -164,7 +174,7 @@ function ChangeDetail({
           colors={colors}
           variant="default"
           label={busy ? "Undoing..." : "Undo"}
-          disabled={!row.canUndo || busy}
+          disabled={row.undoBlocked !== null || busy}
           onPress={actions.onUndo}
         />
       </SheetActions>

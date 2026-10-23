@@ -9,17 +9,13 @@ import {
   type McpTool,
   type TeamFileTeam,
 } from "./bot";
-import { newGroupId, numberedName, uniqueName } from "./bot-ids";
+import { numberedName, uniqueName } from "./bot-ids";
 import { isBrowserServer, withBrowserServer } from "./browser";
+import { type ChangeIds, RANDOM_IDS } from "./changes/ids";
 import { saveTeam } from "./groups";
 import { joinArgs, MCP_NAME, RESERVED_MCP_NAMES } from "./mcp-servers";
 import { PASEO_MCP_NAME } from "./paseo-tools";
 import { parseSkillFrontmatter } from "./skills";
-import { prefixedId } from "./uuid";
-
-export function newMcpServerId(): string {
-  return prefixedId("mcp");
-}
 
 export type LibraryKind = "skill" | "mcp";
 
@@ -38,9 +34,10 @@ export function changeLibrary(values: BotState, mutate: LibraryMutation): BotSta
 export function newLibraryServer(
   draft: McpServerDraft,
   now: string = new Date().toISOString(),
+  ids: ChangeIds = RANDOM_IDS,
 ): LibraryMcpServer {
   return {
-    id: newMcpServerId(),
+    id: ids.id("mcp"),
     name: draft.name,
     description: draft.description,
     enabled: false,
@@ -91,7 +88,7 @@ export function testedServer(
 export function addMcpServers(
   library: Library,
   drafts: readonly BotMcpServer[],
-  options: { reuseByName?: boolean; now?: string } = {},
+  options: { reuseByName?: boolean; now?: string; ids?: ChangeIds } = {},
 ): { library: Library; ids: string[] } {
   const now = options.now ?? new Date().toISOString();
   const servers = [...library.mcpServers];
@@ -114,6 +111,7 @@ export function addMcpServers(
         config: JSON.parse(JSON.stringify(draft.config)) as BotMcpServer["config"],
       },
       now,
+      options.ids,
     );
     servers.push(server);
     ids.push(server.id);
@@ -299,7 +297,7 @@ export function addImportedBots(
   values: BotState,
   imported: readonly ImportedBot[],
   teams: readonly TeamFileTeam[] = [],
-  now: string = new Date().toISOString(),
+  { now = new Date().toISOString(), ids = RANDOM_IDS }: { now?: string; ids?: ChangeIds } = {},
 ): BotState {
   let library = values.library ?? EMPTY_LIBRARY;
   const bots = [...values.bots];
@@ -312,7 +310,7 @@ export function addImportedBots(
     );
     // A file's servers wait in the library, off, for the user to attach; it never brings in a browser.
     const drafts = entry.mcpServers.filter((draft) => !isBrowserServer({ id: "", config: draft.config }));
-    library = addMcpServers(library, drafts, { reuseByName: true }).library;
+    library = addMcpServers(library, drafts, { reuseByName: true, now, ids }).library;
     bots.push({ ...entry.bot, name });
   }
   const idAt = (position: number) => imported[position]?.bot.id;
@@ -325,7 +323,7 @@ export function addImportedBots(
       memberIds,
       instructions: team.instructions,
     };
-    return memberIds.length ? saveTeam(current, { id: null, newId: newGroupId(), draft, now }) : current;
+    return memberIds.length ? saveTeam(current, { id: null, newId: ids.id("team"), draft, now }) : current;
   }, values.groups ?? []);
   return { ...values, bots, library, groups };
 }

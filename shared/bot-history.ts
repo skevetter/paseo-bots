@@ -1,4 +1,5 @@
 import type { Bot, BotState, HistoryEntry } from "./bot";
+import { patchBotOverrides } from "./policies";
 
 const HISTORY_PER_BOT = 20;
 /** Edits closer together than this undo as one step. */
@@ -29,7 +30,9 @@ export function patchSavedBot(
   return {
     ...values,
     bots: values.bots.map((entry) =>
-      entry.id === botId ? { ...entry, ...patch, updatedAt: new Date().toISOString() } : entry,
+      entry.id === botId
+        ? patchBotOverrides(entry, { ...patch, updatedAt: new Date().toISOString() })
+        : entry,
     ),
     history: recordHistory ? pushHistory(values.history, previous) : values.history,
   };

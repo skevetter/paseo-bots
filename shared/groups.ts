@@ -76,6 +76,7 @@ export function saveTeam(
     leadId: draft.leadId && joining.has(draft.leadId) ? draft.leadId : null,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
+    ...(existing?.policy !== undefined ? { policy: existing.policy } : {}),
   };
   const others = groups.map((group) => {
     if (group.id === teamId) return team;

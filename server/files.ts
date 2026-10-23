@@ -42,9 +42,17 @@ async function setAside(path: string, error: unknown): Promise<void> {
   }
 }
 
+/** A newer writer owns this file. Keep it in place so every subsequent read and write also refuses it. */
+export class UnsupportedFileVersionError extends Error {
+  constructor(version: number) {
+    super(`Unsupported file version ${version}. Upgrade the plugin before opening this configuration.`);
+    this.name = "UnsupportedFileVersionError";
+  }
+}
+
 /**
  * A missing file reads as null; one `parse` rejects is moved aside first so the next write can't destroy it,
- * then also reads as null. Any other read error throws.
+ * then also reads as null. A version from a newer writer stays in place and throws; other read errors throw.
  */
 export function readParsed<T>(path: string, parse: (text: string) => T): Promise<T | null> {
   return withFileLock(path, async () => {
@@ -53,6 +61,7 @@ export function readParsed<T>(path: string, parse: (text: string) => T): Promise
     try {
       return parse(text);
     } catch (error) {
+      if (error instanceof UnsupportedFileVersionError) throw error;
       await setAside(path, error);
       return null;
     }

@@ -15,6 +15,7 @@ This repository is a fork of [oliexe/paseo-bots](https://github.com/oliexe/paseo
 - **Teams**: a Chief of Staff hands parts of your requests to its teammates.
 - **Skills & Tools**: one library of skills and MCP servers, turned on per bot.
 - **Connected apps**: 1,000+ apps through your own [Composio](https://composio.dev) account. A local relay holds the API key and keeps each bot to its apps, tools and accounts.
+- **Runtime policies**: versioned execution settings with global/team/bot inheritance and per-field sources. Policies are opt-in through the RPC API; read them with MCP `policies_list`, `policies_get` and `policy_resolve`. See [policy contracts and rollback](docs/policies.md).
 
 ## Install
 
@@ -32,6 +33,14 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 4. Press **Skills & Tools** below the bot list to add skills, MCP servers and apps. Give them to a bot under its **Skills** and **Access** settings.
 
 An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
+
+## Memory limits and history
+
+Chats load up to 200 lines and 24,000 UTF-8 bytes from `MEMORY.md`, stopping at a whole-line boundary. The Memory panel shows how much was included and omitted. Edit the file or move detail to a topic file when it exceeds the limit.
+
+Overlapping chats make file-change attribution ambiguous. A chat remains a possible author until its turn ends; elapsed time alone does not prove it stopped. With a single active chat, a concurrent external edit cannot be distinguished from that chat's edit.
+
+App saves and undo replace files atomically. Undo refuses if the current content no longer matches the saved after-hash, or if an older journal entry has no hash. External writers do not share the app's lock, so they can still race the final conflict check and replace.
 
 ## Approval for new bots
 
@@ -84,11 +93,48 @@ Compared with oliexe/paseo-bots 0.2.0, this fork:
 - shows proposal and sign-in cards for ACP providers such as Hermes and omp;
 - adds the Browser preset;
 - writes state files through a temporary file and sets an unreadable file aside;
+- preserves a version-1 config backup and checksum before migrating policies to envelope version 2; future config versions refuse reads and writes rather than starting empty;
 - checks each relay token before it reads a request, and bounds request sizes;
 - keeps routine history through corrupt files, missed runs and failing routines;
+- records whether a routine run finished apart from whether its task worked, and shows a finished run as not verified until something checks it;
 - shows loading and error states for apps, server tests and runs;
 - labels icon buttons for screen readers;
 - lints with Biome and releases from this repository with semantic-release.
+
+## Routine run compatibility and rollback
+
+`bots.routines.status` keeps `{ scheduler, routines }`, including each record's `lastRunAt` and `runs`.
+`bots.routines.run-now` keeps `{ run }`. Every run in either response retains all old fields and their
+types, including the old `status` enum, and adds `executionStatus`, `taskOutcome` and run identity.
+MCP `routines_run_now`, `routines_status` (`lastRun`) and `routines_history` use the same run projection.
+MCP text and the UI describe the authoritative facts, not the compatibility label.
+
+`status` exists only on outbound responses. New callers must use `executionStatus` and `taskOutcome`:
+
+| Authoritative execution | Outbound legacy `status` |
+| --- | --- |
+| queued, reserved, starting, running, waiting_for_user, verifying | `running` |
+| completed, with any task outcome | `succeeded` |
+| failed, canceled, unknown | `failed` |
+| skipped because busy or missed (takes precedence) | `skipped-busy` or `skipped-missed` |
+
+The legacy `succeeded` label means only that the provider turn completed, never that the task worked.
+It can accompany `taskOutcome: unknown` or `verified_failure`. Likewise `failed` can mean canceled or
+unknown execution, not a verified task failure. Never use `status` for verification, routing or review.
+The webhook HTTP reply is unchanged (`running`, `skipped-busy` or `failed`); it reports admission, not
+the eventual outcome. Internal and persisted run records have no `status` field.
+
+Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
+verification. A read does not rewrite the file. The first save of an unversioned `routines.json` copies
+it once to `routines.json.pre-run-store`, then atomically writes `{ version: 1, routines }`.
+Unsupported versioned files stay in place: reads and writes fail explicitly until a compatible plugin
+is installed or an operator restores a supported backup. Only corrupt files are set aside automatically.
+
+To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
+starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
+A fresh installation has no pre-migration backup. Without a restored old-format file, 1.3.0 cannot
+interpret the new envelope. Outbound RPC compatibility is not on-disk downgrade compatibility, and
+results-chat cards written with the new fields are not guaranteed to render in the older plugin.
 
 ## Development
 
@@ -101,3 +147,5 @@ npm run bench
 ```
 
 Paseo supplies React 19.1, React Native 0.81 and React Query 5.90 at runtime. Use no newer React Query API.
+
+What Paseo versions and SDK behavior the plugin relies on, and the fixtures that pin them, is in [docs/compatibility.md](docs/compatibility.md). Update it together with `tests/sdk-contract.test.ts` when `@getpaseo/client` or `@getpaseo/plugin` changes.

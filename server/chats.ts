@@ -1,5 +1,6 @@
 import type { Bot } from "../shared/bot";
 import { startBotChat } from "../shared/chat";
+import type { Purpose } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
 import { ensureBotHome } from "./bot-home";
 import type { BotsHost } from "./host";
@@ -10,23 +11,32 @@ export async function startChat(
   host: BotsHost,
   relay: Relay,
   bot: Bot,
-  input: { prompt: string; title: string; labels: Record<string, string> },
+  input: {
+    prompt: string;
+    title: string;
+    labels: Record<string, string>;
+    purpose?: Purpose;
+    routineId?: string;
+  },
 ): Promise<string> {
   const paseo = host.requirePaseo();
   if (bot.hostId)
     throw new Error(`${bot.name} runs on another host, so its chats can't be started from here.`);
+  const values = await host.values();
   const library = await host.library();
   const home = await ensureBotHome({ botId: bot.id });
   const { systemPrompt: system } = await systemPrompt(
     { bot, local: true, message: input.prompt },
     library,
     paseo,
-    await host.values(),
+    values,
   );
   const agentId = newUuid();
   return startBotChat(paseo, {
     bot,
     library,
+    policy: values,
+    ...(input.routineId ? { routineId: input.routineId } : {}),
     agentId,
     plugin: {
       tools: await relay.mountTools(bot.id, agentId),
@@ -37,5 +47,6 @@ export async function startChat(
     systemPrompt: system,
     title: input.title,
     labels: input.labels,
+    ...(input.purpose ? { purpose: input.purpose } : {}),
   });
 }

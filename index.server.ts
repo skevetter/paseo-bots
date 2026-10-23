@@ -26,9 +26,17 @@ import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } fr
 import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
+import { deletePolicy, getPolicy, listPolicies, resolveForBot, savePolicy } from "./server/policies";
 import { systemPrompt } from "./server/prompt";
-import { acceptProposal, dismissProposal, getProposal, listProposals } from "./server/proposals";
+import {
+  acceptProposal,
+  dismissProposal,
+  getProposal,
+  listProposals,
+  recoverProposals,
+} from "./server/proposals";
 import { Relay } from "./server/relay";
+import { routineRunResponse, routineStatusResponse } from "./server/routine-responses";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
@@ -72,6 +80,11 @@ import {
   memoryUndoRpc,
   memoryWriteRpc,
   mountRpc,
+  policiesDeleteRpc,
+  policiesGetRpc,
+  policiesListRpc,
+  policiesSaveRpc,
+  policyResolveRpc,
   proposalAcceptRpc,
   proposalDismissRpc,
   proposalGetRpc,
@@ -105,6 +118,19 @@ function prepareData() {
   void ensureBotsHome()
     .then(migrateBotSkills)
     .catch((error: unknown) => console.error("paseo-bots: couldn't prepare the Bots folder", error));
+}
+
+function handlePolicies(server: PluginServerContext, host: BotsHost) {
+  const { store } = host;
+  server.handle(policiesListRpc, () => listPolicies(store));
+  server.handle(policiesGetRpc, (input) => getPolicy(store, input));
+  server.handle(policiesSaveRpc, (input) => savePolicy(store, input));
+  server.handle(policiesDeleteRpc, (input) => deletePolicy(store, input));
+  server.handle(policyResolveRpc, async ({ botId, routineId, taskClass }, context) => {
+    host.attach(context.paseo);
+    const { snapshot, resolution } = await resolveForBot(host, { bot: botId, routineId, taskClass });
+    return { revision: snapshot.revision, resolution };
+  });
 }
 
 function handleMemory(server: PluginServerContext, journal: MemoryJournal) {
@@ -210,6 +236,17 @@ export default function contribute(server: PluginServerContext) {
   const scheduler = new RoutineScheduler(host, relay);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
+  void recoverProposals(store)
+    .then(({ conflicts }) => {
+      if (conflicts.length)
+        console.error(
+          "paseo-bots: proposal recovery needs reconciliation; staged files were preserved",
+          conflicts,
+        );
+    })
+    .catch((error: unknown) =>
+      console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
+    );
   const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
   server.handle(helloRpc, (_input, context) => {
@@ -229,6 +266,7 @@ export default function contribute(server: PluginServerContext) {
     systemPrompt(input, await host.library(), context.paseo, await host.values()),
   );
   handleMemory(server, journal);
+  handlePolicies(server, host);
   handleSkillsAndApps(server);
   server.handle(mountRpc, async ({ botId, agentId }) => {
     const bot = await host.bot(botId);
@@ -244,13 +282,14 @@ export default function contribute(server: PluginServerContext) {
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
-  server.handle(routineStatusRpc, (_input, context) => {
+  server.handle(routineStatusRpc, async (_input, context) => {
     attach(context);
-    return scheduler.status();
+    return routineStatusResponse(await scheduler.status());
   });
-  server.handle(routineRunNowRpc, ({ botId, routineId }, context) => {
+  server.handle(routineRunNowRpc, async ({ botId, routineId }, context) => {
     attach(context);
-    return scheduler.runNow(botId, routineId);
+    const { run } = await scheduler.runNow(botId, routineId);
+    return { run: routineRunResponse(run) };
   });
   server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));
   server.handle(commandListRpc, async ({ botId }) => ({ rules: await commands.list(botId) }));
