@@ -2,7 +2,7 @@
 
 What the Paseo host and SDK do today, and what this plugin does with it. Written against `@getpaseo/client` and `@getpaseo/plugin` 0.11.1 (`package.json`, `package-lock.json`).
 
-Every statement is **Observed** (read in the installed SDK `.d.ts`/`.js` under `node_modules/@getpaseo`, or in this repository) or marked **[INFERRED]** (a conclusion the SDK does not state). The host daemon itself is not installed here, so anything about daemon behavior is inferred from SDK code and types. `tests/sdk-contract.test.ts` pins the observed SDK behavior; it drives the real SDK `DaemonClient` over an in-memory transport (`tests/fake-daemon.ts`), with no network.
+Every statement is **Observed** (read in the installed SDK `.d.ts`/`.js` under `node_modules/@getpaseo`, or in this repository) or marked **[INFERRED]** (a conclusion the SDK does not state). No real daemon was exercised for this baseline, so daemon behavior is inferred from SDK code and types. `tests/sdk-contract.test.ts` pins the observed SDK behavior; it drives the real SDK `DaemonClient` over an in-memory transport (`tests/fake-daemon.ts`), with no network.
 
 When the SDK is bumped, a failing fixture means a contract below changed: read the diff, update this document and the fixture together, and check every caller named here.
 
@@ -18,7 +18,7 @@ When the SDK is bumped, a failing fixture means a contract below changed: read t
 - The SDK ships `assertPluginCompatibility` (`@getpaseo/protocol/plugin-requirements`). Given this manifest it accepts 0.11.0 and 0.11.1, rejects 0.10.9 with "requires Paseo", and rejects an unknown host version. Pinned in the fixtures. That the host calls it before loading a plugin is **[INFERRED]** from its `runtime: "daemon" | "app"` input.
 - The minimum host (0.11.0) is older than the build SDK (0.11.1). Anything added to the SDK in 0.11.1 is not guaranteed on a 0.11.0 host **[INFERRED]**; the SDK has no per-call version check, only the feature flags below.
 - Paseo supplies the plugin's runtime libraries (see README Development): React 19.1, React Native 0.81, React Query 5.90. The host shim has no `useRevealedText`.
-- `@getpaseo/protocol` is imported by the fixtures only. It reaches `node_modules` as a dependency of `@getpaseo/client`, not as a declared dependency of this package; shipped code (`shared/`, `server/`, `client/`) must not import it.
+- `@getpaseo/protocol` 0.11.1 is an exact, direct development dependency for the fixtures. Shipped code (`shared/`, `server/`, `client/`) does not import it.
 
 ## How the plugin reaches the host
 
