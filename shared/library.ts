@@ -15,7 +15,7 @@ import { type ChangeIds, RANDOM_IDS } from "./changes/ids";
 import { saveTeam } from "./groups";
 import { joinArgs, MCP_NAME, RESERVED_MCP_NAMES } from "./mcp-servers";
 import { PASEO_MCP_NAME } from "./paseo-tools";
-import { MAX_POLICY_REVISIONS, type Policy, PolicySchema } from "./policies";
+import { type Policy, PolicySchema } from "./policies";
 import { parseSkillFrontmatter } from "./skills";
 
 export type LibraryKind = "skill" | "mcp";
@@ -304,7 +304,6 @@ function withImportedPolicy(policies: Policy[], policy: Policy): Policy[] {
       throw new Error(`Imported policy ${policy.id} conflicts with an immutable revision.`);
     return policies;
   }
-  if (policies.length >= MAX_POLICY_REVISIONS) throw new Error("The policy revision limit has been reached.");
   return [...policies, policy];
 }
 
