@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { APPS_MCP_NAME } from "../shared/apps";
-import { type Bot, EMPTY_LIBRARY } from "../shared/bot";
+import { type Bot, type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { TOOLS_MCP_NAME } from "../shared/bot-tools";
 import {
   type CreationObserver,
@@ -22,6 +22,7 @@ export interface PrepareChatInput
   > {
   agentId: string;
   idempotencyKey: string;
+  state?: BotState;
   inputArtifactRefs?: string[];
   environmentVersion?: string;
 }
@@ -36,7 +37,7 @@ export async function prepareChat(
   const paseo = host.requirePaseo();
   if (bot.hostId)
     throw new Error(`${bot.name} runs on another host, so its chats can't be started from here.`);
-  const values = await host.values();
+  const values = input.state ?? (await host.values());
   const library = values.library ?? EMPTY_LIBRARY;
   const home = await ensureBotHome({ botId: bot.id });
   const composed = await systemPrompt({ bot, local: true, message: input.prompt }, library, paseo, values);
