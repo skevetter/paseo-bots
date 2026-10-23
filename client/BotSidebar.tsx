@@ -28,6 +28,7 @@ export function BotSidebar(props: BotSidebarProps) {
     bottomInset,
     onNewBot,
     onTeamMap,
+    onFleet,
     query,
     onQueryChange,
   } = props;
@@ -38,7 +39,7 @@ export function BotSidebar(props: BotSidebarProps) {
     return (
       <View style={{ flex: 1, paddingBottom: bottomInset, backgroundColor: tokens.surfaceSidebar }}>
         <Splash colors={colors} background={tokens.surfaceSidebar} />
-        <Footer colors={colors} onNewBot={onNewBot} onTeamMap={onTeamMap} />
+        <Footer colors={colors} onNewBot={onNewBot} onTeamMap={onTeamMap} onFleet={onFleet} />
       </View>
     );
   }
@@ -56,7 +57,7 @@ export function BotSidebar(props: BotSidebarProps) {
         <SidebarGroups {...props} tokens={tokens} shown={shown} pins={pins} />
         <SidebarEmptyState {...props} shownCount={shown.length} />
       </ScrollView>
-      <Footer colors={colors} onNewBot={onNewBot} onTeamMap={onTeamMap} />
+      <Footer colors={colors} onNewBot={onNewBot} onTeamMap={onTeamMap} onFleet={onFleet} />
     </View>
   );
 }

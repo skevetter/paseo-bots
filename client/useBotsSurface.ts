@@ -1,4 +1,4 @@
-import type { PluginTheme } from "@getpaseo/plugin";
+import type { PluginTheme, RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { type ToastApi, useToast } from "@getpaseo/plugin/client/react-native";
@@ -16,6 +16,7 @@ import {
 import type { ProviderModesById } from "../shared/bot-checks";
 import { patchSavedBot, pushHistory } from "../shared/bot-history";
 
+import { importsApplyRpc } from "../shared/imports";
 import type { ImportedBot } from "../shared/library";
 import { patchBotOverrides } from "../shared/policies";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
@@ -69,10 +70,11 @@ export interface SurfaceServices {
   defaultProvider(): string;
   providerModes(): ProviderModesById;
   exportBot(input: { bot: Bot; includeMemory: boolean }): Promise<{ json: string }>;
-  importBot(input: { botId: string; json: string }): Promise<{ bot: Bot }>;
+  importBot(input: { botId: string; json: string }): Promise<ImportedBot>;
   importTeam(input: {
     json: string;
   }): Promise<{ bots: ImportedBot[]; teams: TeamFileTeam[]; notes: string[] }>;
+  applyImports(input: RpcInput<typeof importsApplyRpc>): Promise<RpcOutput<typeof importsApplyRpc>>;
 }
 
 export interface ScreenState {
@@ -86,6 +88,8 @@ export interface ScreenState {
   setCreating: Setter<boolean>;
   teamMap: boolean;
   setTeamMap: Setter<boolean>;
+  fleet: boolean;
+  setFleet: Setter<boolean>;
   editingTeam: BotGroup | "new" | null;
   setEditingTeam: Setter<BotGroup | "new" | null>;
   libraryView: LibraryViewState | null;
@@ -140,9 +144,13 @@ interface BackState {
   selection: Selection | null;
   teamMap: boolean;
   libraryView: LibraryViewState | null;
+  fleet: boolean;
 }
 
-type BackSetters = Pick<ScreenState, "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView">;
+type BackSetters = Pick<
+  ScreenState,
+  "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView" | "setFleet"
+>;
 
 function applyDrafts(values: BotState, pending: Record<string, Bot>): BotState {
   let history = values.history;
@@ -172,6 +180,7 @@ function useServices(host: PluginScreenProps["host"]): SurfaceServices & { lates
   const exportBot = useRpc(exportBotRpc);
   const importBot = useRpc(importBotRpc);
   const importTeam = useRpc(importTeamRpc);
+  const applyImports = useRpc(importsApplyRpc);
   const defaultProvider = () => {
     const ready = (localProviders.data ?? []).filter((entry) => entry.status === "ready");
     return (ready.find((entry) => entry.provider === "claude") ?? ready[0])?.provider ?? "";
@@ -192,6 +201,7 @@ function useServices(host: PluginScreenProps["host"]): SurfaceServices & { lates
     exportBot,
     importBot,
     importTeam,
+    applyImports,
   };
 }
 
@@ -201,6 +211,7 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
   const [panelVersion, setPanelVersion] = useState(0);
   const [creating, setCreating] = useState(false);
   const [teamMap, setTeamMap] = useState(false);
+  const [fleet, setFleet] = useState(false);
   const [editingTeam, setEditingTeam] = useState<BotGroup | "new" | null>(null);
   /** `target` is the page; null is the list, on compact. */
   const [libraryView, setLibraryView] = useState<LibraryViewState | null>(null);
@@ -223,6 +234,8 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
     setCreating,
     teamMap,
     setTeamMap,
+    fleet,
+    setFleet,
     editingTeam,
     setEditingTeam,
     libraryView,
@@ -344,6 +357,10 @@ function closeOverlay(state: BackState, set: BackSetters): boolean {
     set.setLibraryView(state.compact && state.libraryView.target ? { target: null } : null);
     return true;
   }
+  if (state.fleet) {
+    set.setFleet(false);
+    return true;
+  }
   if (state.panel.open) {
     set.setPanel(state.panel.section ? { open: true, section: null } : { open: false, section: null });
     return true;
@@ -395,9 +412,9 @@ export function useBotsSurface({
   useChatInvalidation();
   const drafts = useDrafts(latest, services.commit);
   useLibraryEntry(drafts.flush, screen.setLibraryView);
-  const { panel, selection, teamMap, libraryView } = screen;
+  const { panel, selection, teamMap, libraryView, fleet } = screen;
   const goBack = useBackNavigation(
-    { panel, compact: layout.compact, selection, teamMap, libraryView },
+    { panel, compact: layout.compact, selection, teamMap, libraryView, fleet },
     screen,
   );
   return {

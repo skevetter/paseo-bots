@@ -48,6 +48,12 @@ interface DomEvent {
   clipboardData?: DataTransferLike | null;
   dataTransfer?: DataTransferLike | null;
 }
+
+interface KeyboardEventLike extends DomEvent {
+  key: string;
+  shiftKey: boolean;
+  repeat: boolean;
+}
 export interface DomElement {
   clientWidth: number;
   parentElement?: DomElement | null;
@@ -453,5 +459,28 @@ export function focusWithRetries(element: () => DomElement | null, timeoutMs = 1
   requestAnimationFrame(tick);
   return () => {
     cancelled = true;
+  };
+}
+
+/** Owns checkbox key activation so React Native Web does not also synthesize a press. */
+export function bindCheckboxKeys(
+  element: DomElement | null,
+  options: { accepts(key: string): boolean; toggle(range: boolean): void },
+): () => void {
+  if (!web || !element) return () => {};
+  const handle = (activate: boolean) => (event: DomEvent) => {
+    const keyEvent = event as KeyboardEventLike;
+    if (!options.accepts(keyEvent.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (activate && !keyEvent.repeat) options.toggle(keyEvent.shiftKey);
+  };
+  const down = handle(true);
+  const up = handle(false);
+  element.addEventListener("keydown", down);
+  element.addEventListener("keyup", up);
+  return () => {
+    element.removeEventListener("keydown", down);
+    element.removeEventListener("keyup", up);
   };
 }
