@@ -11,6 +11,7 @@ import {
   SkillIdSchema,
   TeamFileTeamSchema,
 } from "./bot";
+import { MemoryBudgetStatsSchema } from "./memory-budget";
 import { ProposalSchema } from "./proposals";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
@@ -70,8 +71,7 @@ export const memoryListRpc = defineRpc({
   output: z.object({
     folder: z.string(),
     files: z.array(MemoryFileSchema),
-    injectedLines: z.number(),
-    injectedBytes: z.number(),
+    injected: MemoryBudgetStatsSchema,
   }),
 });
 
@@ -113,18 +113,22 @@ export const memoryLogDeleteRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
+const JournalChatSchema = z.object({ id: z.string(), title: z.string() });
+
 const JournalEntrySchema = z.object({
   id: z.string(),
   at: z.string(),
   file: z.string(),
-  actor: z.enum(["bot", "you"]),
+  actor: z.enum(["bot", "you", "ambiguous"]),
   via: z.enum(["chat", "app", "disk", "undo"]),
-  chat: z.object({ id: z.string(), title: z.string() }).nullable(),
+  chat: JournalChatSchema.nullable(),
+  /** The chats that overlapped when `actor` is "ambiguous". */
+  chats: z.array(JournalChatSchema),
   kind: z.enum(["created", "edited", "deleted"]),
   diff: z.string(),
   added: z.number(),
   removed: z.number(),
-  canUndo: z.boolean(),
+  undoBlocked: z.enum(["too-large", "unverified"]).nullable(),
 });
 export type JournalRow = z.infer<typeof JournalEntrySchema>;
 

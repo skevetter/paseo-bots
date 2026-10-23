@@ -79,7 +79,7 @@ export async function promptContext(
     skills.map((skill) => skill.id),
   );
   return {
-    memory: await injectedMemory(bot.id),
+    memory: (await injectedMemory(bot.id)).text,
     memoryPath: join(memoryFolder(bot.id), MAIN_MEMORY),
     recentWork: recentWork(await recentLogEntries(bot.id, 3), new Date()),
     playbooks,
