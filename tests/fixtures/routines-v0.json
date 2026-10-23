@@ -1,0 +1,68 @@
+{
+  "rt-runs": {
+    "lastRunAt": "2026-09-20T09:00:00.000Z",
+    "runs": [
+      {
+        "id": "run-aaaa1111",
+        "trigger": "schedule",
+        "scheduledFor": "2026-09-18T09:00:00.000Z",
+        "startedAt": "2026-09-18T09:00:01.000Z",
+        "endedAt": "2026-09-18T09:04:00.000Z",
+        "status": "succeeded",
+        "agentId": "chat-1",
+        "output": "All 12 invoices sent.",
+        "error": null
+      },
+      {
+        "id": "run-bbbb2222",
+        "trigger": "manual",
+        "scheduledFor": "2026-09-18T12:00:00.000Z",
+        "startedAt": "2026-09-18T12:00:00.000Z",
+        "endedAt": "2026-09-18T12:00:30.000Z",
+        "status": "failed",
+        "agentId": "chat-2",
+        "output": null,
+        "error": "No credits left."
+      },
+      {
+        "id": "run-cccc3333",
+        "trigger": "webhook",
+        "scheduledFor": "2026-09-19T08:00:00.000Z",
+        "startedAt": "2026-09-19T08:00:00.000Z",
+        "endedAt": "2026-09-19T08:00:00.000Z",
+        "status": "skipped-busy",
+        "agentId": null,
+        "output": null,
+        "error": null
+      },
+      {
+        "id": "run-dddd4444",
+        "trigger": "schedule",
+        "scheduledFor": "2026-09-19T09:00:00.000Z",
+        "startedAt": "2026-09-19T21:30:00.000Z",
+        "endedAt": "2026-09-19T21:30:00.000Z",
+        "status": "skipped-missed",
+        "agentId": null,
+        "output": null,
+        "error": null
+      },
+      {
+        "id": "run-eeee5555",
+        "trigger": "schedule",
+        "scheduledFor": "2026-09-20T09:00:00.000Z",
+        "startedAt": "2026-09-20T09:00:00.000Z",
+        "endedAt": null,
+        "status": "running",
+        "agentId": "chat-5",
+        "output": null,
+        "error": null
+      }
+    ]
+  },
+  "rt-single": {
+    "lastRunAt": "2026-09-01T09:00:00.000Z",
+    "lastStatus": "succeeded",
+    "lastAgentId": "old-chat"
+  },
+  "rt-null": null
+}

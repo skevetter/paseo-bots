@@ -3,6 +3,7 @@ import type { Bot, Routine } from "../../../shared/bot";
 import { byRef, findBot, ROUTINE_REF } from "../../../shared/changes/refs";
 import type { Change } from "../../../shared/changes/schema";
 import { describeSchedule, nextRun, ScheduleInput } from "../../../shared/routines";
+import { describeRun } from "../../../shared/runs";
 import {
   applyOrPropose,
   BotRef,
@@ -201,7 +202,7 @@ const runNow = defineControlTool({
     const { bot, routine } = await routineByRef(context, botRef, ref);
     const { run } = await context.scheduler.runNow(bot.id, routine.id);
     const detail = run.error ? `: ${run.error}` : "";
-    return result(`${routine.name}: ${run.status}${detail}.`, { run });
+    return result(`${routine.name}: ${describeRun(run).label}${detail}.`, { run });
   },
 });
 
@@ -235,7 +236,7 @@ const history = defineControlTool({
     const { routines } = await context.scheduler.status();
     const runs = [...(routines[routine.id]?.runs ?? [])].reverse();
     const text = runs.length
-      ? runs.map((run) => `${run.startedAt} ${run.trigger}: ${run.status}`).join("\n")
+      ? runs.map((run) => `${run.startedAt} ${run.trigger}: ${describeRun(run).label}`).join("\n")
       : `${routine.name} hasn't run yet.`;
     return result(text, { routine: routine.id, runs });
   },

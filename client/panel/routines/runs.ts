@@ -1,19 +1,13 @@
 import type { Routine } from "../../../shared/bot";
 import { upcomingRuns } from "../../../shared/routines";
 import type { RoutineRecord, RoutineRun } from "../../../shared/rpc";
+import { describeRun } from "../../../shared/runs";
 import { calendarDaysBetween } from "../../../shared/time";
 import type { BadgeVariant } from "../status";
 
 const UPCOMING = 6;
 export const UPCOMING_DAYS = 7;
 const RECENT = 10;
-const RUN_LABELS: Record<RoutineRun["status"], string> = {
-  running: "Running",
-  succeeded: "Done",
-  failed: "Failed",
-  "skipped-busy": "Skipped, still working",
-  "skipped-missed": "Missed",
-};
 const TRIGGER_LABELS: Record<RoutineRun["trigger"], string> = {
   schedule: "on schedule",
   manual: "run by you",
@@ -71,7 +65,7 @@ export function runsSummary(upcoming: UpcomingRun[], recent: RecentRun[], now: D
 
 export function runHint(entry: RoutineRun, now: Date): string {
   return [
-    `${runTime(new Date(entry.startedAt), now)} · ${RUN_LABELS[entry.status]} · ${TRIGGER_LABELS[entry.trigger]}`,
+    `${runTime(new Date(entry.startedAt), now)} · ${describeRun(entry).label} · ${TRIGGER_LABELS[entry.trigger]}`,
     entry.error ?? entry.output,
   ]
     .filter(Boolean)

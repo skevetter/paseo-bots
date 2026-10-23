@@ -86,6 +86,7 @@ Compared with oliexe/paseo-bots 0.2.0, this fork:
 - writes state files through a temporary file and sets an unreadable file aside;
 - checks each relay token before it reads a request, and bounds request sizes;
 - keeps routine history through corrupt files, missed runs and failing routines;
+- records whether a routine run finished apart from whether its task worked, and shows a finished run as not verified until something checks it;
 - shows loading and error states for apps, server tests and runs;
 - labels icon buttons for screen readers;
 - lints with Biome and releases from this repository with semantic-release.
