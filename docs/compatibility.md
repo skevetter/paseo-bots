@@ -25,7 +25,7 @@ When the SDK is bumped, a failing fixture means a contract below changed: read t
 - Server code gets `PaseoApi` from `PluginHandlerContext["paseo"]` (`server/paseo.ts`). `PaseoApi` (`@getpaseo/client`) exposes `agents`, `workspaces`, `projects`, `providers`, `config`, `terminals`, `observeEvents`, `dispose`. It has **no** server-info or feature accessor: the feature map the daemon advertises in its `server_info` message lives on `DaemonClient.getLastServerInfoMessage()`, which a plugin cannot reach. So a plugin cannot ask "does this host support X" up front; it can only attempt the call and classify the error.
 - `shared/chat.ts` exposes a narrow, SDK-neutral `ChatApi`, assignable from `PaseoApi`. Chat creation has two stages:
   - `prepareBotChat(api, input)` resolves the actual provider/model, available approval/thinking defaults, policy and final config, without creating a project, workspace or agent.
-  - `launchPreparedBotChat(api, prepared, observer?)` creates/reuses the workspace and launches only that artifact. It never reads provider defaults, bot settings or policy again.
+  - `launchPreparedBotChat(api, prepared, options?)` creates/reuses the workspace and launches only that artifact. It never reads provider defaults, bot settings or policy again. Runtime options contain `onEvent` and an optional `AbortSignal`, never serialized authority.
   - `startBotChat(api, input)` composes both for plain callers, passing `input.onEvent` separately.
 - Server `startChat` composes `prepareChat` and `launchPreparedChat`; the coordinator uses those stages separately. Server preparation refuses a remote bot. Client `useStartChat` uses the same shared split and passes a chosen UUID and idempotency key on both local and remote hosts. Remote chats no longer silently discard their caller-selected identity.
 
@@ -86,7 +86,7 @@ Server exports in `server/chats.ts`:
 
 ```ts
 prepareChat(host, relay, bot, input: PrepareChatInput): Promise<PreparedBotChat>
-launchPreparedChat(host, relay, prepared, observer?: CreationObserver): Promise<string>
+launchPreparedChat(host, relay, prepared, options?: PreparedLaunchOptions): Promise<string>
 refreshPreparedChat(relay, prepared): Promise<PreparedBotChat>
 startChat(host, relay, bot, input): Promise<string>
 ```
@@ -96,6 +96,9 @@ startChat(host, relay, bot, input): Promise<string>
 Cold recovery launches the JSON artifact, never `prepareChat` again. `launchPreparedChat` calls `refreshPreparedChat` first; adoption of an existing agent calls `refreshPreparedChat` without another create. Refresh may replace only the plugin-owned relay URLs and Authorization headers for the same bot/agent. It does not read current policy, regenerate prompts, add servers/grants, or change provider/model/mode/thinking. Relay authorization captures bot contact, app membership and resolved tool/account limits at admission. Managed relay endpoints fail closed before these permissions have been restored after restart; ordinary current-bot grants are not a fallback. Bot deletion/archive still revokes relay access. Removing the app credential makes recovery fail explicitly instead of silently omitting the admitted mount.
 
 `CreationObserver` receives SDK-neutral `CreationEvidence` with exact phase/revision/key, nullable IDs/error, optional `failedStage`, `errorCode`, `outcomeUnknown` and raw agent/workspace evidence. No lifecycle status is invented and no nullable ID is replaced with a guessed ID. The adapter adds no deduplication. The SDK itself suppresses identical creation revisions; distinct revisions carrying repeated/null IDs remain visible. Its callback is synchronous and not an awaited durability boundary; the coordinator must capture evidence synchronously and flush its own writer queue before subsequent decisions. The SDK still throws a plain error after an unknown creation failure, so error-only handling loses evidence.
+
+`PreparedLaunchOptions.signal` fences asynchronous workspace/project setup and is checked immediately before calling the SDK's agent-create API. Abandoning setup throws `PreparedLaunchAbortedError` before any agent create is issued. The SDK has no per-create cancellation signal: aborting after that API call cannot prove that the host stopped or that no effects occurred. The coordinator must retain unknown outcomes and reservations until independent evidence permits release. Signal and observer callbacks are runtime-only and never enter the execution artifact.
+
 
 ## Agent lifecycle and turn completion
 

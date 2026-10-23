@@ -91,19 +91,30 @@ export interface ChatApi {
  * Opening a folder registers the Paseo project but also creates a workspace for
  * the folder itself; that one is archived so the project only lists bot workspaces.
  */
-async function botsProjectId(api: ChatApi, root: string): Promise<string> {
+async function botsProjectId(api: ChatApi, root: string, signal?: AbortSignal): Promise<string> {
+  assertLaunchActive(signal);
   const { projects } = await api.projects.list();
+  assertLaunchActive(signal);
   const existing = projects.find((project) => normalize(project.projectRootPath) === normalize(root));
   if (existing) return existing.projectId;
   const rootWorkspace = await api.workspaces.open(root);
+  assertLaunchActive(signal);
   const snapshot = rootWorkspace.current() ?? (await rootWorkspace.refresh());
+  assertLaunchActive(signal);
   if (!snapshot) throw new Error("Paseo didn't register the Bots project.");
   await rootWorkspace.archive().catch(() => undefined);
   return snapshot.projectId;
 }
 
-async function ensureBotWorkspace(api: ChatApi, bot: Pick<Bot, "name">, placement: BotPlacement) {
+async function ensureBotWorkspace(
+  api: ChatApi,
+  bot: Pick<Bot, "name">,
+  placement: BotPlacement,
+  signal?: AbortSignal,
+) {
+  assertLaunchActive(signal);
   const { entries } = await api.workspaces.list();
+  assertLaunchActive(signal);
   const mine = entries.find(
     (workspace) =>
       normalize(workspace.workspaceDirectory ?? workspace.projectRootPath) === normalize(placement.path) &&
@@ -115,7 +126,10 @@ async function ensureBotWorkspace(api: ChatApi, bot: Pick<Bot, "name">, placemen
     if (mine.title !== bot.name) await handle.setTitle(bot.name);
     return handle;
   }
-  const projectId = placement.projectRoot ? await botsProjectId(api, placement.projectRoot) : undefined;
+  const projectId = placement.projectRoot
+    ? await botsProjectId(api, placement.projectRoot, signal)
+    : undefined;
+  assertLaunchActive(signal);
   return api.workspaces.create({
     title: bot.name,
     source: { kind: "directory", path: placement.path, ...(projectId ? { projectId } : {}) },
@@ -178,6 +192,24 @@ export interface CreationEvidence {
 }
 
 export type CreationObserver = (evidence: CreationEvidence) => void;
+
+export interface PreparedLaunchOptions {
+  onEvent?: CreationObserver;
+  signal?: AbortSignal;
+}
+
+export class PreparedLaunchAbortedError extends Error {
+  readonly code = "launch_not_created";
+
+  constructor() {
+    super("Chat launch stopped before requesting agent creation.");
+    this.name = "PreparedLaunchAbortedError";
+  }
+}
+
+function assertLaunchActive(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new PreparedLaunchAbortedError();
+}
 
 export interface MemoryContextReceipt {
   backend: "files";
@@ -337,11 +369,18 @@ export async function prepareBotChat(api: ChatApi, input: StartChatInput): Promi
 export async function launchPreparedBotChat(
   api: ChatApi,
   prepared: PreparedBotChat,
-  observer?: CreationObserver,
+  options: PreparedLaunchOptions = {},
 ): Promise<string> {
   z.uuid().parse(prepared.agentId);
   try {
-    const workspace = await ensureBotWorkspace(api, { name: prepared.botName }, prepared.placement);
+    const workspace = await ensureBotWorkspace(
+      api,
+      { name: prepared.botName },
+      prepared.placement,
+      options.signal,
+    );
+    // The SDK cannot cancel a create once issued; stop abandoned setup before crossing that boundary.
+    assertLaunchActive(options.signal);
     const agent = await workspace.agents.create({
       agentId: prepared.agentId,
       idempotencyKey: prepared.idempotencyKey,
@@ -354,7 +393,7 @@ export async function launchPreparedBotChat(
       ...(prepared.clientMessageId !== undefined ? { clientMessageId: prepared.clientMessageId } : {}),
       ...(prepared.env !== undefined ? { env: prepared.env } : {}),
       ...(prepared.outputSchema !== undefined ? { outputSchema: prepared.outputSchema } : {}),
-      ...(observer ? { onEvent: observer } : {}),
+      ...(options.onEvent ? { onEvent: options.onEvent } : {}),
     });
     return agent.id;
   } catch (error) {
@@ -363,7 +402,7 @@ export async function launchPreparedBotChat(
 }
 
 export async function startBotChat(api: ChatApi, input: StartChatInput): Promise<string> {
-  return launchPreparedBotChat(api, await prepareBotChat(api, input), input.onEvent);
+  return launchPreparedBotChat(api, await prepareBotChat(api, input), { onEvent: input.onEvent });
 }
 
 function defaultModel(entries: readonly ProviderEntry[] | null, provider: string): string {
