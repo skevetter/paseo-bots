@@ -1,9 +1,10 @@
 import { EventEmitter, once } from "node:events";
-import { readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import { writeAtomic } from "../server/files";
 import { BotsHost } from "../server/host";
@@ -15,7 +16,7 @@ import { type ChatApi, type PreparedBotChat, prepareBotChat } from "../shared/ch
 import { PolicySchema } from "../shared/policies";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
 import { makePrepared } from "./coordinator-fixture";
-import { defined, fakeHost, makeBot as makeBotFixture, makeRun, useTempPaseoHome } from "./helpers";
+import { defined, fakeHost, makeBot as makeBotFixture, makeRun } from "./helpers";
 import { LIVE_PROVIDERS } from "./provider-modes";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
@@ -107,6 +108,7 @@ function fakePaseo(brokenChat?: string) {
 
 /** Every scheduler and relay a test makes; each test waits for them to stop before the next one starts. */
 const running: { stop(): Promise<void> }[] = [];
+const observedEpochs = new Map<string, number>();
 
 function track(host: BotsHost, launch: Launch, options: CoordinatorOptions = {}) {
   const relay = new Relay(host, []);
@@ -122,7 +124,22 @@ function track(host: BotsHost, launch: Launch, options: CoordinatorOptions = {})
         provider: bot.provider,
         purpose: input.purpose ?? "task",
       }),
-    launch: (_host, _relay, prepared) => launch(prepared),
+    launch: async (_host, _relay, prepared) => {
+      if (prepared.labels["paseo-bots.run"]) {
+        const opening = await scheduler.coordinator.sessionOpened({
+          agentId: prepared.agentId,
+          workspaceId: null,
+          provider: prepared.provider,
+          cwd: prepared.placement.path,
+          reason: "create",
+          purpose: "interactive",
+        });
+        if (opening) observedEpochs.set(prepared.agentId, opening.sessionEpoch);
+      }
+      const agentId = await launch(prepared);
+      if (observedEpochs.has(agentId)) await scheduler.coordinator.sessionActive(agentId);
+      return agentId;
+    },
     refresh: async (_relay, prepared) => prepared,
     ...options,
   });
@@ -165,12 +182,21 @@ afterEach(async () => {
   await Promise.all(running.splice(0).map((item) => item.stop()));
   vi.useRealTimers();
   vi.restoreAllMocks();
+  observedEpochs.clear();
 });
 
 function useSchedulerHome(prefix: string) {
-  useTempPaseoHome(prefix);
+  const homes: string[] = [];
+  const previous = process.env.PASEO_HOME;
   beforeEach(async () => {
-    await rm(join(pluginDataPath(), "routines.json"), { force: true });
+    const home = await mkdtemp(join(tmpdir(), prefix));
+    homes.push(home);
+    process.env.PASEO_HOME = home;
+  });
+  afterAll(async () => {
+    if (previous === undefined) delete process.env.PASEO_HOME;
+    else process.env.PASEO_HOME = previous;
+    await Promise.all(homes.map((home) => rm(home, { recursive: true, force: true })));
   });
 }
 
@@ -296,6 +322,7 @@ describe("the routine scheduler", () => {
       outcome: { kind: "completed" },
       reply: "Shipped order 42 to Acme.",
       turnId: "turn-9",
+      sessionEpoch: observedEpochs.get(hookChat.agentId),
     });
     const last = defined(appended.at(-1), "updated card");
     expect(last.item.id).toBe(defined(appended.at(-2), "posted card").item.id);
@@ -442,6 +469,7 @@ describe("routine chats that take a while to start", () => {
         await scheduler.finished("rt-fast", prepared.agentId, {
           outcome: { kind: "failed", error: { message: "No credits left." } },
           reply: "",
+          sessionEpoch: observedEpochs.get(prepared.agentId),
         });
         return prepared.agentId;
       },
@@ -688,7 +716,11 @@ describe("routine runs already in progress", () => {
       launchAssigned,
     );
     const agentId = defined((await scheduler.runNow("bot-c", "rt-c")).run.agentId, "cancel agent");
-    const turn = (outcome: PluginTurnOutcome, reply: string) => ({ outcome, reply });
+    const turn = (outcome: PluginTurnOutcome, reply: string) => ({
+      outcome,
+      reply,
+      sessionEpoch: observedEpochs.get(agentId),
+    });
     await scheduler.finished("rt-c", "stranger-chat", turn({ kind: "completed" }, "Not mine."));
     await scheduler.finished("rt-unknown", agentId, turn({ kind: "completed" }, "No such routine."));
     await scheduler.finished("rt-c", agentId, turn({ kind: "canceled", reason: "user" }, "  "));
@@ -716,12 +748,17 @@ describe("routine runs already in progress", () => {
     await scheduler.finished("rt-d", agentId, {
       outcome: { kind: "completed" },
       reply: "Done anyway.",
+      sessionEpoch: observedEpochs.get(agentId),
     });
     expect((await runsOf(scheduler, "rt-d")).map((run) => [facts(run), run.output])).toEqual([
       ["completed/unknown", "Done anyway."],
     ]);
     expect(appended.map((card) => facts(card.item.data))).toEqual(["running/unknown"]);
   });
+});
+
+describe("routine display retention", () => {
+  useSchedulerHome("paseo-bots-scheduler-retention-");
 
   it("keeps 30 terminal runs plus unfinished work until it settles", async () => {
     const old = Array.from({ length: 30 }, (_, index) => makeRun(`old-${index}`));
@@ -737,6 +774,7 @@ describe("routine runs already in progress", () => {
     await scheduler.finished("rt-k", defined(run.agentId, "retained agent"), {
       outcome: { kind: "completed" },
       reply: "Finished.",
+      sessionEpoch: observedEpochs.get(defined(run.agentId, "retained agent")),
     });
     const settled = (await runsOf(scheduler, "rt-k")).map((entry) => entry.id);
     expect(settled).toHaveLength(30);
@@ -841,6 +879,7 @@ describe("routine webhook calls", () => {
     expect(await runsOf(scheduler, "rt-paused")).toEqual([]);
   });
 
+  // Ten serial loopback admissions each synchronize durable metadata; this is not the rate-window bound.
   it("takes ten calls a minute", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     const { scheduler } = await startScheduler(
@@ -855,6 +894,7 @@ describe("routine webhook calls", () => {
       await scheduler.finished("rt-many", defined(active?.agentId, "rate-limited agent"), {
         outcome: { kind: "completed" },
         reply: "Accepted.",
+        sessionEpoch: observedEpochs.get(defined(active?.agentId, "rate-limited agent")),
       });
     }
     expect(answers).toEqual(Array(10).fill(202));
@@ -862,7 +902,7 @@ describe("routine webhook calls", () => {
     vi.setSystemTime(Date.now() + 60_000);
     expect((await hook(url, "next minute"))[0]).toBe(202);
     expect(await runsOf(scheduler, "rt-many")).toHaveLength(11);
-  });
+  }, 15_000);
 });
 
 describe("routine webhook bodies and creation", () => {
@@ -912,7 +952,7 @@ describe("routine webhook bodies and creation", () => {
     expect(await runsOf(scheduler, "rt-guard")).toEqual([]);
   });
 
-  it("reports unknown creation as failed admission while retaining the admitted chat identity", async () => {
+  it("reports unknown creation without claiming the admitted UUID is a created chat", async () => {
     const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-500", routines: [webhook({ id: "rt-500" })] })],
       () => Promise.reject(new Error("Creation transport lost.")),
@@ -922,11 +962,11 @@ describe("routine webhook bodies and creation", () => {
       500,
       {
         status: "failed",
-        chat: expect.stringMatching(/^[0-9a-f-]{36}$/),
         error: "Creation transport lost.",
       },
     ]);
     expect((await runsOf(scheduler, "rt-500"))[0]).toMatchObject({
+      agentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       executionStatus: "unknown",
       managed: { reservation: true },
     });
@@ -1367,5 +1407,24 @@ describe("legacy terminal evidence during launch", () => {
       output: "Observed completed work.",
     });
     expect(run.managed ?? null).toBeNull();
+  });
+});
+
+describe("managed routine completion provenance", () => {
+  useSchedulerHome("paseo-bots-scheduler-completion-epoch-");
+
+  it("does not free capacity for a completion that omitted its observed provider-session epoch", async () => {
+    const { scheduler } = await startScheduler([makeBot({ id: "epoch", routines: [webhook()] })]);
+    const { run } = await scheduler.runNow("epoch", "rt-1");
+    await scheduler.finished("rt-1", defined(run.agentId, "managed agent"), {
+      outcome: { kind: "completed" },
+      reply: "Unattributed completion.",
+    });
+    expect(await scheduler.coordinator.get(run.id)).toMatchObject({
+      executionStatus: "unknown",
+      taskOutcome: "unknown",
+      managed: { reservation: true },
+    });
+    expect(facts((await scheduler.runNow("epoch", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
   });
 });

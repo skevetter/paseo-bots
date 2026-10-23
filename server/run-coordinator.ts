@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { Bot, BotState, Routine } from "../shared/bot";
 import type { CreationEvidence, PreparedBotChat, PreparedChatMetadata } from "../shared/chat";
+import { PreparedLaunchAbortedError } from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import { EXECUTION_LABEL, type HostReadiness, OCCURRENCE_LABEL, RUN_LABEL } from "../shared/managed-runs";
 import type { RoutineRecord, RoutineRun } from "../shared/rpc";
@@ -107,6 +108,8 @@ export interface ExecutionEnd {
   reply?: string;
   error?: string | null;
   executionId?: string;
+  /** Authentic generation captured with the completion, never inferred at delivery. */
+  sessionEpoch?: number;
   routineId?: string;
 }
 const allRuns = (state: RunSnapshot) => Object.values(state.routines).flatMap((record) => record.runs);
@@ -150,7 +153,12 @@ export class RunCoordinator {
     this.now = options.now ?? Date.now;
     this.jitter = options.jitter ?? Math.random;
     this.capacity = { ...DEFAULT_CAPACITY, ...options.capacity };
-    this.sessions = new ManagedSessions(this.store, this.artifacts, this.now);
+    this.sessions = new ManagedSessions(
+      this.store,
+      this.artifacts,
+      this.now,
+      () => !this.closing && !this.stopped,
+    );
     this.validateTiming();
     this.calls = new BoundedHostCalls(options.launchTimeoutMs ?? 30_000);
     this.creationWaits = new CreationWaits((id) => this.get(id), options.launchTimeoutMs ?? 30_000);
@@ -173,10 +181,15 @@ export class RunCoordinator {
     return this.state;
   }
 
-  private async serial<T>(work: () => Promise<T>): Promise<T> {
+  private async serial<T>(work: () => Promise<T>, draining = false): Promise<T> {
     await this.opened;
-    if (this.stopped) throw new Error("Run coordinator is stopped.");
-    const next = this.queue.then(work);
+    if (this.stopped || (this.closing && !draining))
+      throw new Error("Run coordinator is stopped or stopping.");
+    const next = this.queue.then(() => {
+      if (this.stopped || (this.closing && !draining))
+        throw new Error("Run coordinator is stopped or stopping.");
+      return work();
+    });
     this.queue = next.catch(() => {});
     void next.then(
       () => this.creationWaits.signal(),
@@ -228,21 +241,22 @@ export class RunCoordinator {
     let prepared: PreparedBotChat;
     try {
       prepared = await this.calls.run(
-        (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
-          agentId,
-          idempotencyKey: identity.executionId,
-          prompt: input.prompt,
-          title: input.title,
-          routineId: input.routine?.id,
-          purpose: input.purpose,
-          state: input.state,
-          labels: {
-            ...input.labels,
-            [RUN_LABEL]: identity.id,
-            [EXECUTION_LABEL]: identity.executionId,
-            [OCCURRENCE_LABEL]: key,
-          },
-        }),
+        () =>
+          (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
+            agentId,
+            idempotencyKey: identity.executionId,
+            prompt: input.prompt,
+            title: input.title,
+            routineId: input.routine?.id,
+            purpose: input.purpose,
+            state: input.state,
+            labels: {
+              ...input.labels,
+              [RUN_LABEL]: identity.id,
+              [EXECUTION_LABEL]: identity.executionId,
+              [OCCURRENCE_LABEL]: key,
+            },
+          }),
         "Managed preparation",
       );
     } catch (error) {
@@ -382,6 +396,7 @@ export class RunCoordinator {
       if (existing) return copy(existing);
       await this.validatePreparedMode(prepared, input);
       this.validateAgentIdentity(saved, prepared.agentId);
+      await this.store.initialize();
       const frozen = this.freezePrepared(prepared, run);
       const artifact = await this.artifacts.put({ prepared: frozen, capacity: input.capacity ?? {} });
       this.initialize(run, frozen, input, artifact);
@@ -599,14 +614,14 @@ export class RunCoordinator {
   }
 
   async sessionOpened(input: ManagedSessionOpening): Promise<ManagedSessionReceipt | null> {
-    await this.opened;
+    if (input.purpose === "history") return null;
+    const receipt = await this.serial(() => this.sessions.opened(input));
     if (this.closing) throw new Error("Managed coordinator is stopping.");
-    return this.sessions.opened(input);
+    return receipt;
   }
 
   async sessionActive(agentId: string): Promise<void> {
-    await this.opened;
-    await this.sessions.active(agentId);
+    await this.serial(() => this.sessions.active(agentId));
     this.creationWaits.signal();
   }
 
@@ -662,7 +677,10 @@ export class RunCoordinator {
     if (this.stopped || this.closing || this.state === "reconciling") return;
     await this.enforceActiveDeadlines();
     const admitted = await this.serial(() => this.store.updateState((state) => this.selectLaunches(state)));
-    await Promise.all(admitted.map((id) => this.launch(id)));
+    for (const id of admitted)
+      void this.launch(id).catch((error: unknown) =>
+        console.error("paseo-bots: managed launch failed", error),
+      );
     await this.armWake();
   }
 
@@ -689,7 +707,13 @@ export class RunCoordinator {
   }
 
   private canStart(run: RoutineRun): boolean {
-    return !!this.host.paseo && run.managed?.launchIntent !== false && !isTerminal(run.executionStatus);
+    return (
+      !this.closing &&
+      !!this.host.paseo &&
+      !run.managed?.cancelRequested &&
+      run.managed?.launchIntent !== false &&
+      !isTerminal(run.executionStatus)
+    );
   }
 
   private async armWake(): Promise<void> {
@@ -724,6 +748,7 @@ export class RunCoordinator {
     if (
       !managed ||
       managed.launchIntent === false ||
+      managed.cancelRequested ||
       run.executionStatus !== "queued" ||
       managed.notBefore > this.now()
     )
@@ -787,26 +812,18 @@ export class RunCoordinator {
   }
 
   private async launchOne(id: string): Promise<void> {
-    const prepared = await this.serial(async () => {
-      let result: PreparedBotChat | null = null;
-      await this.store.updateState(async (state) => {
-        const run = lookup(state, id);
-        if (!run?.managed || run.executionStatus !== "reserved") return;
-        if (run.managed.launchIntent === false || expireBeforeLaunch(run, this.now())) return;
-        const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
-        result = artifact.prepared;
-        run.executionStatus = "starting";
-        this.setAttempt(run, "starting");
-      });
-      return result as PreparedBotChat | null;
-    });
-    if (!prepared) return;
+    const prepared = await this.serial(() => this.store.updateState((state) => this.beginLaunch(state, id)));
+    if (!prepared || this.closing) return;
     let evidence: CreationEvidence | null = null;
     try {
       const agentId = await this.calls.run(
-        (this.options.launch ?? launchPreparedChat)(this.host, this.relay, prepared, (value) => {
-          evidence = value;
-        }),
+        (signal) =>
+          (this.options.launch ?? launchPreparedChat)(this.host, this.relay, prepared, {
+            signal,
+            onEvent: (value) => {
+              evidence = value;
+            },
+          }),
         "Managed agent creation",
       );
       if (agentId !== prepared.agentId)
@@ -817,13 +834,25 @@ export class RunCoordinator {
     }
   }
 
+  private async beginLaunch(state: RunSnapshot, id: string): Promise<PreparedBotChat | null> {
+    const run = lookup(state, id);
+    if (!run?.managed || run.executionStatus !== "reserved") return null;
+    if (!this.canStart(run) || expireBeforeLaunch(run, this.now())) return null;
+    const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
+    if (this.closing) return null;
+    run.executionStatus = "starting";
+    this.setAttempt(run, "starting");
+    return artifact.prepared;
+  }
+
   private async launched(
     id: string,
     evidence: CreationEvidence | null,
     executionId: string | undefined,
   ): Promise<void> {
-    await this.serial(() =>
-      this.store.updateState((state) => this.recordLaunched(state, id, evidence, executionId)),
+    await this.serial(
+      () => this.store.updateState((state) => this.recordLaunched(state, id, evidence, executionId)),
+      true,
     );
   }
 
@@ -872,32 +901,45 @@ export class RunCoordinator {
     evidence: CreationEvidence | null,
     executionId: string | undefined,
   ): Promise<void> {
-    await this.serial(() =>
-      this.store.updateState(async (state) => {
-        const run = lookup(state, id);
-        if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
-        this.creation(run, evidence);
-        run.error = errorText(error);
-        if (this.noEffectCapability(error, evidence)) {
-          run.executionStatus = "failed";
-          run.taskOutcome = "no_change";
-          run.endedAt = new Date(this.now()).toISOString();
-          run.managed.reservation = false;
-          this.setAttempt(run, "failed");
-          return;
-        }
-        if (!this.retryable(run, error, evidence)) {
-          run.executionStatus = "unknown";
-          this.setAttempt(run, "unknown");
-          return;
-        }
-        await this.safeFailure(state, run, error);
-      }),
+    await this.serial(
+      () =>
+        this.store.updateState(async (state) => {
+          const run = lookup(state, id);
+          if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
+          this.creation(run, evidence);
+          run.error = errorText(error);
+          if (this.provenNoCreate(error, evidence)) {
+            this.noCreateFailure(run);
+            return;
+          }
+          if (!this.retryable(run, error, evidence)) {
+            run.executionStatus = "unknown";
+            this.setAttempt(run, "unknown");
+            return;
+          }
+          await this.safeFailure(state, run, error);
+        }),
+      true,
     );
   }
 
-  private noEffectCapability(error: unknown, evidence: CreationEvidence | null): boolean {
-    return error instanceof HostCapabilityError && !evidence?.outcomeUnknown;
+  private provenNoCreate(error: unknown, evidence: CreationEvidence | null): boolean {
+    return (
+      (error instanceof HostCapabilityError || error instanceof PreparedLaunchAbortedError) &&
+      !evidence?.outcomeUnknown
+    );
+  }
+
+  private noCreateFailure(run: RoutineRun): void {
+    if (!run.managed) throw new Error("Missing managed no-create evidence.");
+    const status = run.managed.cancelRequested ? "canceled" : "failed";
+    run.executionStatus = status;
+    run.taskOutcome = "no_change";
+    run.endedAt = new Date(this.now()).toISOString();
+    run.managed.reservation = false;
+    run.managed.launchIntent = false;
+    run.managed.cancelError = null;
+    this.setAttempt(run, status);
   }
 
   private retryable(
@@ -919,6 +961,10 @@ export class RunCoordinator {
   ): Promise<void> {
     const managed = run.managed;
     if (!managed) return;
+    if (managed.cancelRequested) {
+      this.noCreateFailure(run);
+      return;
+    }
     this.setAttempt(run, "failed");
     managed.reservation = false;
     state.coordinator.circuits[managed.provider] = providerCircuitFailure(
@@ -963,11 +1009,14 @@ export class RunCoordinator {
   }
 
   async finished(agentId: string, input: ExecutionEnd): Promise<RoutineRun | null> {
+    if (input.sessionEpoch !== undefined) SessionEpochSchema.parse(input.sessionEpoch);
     const run = await this.serial(() =>
       this.store.updateState((state) => this.settleExecution(state, agentId, input)),
     );
+    if (!run) return null;
+    if (input.sessionEpoch === undefined) await this.reconcile(run.id);
     await this.pump();
-    return run;
+    return (await this.get(run.id)) ?? run;
   }
 
   private async settleExecution(
@@ -975,39 +1024,61 @@ export class RunCoordinator {
     agentId: string,
     input: ExecutionEnd,
   ): Promise<RoutineRun | null> {
-    const found = allRuns(state).find((entry) => entry.agentId === agentId && holds(entry));
-    if (!found?.managed || (input.executionId && found.executionId !== input.executionId)) return null;
-    if (input.routineId && found.managed.routineId !== input.routineId) return null;
+    const run = allRuns(state).find((entry) => entry.agentId === agentId && holds(entry));
+    if (!run?.managed || (input.executionId && run.executionId !== input.executionId)) return null;
+    if (input.routineId && run.managed.routineId !== input.routineId) return null;
+    if (input.sessionEpoch !== undefined && input.sessionEpoch !== run.sessionEpoch) return null;
+    const artifact = await this.retainLifecycle(run, input);
+    if (input.sessionEpoch === undefined) {
+      run.executionStatus = "unknown";
+      run.error =
+        "Completion has no authenticated provider-session generation; fresh current-session evidence is required.";
+      this.setAttempt(run, "unknown");
+    } else this.applyCompletion(run, input, artifact);
+    return copy(run);
+  }
+
+  private async retainLifecycle(run: RoutineRun, input: ExecutionEnd) {
+    if (!run.managed) throw new Error("Missing managed lifecycle evidence.");
+    const observedAt = this.now();
     const artifact = await this.artifacts.put({
       version: 1,
-      runId: found.id,
-      executionId: found.executionId,
-      attemptId: found.attemptId,
-      sessionEpoch: found.sessionEpoch,
+      runId: run.id,
+      executionId: run.executionId,
+      attemptId: run.attemptId,
+      sessionEpoch: input.sessionEpoch ?? null,
       source: "lifecycle",
       kind: input.kind,
       reply: input.reply ?? null,
       providerTurnId: input.turnId ?? null,
-      observedAt: this.now(),
+      observedAt,
     });
-    found.managed.result = artifact;
-    found.managed.evidence = {
+    run.managed.evidence = {
       artifact,
       source: "lifecycle",
-      replyComplete: input.reply !== undefined,
+      replyComplete: input.sessionEpoch !== undefined && input.reply !== undefined,
       timelineComplete: false,
-      observedAt: this.now(),
+      observedAt,
     };
-    found.managed.hostCreatedAt ??= this.now();
-    found.executionStatus = input.kind;
-    found.providerTurnId = providerTurnId(input.turnId);
-    found.taskOutcome = "unknown";
-    found.endedAt = new Date(this.now()).toISOString();
-    found.output = input.reply?.trim().slice(0, 400) || null;
-    found.error = input.error ?? null;
-    found.managed.reservation = false;
-    this.setAttempt(found, input.kind);
-    return copy(found);
+    run.managed.hostCreatedAt ??= observedAt;
+    return artifact;
+  }
+
+  private applyCompletion(
+    run: RoutineRun,
+    input: ExecutionEnd,
+    artifact: { id: string; sha256: string },
+  ): void {
+    if (!run.managed) throw new Error("Missing managed completion.");
+    run.managed.result = artifact;
+    run.executionStatus = input.kind;
+    run.providerTurnId = providerTurnId(input.turnId);
+    run.taskOutcome = "unknown";
+    run.endedAt = new Date(this.now()).toISOString();
+    run.output = input.reply?.trim().slice(0, 400) || null;
+    run.error = input.error ?? null;
+    run.managed.reservation = false;
+    this.setAttempt(run, input.kind);
   }
 
   async cancel(id: string): Promise<{ run: RoutineRun; error: string | null }> {
@@ -1033,13 +1104,14 @@ export class RunCoordinator {
     if (result.beforeLaunch || !holds(result.run)) return { run: result.run, error: null };
     if (result.alreadyRequested) return { run: result.run, error: result.run.managed?.cancelError ?? null };
     let error: string | null = null;
-    if (!this.options.cancel)
+    const cancelAdapter = this.options.cancel;
+    if (!cancelAdapter)
       error =
         "The attached Paseo API does not expose active cancellation. Stop the agent in Paseo, then reconcile; capacity remains reserved.";
     else {
       try {
         await this.calls.run(
-          this.options.cancel(result.run.agentId ?? ""),
+          () => cancelAdapter(result.run.agentId ?? ""),
           "Managed cancellation acknowledgement",
         );
       } catch (failure) {
@@ -1129,9 +1201,10 @@ export class RunCoordinator {
 
   private async reconcileOne(run: RoutineRun): Promise<void> {
     if (!run.agentId || !this.host.paseo) return;
+    const agentId = run.agentId;
     try {
       const handle = this.host.paseo.agents.ref(run.agentId);
-      const snapshot = await this.calls.run(handle.refresh(), "Host agent reconciliation");
+      const snapshot = await this.calls.run(() => handle.refresh(), "Host agent reconciliation");
       if (!snapshot) {
         if (run.executionStatus !== "reserved")
           await this.unknown(run, "No matching host agent evidence; external effects remain unknown.");
@@ -1148,23 +1221,35 @@ export class RunCoordinator {
       }
       const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
       await this.calls.run(
-        (this.options.refresh ?? refreshPreparedChat)(this.relay, artifact.prepared),
+        () => (this.options.refresh ?? refreshPreparedChat)(this.relay, artifact.prepared),
         "Frozen relay restoration",
       );
       const timeline = await this.calls.run(
-        handle.timeline.refetch({
-          direction: "tail",
-          limit: 100,
-          projection: "canonical",
-        }),
+        () =>
+          handle.timeline.refetch({
+            direction: "tail",
+            limit: 100,
+            projection: "canonical",
+          }),
         "Host timeline reconciliation",
       );
-      const evidence = hostRunEvidence(run, snapshot.agent, timeline);
+      const evidence = this.currentSessionEvidence(run, hostRunEvidence(run, snapshot.agent, timeline));
       await this.applyHostEvidence(run, evidence, timeline);
-      if (evidence.status !== "unknown") await this.sessions.active(run.agentId, run.sessionEpoch);
+      if (evidence.status !== "unknown")
+        await this.serial(() => this.sessions.active(agentId, run.sessionEpoch));
     } catch (error) {
       await this.unknown(run, `Host reconciliation unavailable: ${errorText(error)}`);
     }
+  }
+
+  private currentSessionEvidence(run: RoutineRun, evidence: HostRunEvidence): HostRunEvidence {
+    if (run.sessionEpoch <= 1 || !["completed", "failed"].includes(evidence.status)) return evidence;
+    return {
+      ...evidence,
+      status: "unknown",
+      output: null,
+      error: "Host turn evidence does not identify the reopened provider-session generation.",
+    };
   }
 
   private applyHostEvidence(
@@ -1194,7 +1279,7 @@ export class RunCoordinator {
       version: 1,
       runId: run.id,
       executionId: run.executionId,
-      sessionEpoch: run.sessionEpoch,
+      observedForSessionEpoch: run.sessionEpoch,
       source: "timeline",
       timeline,
       observedAt,
@@ -1238,6 +1323,7 @@ export class RunCoordinator {
   }
 
   private unknown(observed: RoutineRun, error: string): Promise<void> {
+    if (this.closing) return Promise.resolve();
     return this.serial(() =>
       this.store.updateState((state) => {
         const run = lookup(state, observed.id);

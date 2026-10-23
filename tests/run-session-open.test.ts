@@ -14,6 +14,7 @@ import {
 } from "../server/run-coordinator";
 import { emptyRecord, RunStore } from "../server/run-store";
 import type { PreparedBotChat } from "../shared/chat";
+import type { RoutineRun } from "../shared/rpc";
 import { SessionEpochSchema } from "../shared/runs";
 import { makePrepared } from "./coordinator-fixture";
 import { defined, fakeHost, makeBot, makeRun } from "./helpers";
@@ -22,10 +23,13 @@ const NOW = Date.parse("2026-10-23T10:00:00.000Z");
 let directory: string;
 let coordinators: RunCoordinator[];
 
+type HostCallResult = { kind: "returned" } | { kind: "rejected"; error: unknown };
+
 interface SessionHarness {
   coordinator: RunCoordinator;
   store: RunStore;
   launches: PreparedBotChat[];
+  hostCall: Promise<HostCallResult>;
 }
 
 beforeEach(async () => {
@@ -42,6 +46,10 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
   const host = fakeHost([makeBot({ executionMode: "managed", provider: "omp", model: "frozen-model" })]);
   const store = new RunStore(join(directory, "routines.json"));
   const launches: PreparedBotChat[] = [];
+  let settleHostCall: ((result: HostCallResult) => void) | undefined;
+  const hostCall = new Promise<HostCallResult>((resolve) => {
+    settleHostCall = resolve;
+  });
   const coordinator = new RunCoordinator(host, new Relay(host, []), {
     now: () => NOW,
     jitter: () => 0,
@@ -51,7 +59,16 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
     store,
     launch: async (launchHost, relay, prepared, observer) => {
       launches.push(structuredClone(prepared));
-      return options.launch ? options.launch(launchHost, relay, prepared, observer) : prepared.agentId;
+      try {
+        const agentId = options.launch
+          ? await options.launch(launchHost, relay, prepared, observer)
+          : prepared.agentId;
+        defined(settleHostCall)({ kind: "returned" });
+        return agentId;
+      } catch (error) {
+        defined(settleHostCall)({ kind: "rejected", error });
+        throw error;
+      }
     },
   });
   coordinators.push(coordinator);
@@ -64,7 +81,7 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
     await defined(recovery.mock.results[0]).value;
     recovery.mockRestore();
   }
-  return { coordinator, store, launches };
+  return { coordinator, store, launches, hostCall };
 }
 
 async function close(h: SessionHarness) {
@@ -95,6 +112,14 @@ async function admit(h: SessionHarness, plan: PreparedBotChat, deferLaunch = fal
     requestId: "session-request",
     deferLaunch,
   });
+}
+
+async function created(h: SessionHarness, runId: string): Promise<RoutineRun> {
+  const host = await h.hostCall;
+  if (host.kind === "rejected") throw host.error;
+  const receipt = await h.coordinator.waitForCreation(runId, { timeoutMs: 5_000 });
+  expect(receipt.status).toBe("created");
+  return defined(await h.coordinator.get(runId));
 }
 
 describe("managed initial provider-session opening", () => {
@@ -132,7 +157,8 @@ describe("managed initial provider-session opening", () => {
         return plan.agentId;
       },
     });
-    const run = await admit(h, prepared());
+    const admitted = await admit(h, prepared());
+    const run = await created(h, admitted.id);
     expect(receipt).toMatchObject({ sessionEpoch: 1 });
     expect(run.executionStatus).toBe("running");
     expect(run.sessionEpoch).toBe(1);
@@ -148,6 +174,7 @@ describe("managed initial provider-session opening", () => {
     });
     const plan = prepared();
     const run = await admit(h, plan);
+    await created(h, run.id);
     const first = defined(await h.coordinator.sessionOpened(opening(plan)));
     expect(first.sessionEpoch).toBe(1);
     await close(h);
@@ -182,7 +209,8 @@ describe("actual session activation evidence", () => {
         return plan.agentId;
       },
     });
-    const run = await admit(h, prepared());
+    const admitted = await admit(h, prepared());
+    const run = await created(h, admitted.id);
     expect(run.managed?.hostCreatedAt).toBe(NOW);
     expect(run.sessionEpoch).toBe(1);
   });
@@ -198,6 +226,7 @@ describe("observed provider-session generations", () => {
     });
     const plan = prepared();
     const run = await admit(h, plan);
+    await created(h, run.id);
     const first = defined(await h.coordinator.sessionOpened(opening(plan)));
     await h.coordinator.sessionActive(plan.agentId);
     const second = defined(await h.coordinator.sessionOpened(opening(plan, { reason: "resume" })));
@@ -246,7 +275,8 @@ describe("non-executing history opening", () => {
       },
     });
     const plan = prepared();
-    await admit(h, plan);
+    const run = await admit(h, plan);
+    await created(h, run.id);
     await h.coordinator.sessionActive(plan.agentId);
     await close(h);
     const reopened = await harness({}, false);
@@ -287,9 +317,10 @@ describe("provider-session identity gate", () => {
       },
     });
     const run = await admit(h, prepared());
+    expect((await h.hostCall).kind).toBe("rejected");
     await expect(defined(gate)).rejects.toThrow(/identity|provider|directory/i);
     expect(providerStarted).toBe(false);
-    expect(run.managed?.hostCreatedAt).toBeUndefined();
+    expect((await h.coordinator.get(run.id))?.managed?.hostCreatedAt).toBeUndefined();
     expect((await h.store.read()).coordinator.sessions).toEqual({});
   });
 });
@@ -305,7 +336,8 @@ describe("provider-session placement and artifact identity", () => {
         },
       });
       const plan = prepared();
-      await admit(h, plan);
+      const run = await admit(h, plan);
+      await created(h, run.id);
       await h.coordinator.sessionActive(plan.agentId);
       const before = await readFile(h.store.path);
       await expect(
@@ -326,6 +358,7 @@ describe("provider-session placement and artifact identity", () => {
       const h = await harness();
       const plan = prepared();
       const run = await admit(h, plan);
+      await created(h, run.id);
       const changedAgentId = kind === "another-uuid" ? randomUUID() : kind;
       await h.store.updateState((state) => {
         const saved = defined(state.routines["chat:bot-1"]?.runs.find((entry) => entry.id === run.id));

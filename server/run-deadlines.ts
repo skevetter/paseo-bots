@@ -30,17 +30,21 @@ export class HostCallUncertainError extends Error {}
 /** Abandoning a wait never asserts that the host call or its external effects stopped. */
 export class BoundedHostCalls {
   private readonly abandoners = new Set<() => void>();
+  private closed = false;
   constructor(private readonly timeoutMs: number) {}
 
-  run<T>(call: Promise<T>, description: string): Promise<T> {
+  run<T>(call: (signal: AbortSignal) => Promise<T>, description: string): Promise<T> {
+    if (this.closed)
+      return Promise.reject(new HostCallUncertainError("Host dispatch is permanently closed."));
     return new Promise<T>((resolve, reject) => {
+      const controller = new AbortController();
       const abandon = () => {
         cleanup();
-        reject(
-          new HostCallUncertainError(
-            `${description} was not confirmed within the bounded host wait; reconcile before any retry.`,
-          ),
+        const failure = new HostCallUncertainError(
+          `${description} was not confirmed within the bounded host wait; reconcile before any retry.`,
         );
+        controller.abort();
+        reject(failure);
       };
       const timer = setTimeout(abandon, this.timeoutMs);
       const cleanup = () => {
@@ -48,7 +52,15 @@ export class BoundedHostCalls {
         this.abandoners.delete(abandon);
       };
       this.abandoners.add(abandon);
-      call.then(
+      let pending: Promise<T>;
+      try {
+        pending = call(controller.signal);
+      } catch (error) {
+        cleanup();
+        reject(error);
+        return;
+      }
+      pending.then(
         (value) => {
           cleanup();
           resolve(value);
@@ -62,6 +74,7 @@ export class BoundedHostCalls {
   }
 
   close(): void {
+    this.closed = true;
     for (const abandon of [...this.abandoners]) abandon();
   }
 }

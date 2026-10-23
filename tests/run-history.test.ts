@@ -50,6 +50,7 @@ function managedRun(id: string, patch: Partial<ManagedRun> = {}): RoutineRun {
 describe("historical metadata and private evidence", () => {
   it("retains routine and ordinary details beyond 30 rows through reopen and index rebuild", async () => {
     const store = new RunStore(path);
+    await store.initialize();
     const artifacts = new RunArtifacts(directory);
     const admitted = await artifacts.put({ model: "frozen-model", prompt: "original input" });
     const result = await artifacts.put({ reply: "complete private result", evidence: ["receipt-1"] });

@@ -16,11 +16,14 @@ const NOW = Date.parse("2026-10-23T10:00:00.000Z");
 let directory: string;
 let coordinators: RunCoordinator[];
 
+type HostCallResult = { kind: "returned" } | { kind: "rejected"; error: unknown };
+
 interface PreparedHarness {
   coordinator: RunCoordinator;
   store: RunStore;
   host: FakeHost;
   launches: PreparedBotChat[];
+  hostCall: Promise<HostCallResult>;
 }
 
 beforeEach(async () => {
@@ -38,6 +41,10 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
   const host = fakeHost([makeBot({ executionMode: "managed", provider: "omp", model: "frozen-model" })]);
   const store = new RunStore(join(directory, "routines.json"));
   const launches: PreparedBotChat[] = [];
+  let settleHostCall: ((result: HostCallResult) => void) | undefined;
+  const hostCall = new Promise<HostCallResult>((resolve) => {
+    settleHostCall = resolve;
+  });
   const coordinator = new RunCoordinator(host, new Relay(host, []), {
     now: () => NOW,
     jitter: () => 0,
@@ -47,7 +54,16 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
     store,
     launch: async (launchHost, relay, prepared, observer) => {
       launches.push(structuredClone(prepared));
-      return options.launch ? options.launch(launchHost, relay, prepared, observer) : prepared.agentId;
+      try {
+        const agentId = options.launch
+          ? await options.launch(launchHost, relay, prepared, observer)
+          : prepared.agentId;
+        defined(settleHostCall)({ kind: "returned" });
+        return agentId;
+      } catch (error) {
+        defined(settleHostCall)({ kind: "rejected", error });
+        throw error;
+      }
     },
   });
   coordinators.push(coordinator);
@@ -60,7 +76,7 @@ async function harness(options: CoordinatorOptions = {}, attached = true): Promi
     await defined(recovery.mock.results[0]).value;
     recovery.mockRestore();
   }
-  return { coordinator, store, host, launches };
+  return { coordinator, store, host, launches, hostCall };
 }
 
 async function close(h: PreparedHarness) {
@@ -118,20 +134,26 @@ describe("durable deferred preparation", () => {
     expect(disk.routines["chat:bot-1"]?.runs[0]?.managed?.launchIntent).toBe(true);
     await close(h);
     const reopened = await harness();
+    const host = await reopened.hostCall;
+    if (host.kind === "rejected") throw host.error;
+    const created = await reopened.coordinator.waitForCreation(run.id, { timeoutMs: 5_000 });
+    expect(created.status).toBe("created");
+    expect(created.run.managed?.hostCreatedAt).toBe(NOW);
     expect(reopened.launches.map((launch) => [launch.agentId, launch.idempotencyKey])).toEqual([
       [plan.agentId, plan.idempotencyKey],
     ]);
     await reopened.coordinator.startPrepared(run.id);
     await reopened.coordinator.pump();
     expect(reopened.launches).toHaveLength(1);
-    const created = await reopened.coordinator.waitForCreation(run.id, { timeoutMs: 0 });
-    expect(created.status).toBe("created");
-    expect(created.run.managed?.hostCreatedAt).toBe(NOW);
   });
 });
 
 describe("explicit prepared start", () => {
   it("commits intent and its artifact before an idempotent concurrent start can call the host", async () => {
+    let acknowledge: (() => void) | undefined;
+    const acknowledgement = new Promise<void>((resolve) => {
+      acknowledge = resolve;
+    });
     const h = await harness({
       launch: async (_host, _relay, plan) => {
         const disk = await new RunStore(join(directory, "routines.json")).read();
@@ -144,24 +166,34 @@ describe("explicit prepared start", () => {
           defined(saved.managed).artifact,
         );
         expect(artifact.prepared).toEqual(plan);
+        await acknowledgement;
         return plan.agentId;
       },
     });
     const plan = makePrepared();
     const run = await admit(h, plan);
     const waiting = h.coordinator.waitForCreation(run.id, { timeoutMs: 10_000 });
-    const [first, replay] = await Promise.all([
-      h.coordinator.startPrepared(run.id),
-      h.coordinator.startPrepared(run.id),
-    ]);
-    expect([first.id, replay.id]).toEqual([run.id, run.id]);
-    expect(first.executionStatus).toBe("running");
-    expect(h.launches).toHaveLength(1);
+    try {
+      const [first, replay] = await Promise.all([
+        h.coordinator.startPrepared(run.id),
+        h.coordinator.startPrepared(run.id),
+      ]);
+      expect([first.id, replay.id]).toEqual([run.id, run.id]);
+      expect(first.managed?.launchIntent).toBe(true);
+      expect(first.managed?.reservation).toBe(true);
+      expect((await h.coordinator.waitForCreation(run.id, { timeoutMs: 0 })).status).toBe("pending");
+    } finally {
+      defined(acknowledge)();
+    }
+    const host = await h.hostCall;
+    if (host.kind === "rejected") throw host.error;
     const receipt = await waiting;
     expect(receipt.status).toBe("created");
     if (receipt.status !== "created") throw new Error("Expected host-confirmed creation");
     expect(receipt.agentId).toBe(plan.agentId);
     expect(receipt.run.managed?.hostCreatedAt).toBe(NOW);
+    expect((await h.coordinator.get(run.id))?.executionStatus).toBe("running");
+    expect(h.launches).toHaveLength(1);
   });
 
   it("permanently cancels an unstarted plan instead of resurrecting it on start or restart", async () => {
@@ -262,7 +294,15 @@ describe("creation evidence boundary", () => {
       },
     });
     const run = await admit(h, makePrepared());
-    const started = await h.coordinator.startPrepared(run.id);
+    await h.coordinator.startPrepared(run.id);
+    expect((await h.hostCall).kind).toBe("rejected");
+    await vi.waitFor(
+      async () => {
+        expect((await h.coordinator.get(run.id))?.executionStatus).toBe("unknown");
+      },
+      { timeout: 5_000, interval: 10 },
+    );
+    const started = defined(await h.coordinator.get(run.id));
     expect(started.executionStatus).toBe("unknown");
     expect(started.managed?.reservation).toBe(true);
     expect(started.managed?.hostCreatedAt).toBeUndefined();
@@ -285,11 +325,12 @@ describe("creation evidence boundary", () => {
       },
     });
     const run = await admit(h, makePrepared());
-    const failed = await h.coordinator.startPrepared(run.id);
+    await h.coordinator.startPrepared(run.id);
+    const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 5_000 });
+    expect(receipt.status).toBe("not_created");
+    const failed = defined(await h.coordinator.get(run.id));
     expect([failed.executionStatus, failed.taskOutcome]).toEqual(["failed", "no_change"]);
     expect(failed.managed?.reservation).toBe(false);
-    const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 0 });
-    expect(receipt.status).toBe("not_created");
     expect(h.launches).toHaveLength(1);
     await h.coordinator.pump();
     expect(h.launches).toHaveLength(1);

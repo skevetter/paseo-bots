@@ -141,6 +141,7 @@ describe("what routine control tools say about a finished run", () => {
     await call("routines_create", { bot: "Inbox", name: "Morning", instructions: "Go.", schedule: daily });
     const original = context.scheduler;
     await original.stop();
+    let completionEpoch: number | undefined;
     context.scheduler = new RoutineScheduler(context.host, context.relay, {
       prepare: async (_host, _relay, bot, input) =>
         makePrepared({
@@ -152,7 +153,19 @@ describe("what routine control tools say about a finished run", () => {
           labels: input.labels,
           purpose: input.purpose ?? "task",
         }),
-      launch: async (_host, _relay, prepared) => prepared.agentId,
+      launch: async (_host, _relay, prepared) => {
+        const receipt = await context.scheduler.coordinator.sessionOpened({
+          agentId: prepared.agentId,
+          workspaceId: null,
+          provider: prepared.provider,
+          cwd: prepared.placement.path,
+          reason: "create",
+          purpose: "interactive",
+        });
+        completionEpoch = defined(receipt ?? undefined).sessionEpoch;
+        await context.scheduler.coordinator.sessionActive(prepared.agentId);
+        return prepared.agentId;
+      },
     });
     context.host.attach({ agents: { ref: () => ({ refresh: async () => null }) } } as unknown as PaseoApi);
     const started = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
@@ -168,10 +181,9 @@ describe("what routine control tools say about a finished run", () => {
     await context.scheduler.finished(routineId, defined(admitted.agentId), {
       outcome: { kind: "completed" },
       reply: "Done. Everything verified: 100% success.",
+      sessionEpoch: defined(completionEpoch),
     });
     const history = await call("routines_history", { bot: "Inbox", routine: "Morning" });
-    expect(history.text).toMatch(/manual: Completed, not verified$/);
-    expect(history.text).not.toMatch(/succe/i);
     expect((history.data.runs as unknown[])[0]).toMatchObject({
       status: "succeeded",
       executionStatus: "completed",

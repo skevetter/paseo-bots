@@ -46,6 +46,10 @@ class InterruptedStore extends RunStore {
     super(path);
   }
 
+  get hasInterrupted(): boolean {
+    return this.interrupted;
+  }
+
   override async updateState<T>(change: (state: RunSnapshot) => T | Promise<T>): Promise<T> {
     if (this.interrupted) throw new Error("Injected process interruption");
     let reached = false;
@@ -170,11 +174,37 @@ async function runOf(h: Harness, id: string) {
   return defined(await h.coordinator.get(id));
 }
 
+async function created(h: Harness, run: RoutineRun): Promise<RoutineRun> {
+  const result = await h.coordinator.waitForCreation(run.id);
+  expect(result.status).toBe("created");
+  return result.run;
+}
+
+async function observed(
+  h: Harness,
+  run: RoutineRun,
+  status: RoutineRun["executionStatus"],
+): Promise<RoutineRun> {
+  await vi.waitFor(async () => expect((await runOf(h, run.id)).executionStatus).toBe(status));
+  return runOf(h, run.id);
+}
+
+async function retryAt(h: Harness, run: RoutineRun, next: number): Promise<RoutineRun> {
+  await vi.waitFor(async () => {
+    const saved = await runOf(h, run.id);
+    expect(saved.executionStatus).toBe("queued");
+    expect(saved.managed?.notBefore).toBe(next);
+    expect(saved.managed?.reservation).toBe(false);
+  });
+  return runOf(h, run.id);
+}
+
 async function complete(h: Harness, run: RoutineRun, turnId: string | null = null) {
   return h.coordinator.finished(defined(run.agentId), {
     kind: "completed",
     turnId,
     executionId: run.executionId,
+    sessionEpoch: run.sessionEpoch,
   });
 }
 
@@ -211,7 +241,7 @@ describe("durable admission identity", () => {
     });
     const prepared = makePrepared();
     prepared.config.systemPrompt += " relay-secret";
-    const run = await h.coordinator.admitPrepared(prepared, occurrence());
+    const run = await created(h, await h.coordinator.admitPrepared(prepared, occurrence()));
     expect(run.executionStatus).toBe("running");
     expect(h.launches).toHaveLength(1);
   });
@@ -230,6 +260,7 @@ describe("durable admission identity", () => {
         h.coordinator.admitPrepared(makePrepared(), replay),
       ]);
       expect(second.id).toBe(first.id);
+      await created(h, first);
       expect(h.launches).toHaveLength(1);
       await close(h);
       const reopened = await harness({}, true, h.agents);
@@ -255,6 +286,7 @@ describe("admission snapshot replay", () => {
       prompt: "Review inbox",
     };
     const first = await h.coordinator.admit(input);
+    await created(h, first);
     (await h.host.values()).bots = [];
     prepare.mockRejectedValue(new Error("Deleted bot policy cannot be resolved"));
     const duplicate = await h.coordinator.admit(input);
@@ -277,6 +309,7 @@ describe("admission snapshot replay", () => {
     expect(h.coordinator.readiness).toBe("waiting_for_host_api");
     await close(h);
     const reopened = await harness();
+    await created(reopened, queued);
     const launched = defined(reopened.launches[0]);
     expect(launched.config).toEqual(frozen.config);
     expect(launched.metadata).toEqual(frozen.metadata);
@@ -289,6 +322,7 @@ describe("routine overlap admission", () => {
   it("queues overlap and launches it only after the active execution settles", async () => {
     const h = await harness();
     const first = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    await created(h, first);
     const second = await h.coordinator.admitPrepared(
       makePrepared(),
       occurrence({ due: new Date(START + 1_000), overlap: "queue" }),
@@ -296,6 +330,7 @@ describe("routine overlap admission", () => {
     expect(second.executionStatus).toBe("queued");
     expect(second.managed?.reservation).toBe(false);
     await complete(h, first);
+    await created(h, second);
     expect((await runOf(h, second.id)).executionStatus).toBe("running");
     expect(h.launches).toHaveLength(2);
   });
@@ -303,6 +338,7 @@ describe("routine overlap admission", () => {
   it("records skipped and coalesced occurrences without launching them", async () => {
     const h = await harness();
     const active = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    await created(h, active);
     const skipped = await h.coordinator.admitPrepared(
       makePrepared(),
       occurrence({ due: new Date(START + 1_000), overlap: "skip" }),
@@ -324,6 +360,7 @@ describe("routine overlap admission", () => {
     expect(coalesced.managed?.coalescedInto).toBe(queued.id);
     expect(coalesced.executionStatus).toBe("canceled");
     await complete(h, active);
+    await created(h, queued);
     expect(h.launches).toHaveLength(2);
     expect((await runOf(h, queued.id)).executionStatus).toBe("running");
     expect((await runOf(h, coalesced.id)).managed?.reservation).toBe(false);
@@ -349,6 +386,7 @@ describe("resource capacity admission", () => {
         makePrepared(first),
         occurrence({ resourceIds: resources[0] }),
       );
+      await created(h, active);
       const waiting = await h.coordinator.admitPrepared(
         makePrepared(next),
         occurrence({ routineId: "other-routine", requestId: "other-request", resourceIds: resources[1] }),
@@ -357,6 +395,7 @@ describe("resource capacity admission", () => {
       expect(waiting.managed?.reservation).toBe(false);
       expect(h.launches).toHaveLength(1);
       await complete(h, active);
+      await created(h, waiting);
       expect((await runOf(h, waiting.id)).executionStatus).toBe("running");
       expect(h.launches).toHaveLength(2);
     },
@@ -369,7 +408,11 @@ describe("resource capacity admission", () => {
         throw new Error("Transport lost after write");
       },
     });
-    const unknown = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    const unknown = await observed(
+      h,
+      await h.coordinator.admitPrepared(makePrepared(), occurrence()),
+      "unknown",
+    );
     const waiting = await h.coordinator.admitPrepared(
       makePrepared({ botId: "other" }),
       occurrence({ routineId: "other-routine" }),
@@ -395,7 +438,7 @@ describe("bounded infrastructure retry", () => {
       },
     });
     const frozen = makePrepared();
-    const run = await h.coordinator.admitPrepared(frozen, occurrence());
+    const run = await retryAt(h, await h.coordinator.admitPrepared(frozen, occurrence()), START + 2_250);
     expect(run.managed?.notBefore).toBe(START + 2_250);
     expect(run.managed?.reservation).toBe(false);
     now = START + 2_249;
@@ -403,6 +446,7 @@ describe("bounded infrastructure retry", () => {
     expect(h.launches).toHaveLength(1);
     now += 1;
     await h.coordinator.pump();
+    await retryAt(h, run, now + 8_250);
     const second = await runOf(h, run.id);
     expect(second.managed?.notBefore).toBe(now + 8_250);
     now += 8_249;
@@ -410,7 +454,7 @@ describe("bounded infrastructure retry", () => {
     expect(h.launches).toHaveLength(2);
     now += 1;
     await h.coordinator.pump();
-    const terminal = await runOf(h, run.id);
+    const terminal = await observed(h, run, "failed");
     expect([terminal.executionStatus, terminal.taskOutcome]).toEqual(["failed", "no_change"]);
     expect(terminal.managed?.attempts.map((attempt) => attempt.state)).toEqual([
       "failed",
@@ -431,7 +475,11 @@ describe("bounded infrastructure retry", () => {
         throw new ProvenInfrastructureError("Provider unavailable", "omp", 20_000);
       },
     });
-    const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    const run = await retryAt(
+      h,
+      await h.coordinator.admitPrepared(makePrepared(), occurrence()),
+      START + 20_000,
+    );
     expect(run.managed?.notBefore).toBe(START + 20_000);
     await close(h);
     now = START + 19_999;
@@ -439,21 +487,27 @@ describe("bounded infrastructure retry", () => {
     expect(reopened.launches).toHaveLength(0);
     now += 1;
     await reopened.coordinator.pump();
+    await created(reopened, run);
     expect(reopened.launches).toHaveLength(1);
     expect((await runOf(reopened, run.id)).executionStatus).toBe("running");
   });
+});
 
+describe("provider circuit recovery", () => {
   it("persists an open provider circuit and allows unrelated providers", async () => {
     const h = await harness({
       launch: async () => {
         throw new ProvenInfrastructureError("No request accepted", "omp");
       },
     });
-    await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    await retryAt(h, run, START + 2_250);
     now += 2_250;
     await h.coordinator.pump();
+    await retryAt(h, run, now + 8_250);
     now += 8_250;
     await h.coordinator.pump();
+    await observed(h, run, "failed");
     const circuit = defined((await new RunStore(h.store.path).read()).coordinator.circuits.omp);
     expect(circuit.failures).toBe(3);
     expect(circuit.openUntil).toBe(now + 30_000);
@@ -467,13 +521,15 @@ describe("bounded infrastructure retry", () => {
       makePrepared({ provider: "other", botId: "third" }),
       occurrence({ routineId: "third-routine" }),
     );
+    await created(reopened, unrelated);
     expect(waiting.executionStatus).toBe("queued");
-    expect(unrelated.executionStatus).toBe("running");
+    expect((await runOf(reopened, unrelated.id)).executionStatus).toBe("running");
     now = circuit.openUntil - 1;
     await reopened.coordinator.pump();
     expect((await runOf(reopened, waiting.id)).executionStatus).toBe("queued");
     now += 1;
     await reopened.coordinator.pump();
+    await created(reopened, waiting);
     expect((await runOf(reopened, waiting.id)).executionStatus).toBe("running");
     expect((await reopened.store.read()).coordinator.circuits.omp?.failures).toBe(0);
   });
@@ -486,7 +542,7 @@ describe("execution evidence identity", () => {
       const h = await harness({
         launch: async (_host, _relay, _prepared, observe) => {
           if (kind === "outcomeUnknown")
-            observe?.({
+            observe?.onEvent?.({
               kind: "agent",
               idempotencyKey: "creation-1",
               revision: 1,
@@ -500,7 +556,11 @@ describe("execution evidence identity", () => {
           throw new ProvenInfrastructureError("Host no longer proves absence", "omp");
         },
       });
-      const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+      const run = await observed(
+        h,
+        await h.coordinator.admitPrepared(makePrepared(), occurrence()),
+        "unknown",
+      );
       expect(run.executionStatus).toBe("unknown");
       expect(run.managed?.reservation).toBe(true);
       expect(run.managed?.attempts).toHaveLength(1);
@@ -524,12 +584,15 @@ describe("execution evidence identity", () => {
         makePrepared({ botId: "other" }),
         occurrence({ routineId: "other-routine" }),
       );
+      await created(h, first);
+      await created(h, second);
       await complete(h, first, turnId);
       await expect(
         h.coordinator.finished(defined(second.agentId), {
           kind: "completed",
           turnId,
           executionId: first.executionId,
+          sessionEpoch: second.sessionEpoch,
         }),
       ).resolves.toBeNull();
       await complete(h, first, turnId);
@@ -552,6 +615,7 @@ describe("durable crash windows", () => {
       if (status === "reserved") await changeCrashWindow(h, run, status);
       await close(h);
       const reopened = await harness();
+      await created(reopened, run);
       expect(reopened.launches.map((value) => value.agentId)).toEqual([prepared.agentId]);
       expect((await runOf(reopened, run.id)).executionStatus).toBe("running");
       await reopened.coordinator.recover();
@@ -610,6 +674,7 @@ describe("host recovery evidence boundaries", () => {
     async (mismatch) => {
       const h = await harness();
       const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+      await created(h, run);
       const evidence = defined(h.agents.get(defined(run.agentId)));
       evidence.agent.status = "idle";
       evidence.agent.attentionReason = "finished";
@@ -634,6 +699,7 @@ describe("cancellation safety", () => {
   it("cancels queued work without host effects but keeps active unsupported cancellation reserved", async () => {
     const h = await harness();
     const active = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    await created(h, active);
     const queued = await h.coordinator.admitPrepared(
       makePrepared(),
       occurrence({ due: new Date(START + 1_000), overlap: "queue" }),
@@ -656,11 +722,16 @@ describe("cancellation safety", () => {
     const cancel = vi.fn(async (_agentId: string) => {});
     const h = await harness({ cancel });
     const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    await created(h, run);
     const result = await h.coordinator.cancel(run.id);
     expect(cancel).toHaveBeenCalledWith(run.agentId);
     expect(result.run.executionStatus).toBe("running");
     expect(result.run.managed?.reservation).toBe(true);
-    await h.coordinator.finished(defined(run.agentId), { kind: "canceled", executionId: run.executionId });
+    await h.coordinator.finished(defined(run.agentId), {
+      kind: "canceled",
+      executionId: run.executionId,
+      sessionEpoch: run.sessionEpoch,
+    });
     const settled = await runOf(h, run.id);
     expect([settled.executionStatus, settled.taskOutcome]).toEqual(["canceled", "unknown"]);
     expect(settled.managed?.reservation).toBe(false);
@@ -700,7 +771,10 @@ describe("artifact publication interruption", () => {
       }
       await close(h);
       const reopened = await harness();
-      const run = await reopened.coordinator.admitPrepared(makePrepared(), occurrence());
+      const run = await created(
+        reopened,
+        await reopened.coordinator.admitPrepared(makePrepared(), occurrence()),
+      );
       expect(run.executionStatus).toBe("running");
       expect(reopened.launches).toHaveLength(1);
     },
@@ -723,9 +797,11 @@ describe("metadata commit interruption", () => {
       const store = new InterruptedStore(join(directory, "routines.json"), { stage, boundary });
       const h = await harness({ store });
       const prepared = makePrepared();
-      await expect(h.coordinator.admitPrepared(prepared, occurrence())).rejects.toThrow(
-        "Injected process interruption",
-      );
+      const admission = h.coordinator.admitPrepared(prepared, occurrence());
+      const inlineFailure = ["queued", "reserved"].includes(stage);
+      if (inlineFailure) await expect(admission).rejects.toThrow("Injected process interruption");
+      else await admission;
+      await vi.waitFor(() => expect(store.hasInterrupted).toBe(true));
       const snapshot = await new RunStore(store.path).read();
       const saved = snapshot.routines["routine-1"]?.runs[0];
       expect(saved?.executionStatus ?? null).toBe(durable);
@@ -741,10 +817,11 @@ describe("metadata commit interruption", () => {
       const reopened = await harness({}, true, h.agents);
       if (!saved) {
         expect((await reopened.coordinator.list()).runs).toEqual([]);
-        await reopened.coordinator.admitPrepared(prepared, occurrence());
+        await created(reopened, await reopened.coordinator.admitPrepared(prepared, occurrence()));
         expect(reopened.launches).toHaveLength(1);
         return;
       }
+      if (recovery === "running") await created(reopened, saved);
       const recovered = await runOf(reopened, saved.id);
       expect(recovered.executionStatus).toBe(recovery);
       expect(recovered.agentId).toBe(prepared.agentId);
@@ -768,7 +845,7 @@ describe("metadata commit interruption", () => {
       true,
       agents,
     );
-    const run = await h.coordinator.admitPrepared(makePrepared(), occurrence());
+    const run = await observed(h, await h.coordinator.admitPrepared(makePrepared(), occurrence()), "unknown");
     expect(run.executionStatus).toBe("unknown");
     expect(h.launches).toHaveLength(1);
     await close(h);
@@ -810,6 +887,8 @@ describe("opaque occurrence request identity", () => {
       occurrence({ trigger: "manual", routineId: "routine", requestId: "a#b" }),
     );
     expect(second.id).not.toBe(first.id);
+    await created(h, first);
+    await created(h, second);
     expect(second.occurrenceKey).not.toBe(first.occurrenceKey);
     expect(h.launches).toHaveLength(2);
   });

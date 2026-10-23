@@ -142,8 +142,9 @@ verification. A read does not rewrite the file. First save of unversioned histor
 `routines.json.pre-run-store`; first upgrades from version 1/2 preserve `routines.json.v1.bak` /
 `routines.json.v2.bak`. New writes use `{version:3,routines,coordinator}` and retain complete detailed
 history; the ordinary 30-terminal view is only a display projection. Unsupported future versions and
-malformed managed metadata stay in place and refuse access. Only corrupt old-format files are set
-aside automatically.
+malformed managed metadata stay in place and refuse access. The private `routines.json.initialized`
+marker prevents known missing/empty history from silently restarting; preserve it with metadata,
+artifacts and backups. Only uninitialized legacy corruption without prior managed evidence is set aside.
 
 To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
 starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
@@ -156,6 +157,10 @@ To return to the prior version-2 coordinator, preserve current metadata/artifact
 Restoring history does not undo external effects; preserve current artifacts and reconcile uncertain
 operations before admitting new work. A stale coordinator lock requires explicit manual recovery after
 checking that its recorded owner process is no longer running.
+RunStore synchronizes staged bytes before rename and the directory after publication; immutable
+migration backups must exactly match their validated original. These filesystem fault tests do not
+claim physical power-loss immunity. See the coordinator recovery guide before repairing a marker
+or a partial/conflicting backup.
 
 ## Development
 

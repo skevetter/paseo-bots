@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { copyFile, open, realpath } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { type CoordinatorState, CoordinatorStateSchema } from "../shared/managed-runs";
@@ -18,8 +17,20 @@ import {
   type Trigger,
 } from "../shared/runs";
 import { pluginDataPath } from "./bot-home";
-import { readParsed, UnsupportedFileVersionError, writeAtomic } from "./files";
+import {
+  publishDurableExclusive,
+  readParsed,
+  UnsupportedFileVersionError,
+  writeDurableAtomic,
+} from "./files";
 import { type RunHistoryFilter, RunHistoryIndex, type RunHistoryPage } from "./run-history-index";
+import {
+  inspectHistorySeal,
+  RunHistoryIntegrityError,
+  readHistoryText,
+  requireRecognizableHistory,
+  sealHistory,
+} from "./run-history-seal";
 
 export type { RunHistoryFilter, RunHistoryPage } from "./run-history-index";
 
@@ -49,6 +60,8 @@ interface Loaded extends RunSnapshot {
   unversioned: boolean;
   dropped: string[];
   version: number | null;
+  raw: string | null;
+  sealed: boolean;
 }
 
 interface UnsupportedVersion {
@@ -181,6 +194,8 @@ function parse(raw: string): Loaded | UnsupportedVersion {
   const coordinator = readCoordinator(saved, dropped, routines);
   normalizeAdmissionOrder(routines, coordinator, saved.version !== VERSION);
   return {
+    raw,
+    sealed: false,
     revision: hash(raw),
     routines,
     coordinator,
@@ -327,6 +342,14 @@ export class RunStore {
     this.path = resolve(path);
   }
 
+  /** Establish durable history and its seal before publishing private execution artifacts. */
+  initialize(): Promise<void> {
+    return this.serial(async (path) => {
+      const loaded = await this.load(path);
+      if (loaded.revision === "missing" || loaded.version !== VERSION)
+        await this.persist(loaded, loaded.routines, path);
+    });
+  }
   async read(): Promise<RunSnapshot> {
     const { revision, routines, coordinator } = await this.serial((path) => this.load(path));
     return { revision, routines, coordinator };
@@ -378,7 +401,9 @@ export class RunStore {
   }
 
   private async load(path: string): Promise<Loaded> {
-    const loaded = await readParsed(path, parse);
+    const safety = await inspectHistorySeal(path);
+    const raw = await readHistoryText(path);
+    const loaded = await this.parseLoaded(path, raw, safety);
     if (!loaded)
       return {
         revision: "missing",
@@ -387,6 +412,8 @@ export class RunStore {
         unversioned: false,
         version: VERSION,
         dropped: [],
+        raw: null,
+        sealed: false,
       };
     if ("unsupportedVersion" in loaded)
       throw new Error(
@@ -396,26 +423,56 @@ export class RunStore {
       this.reported = loaded.revision;
       console.error(`paseo-bots: dropped unreadable runs from ${this.path}:\n${loaded.dropped.join("\n")}`);
     }
+    loaded.sealed = safety.sealed;
+    if (loaded.version !== null && loaded.version >= MANAGED_VERSION && !loaded.sealed) {
+      await this.assertSource(loaded, path);
+      await sealHistory(path);
+      loaded.sealed = true;
+    }
     return loaded;
+  }
+
+  private async parseLoaded(
+    path: string,
+    raw: string | null,
+    safety: { known: boolean; sealed: boolean; managed: boolean },
+  ): Promise<Loaded | UnsupportedVersion | null> {
+    if (safety.known) {
+      requireRecognizableHistory(raw, safety.managed);
+      try {
+        return parse(raw ?? "");
+      } catch (error) {
+        if (error instanceof UnsupportedFileVersionError) throw error;
+        throw new RunHistoryIntegrityError(`known metadata cannot be decoded: ${String(error)}`);
+      }
+    }
+    return readParsed(path, (fresh) => {
+      if (fresh !== raw) throw new UnsafeRunHistoryError("history changed while reading");
+      return parse(fresh);
+    });
+  }
+
+  private async assertSource(loaded: Loaded, path: string): Promise<void> {
+    const raw = await readHistoryText(path);
+    const revision = raw === null ? "missing" : hash(raw);
+    if (revision !== loaded.revision)
+      throw new RunHistoryIntegrityError(
+        "history revision changed during update; no replacement was published",
+      );
+    if (loaded.sealed && !(await inspectHistorySeal(path)).sealed)
+      throw new RunHistoryIntegrityError("initialized marker disappeared during update");
   }
 
   private async persist(loaded: Loaded, routines: Records, path: string): Promise<RunSnapshot> {
     const envelope = EnvelopeSchema.parse({ version: VERSION, routines, coordinator: loaded.coordinator });
     const raw = JSON.stringify(envelope, null, 2);
+    await this.assertSource(loaded, path);
     await this.backup(loaded, path);
-    await writeAtomic(path, raw, 0o600);
-    const file = await open(path, "r");
-    try {
-      await file.sync();
-    } finally {
-      await file.close();
-    }
-    const directory = await open(dirname(path), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    await writeDurableAtomic(path, raw, {
+      mode: 0o600,
+      beforePublish: () => this.assertSource(loaded, path),
+    });
+    if (!loaded.sealed) await sealHistory(path);
     return { revision: hash(raw), routines: envelope.routines, coordinator: envelope.coordinator };
   }
 
@@ -428,20 +485,8 @@ export class RunStore {
           : null;
     if (suffix === null) return;
     const target = `${path}${suffix}`;
-    await copyFile(path, target, constants.COPYFILE_EXCL).catch((error: unknown) => {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
-    });
-    const backup = await open(target, "r");
-    try {
-      await backup.sync();
-    } finally {
-      await backup.close();
-    }
-    const directory = await open(dirname(path), "r");
-    try {
-      await directory.sync();
-    } finally {
-      await directory.close();
-    }
+    if (loaded.raw === null) throw new RunHistoryIntegrityError("migration source bytes are unavailable");
+    await publishDurableExclusive(target, loaded.raw, 0o600);
+    await this.assertSource(loaded, path);
   }
 }
