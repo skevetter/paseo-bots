@@ -20,6 +20,7 @@ import { importsApplyRpc } from "../shared/imports";
 import type { ImportedBot } from "../shared/library";
 import { patchBotOverrides } from "../shared/policies";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
+import { type AutomationsView, backFromAutomations } from "./automations/run-state";
 import {
   type BotHost,
   type LocalHost,
@@ -90,6 +91,8 @@ export interface ScreenState {
   setTeamMap: Setter<boolean>;
   fleet: boolean;
   setFleet: Setter<boolean>;
+  automations: AutomationsView | null;
+  setAutomations: Setter<AutomationsView | null>;
   editingTeam: BotGroup | "new" | null;
   setEditingTeam: Setter<BotGroup | "new" | null>;
   libraryView: LibraryViewState | null;
@@ -145,11 +148,12 @@ interface BackState {
   teamMap: boolean;
   libraryView: LibraryViewState | null;
   fleet: boolean;
+  automations: AutomationsView | null;
 }
 
 type BackSetters = Pick<
   ScreenState,
-  "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView" | "setFleet"
+  "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView" | "setFleet" | "setAutomations"
 >;
 
 function applyDrafts(values: BotState, pending: Record<string, Bot>): BotState {
@@ -212,6 +216,7 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
   const [creating, setCreating] = useState(false);
   const [teamMap, setTeamMap] = useState(false);
   const [fleet, setFleet] = useState(false);
+  const [automations, setAutomations] = useState<AutomationsView | null>(null);
   const [editingTeam, setEditingTeam] = useState<BotGroup | "new" | null>(null);
   /** `target` is the page; null is the list, on compact. */
   const [libraryView, setLibraryView] = useState<LibraryViewState | null>(null);
@@ -236,6 +241,8 @@ function useScreenState(params: PluginScreenProps["params"]): ScreenState {
     setTeamMap,
     fleet,
     setFleet,
+    automations,
+    setAutomations,
     editingTeam,
     setEditingTeam,
     libraryView,
@@ -357,6 +364,10 @@ function closeOverlay(state: BackState, set: BackSetters): boolean {
     set.setLibraryView(state.compact && state.libraryView.target ? { target: null } : null);
     return true;
   }
+  if (state.automations) {
+    set.setAutomations(backFromAutomations(state.automations));
+    return true;
+  }
   if (state.fleet) {
     set.setFleet(false);
     return true;
@@ -412,9 +423,9 @@ export function useBotsSurface({
   useChatInvalidation();
   const drafts = useDrafts(latest, services.commit);
   useLibraryEntry(drafts.flush, screen.setLibraryView);
-  const { panel, selection, teamMap, libraryView, fleet } = screen;
+  const { panel, selection, teamMap, libraryView, fleet, automations } = screen;
   const goBack = useBackNavigation(
-    { panel, compact: layout.compact, selection, teamMap, libraryView, fleet },
+    { panel, compact: layout.compact, selection, teamMap, libraryView, fleet, automations },
     screen,
   );
   return {
