@@ -1,5 +1,7 @@
 import type { RpcOutput } from "@getpaseo/plugin";
+import type { Source } from "../../shared/policies";
 import type { RoutineRun, runsListRpc } from "../../shared/rpc";
+import type { RunDetails, RunSnapshot } from "../../shared/run-details";
 import { isTerminal } from "../../shared/runs";
 
 export type Readiness = RpcOutput<typeof runsListRpc>["readiness"];
@@ -24,7 +26,9 @@ export function cancellationMessage(run: RoutineRun): string | null {
       ? "Execution canceled; external effects remain unknown. Cancellation is not proof of rollback."
       : "Execution canceled. The task outcome is recorded separately; cancellation is not proof of rollback.";
   if (run.managed?.cancelRequested)
-    return "Cancellation requested, not confirmed. This SDK cannot interrupt active work. Reservation and unknown effects are retained until reconciled.";
+    return run.managed.reservation
+      ? "Cancellation requested, not confirmed. An acknowledgment is not proof work stopped. Reservation and unknown effects are retained until reconciled."
+      : `Cancellation was requested; recorded execution is ${run.executionStatus}. No coordinator reservation is retained. The task outcome is a separate fact, not proof of rollback.`;
   if (run.executionStatus === "unknown")
     return "Execution and external effects are unknown. Reconcile before assuming this work stopped or retrying it.";
   return null;
@@ -98,4 +102,168 @@ function coordinationFacts(run: RoutineRun): Fact[] {
     );
   else facts.push(["Creation evidence", "Not recorded"]);
   return facts;
+}
+
+function sourceFact(source: Source): string {
+  return `${source.layer}${source.policyId ? ` (${source.policyId}, revision ${source.revision ?? "unavailable"})` : ""}`;
+}
+
+export function immutableSnapshotFacts(snapshot: RunSnapshot): Fact[] {
+  if (snapshot.status === "unavailable") {
+    return [
+      ["Immutable snapshot", `Unavailable (${snapshot.reason}). Current bot settings are not substituted.`],
+    ];
+  }
+  const execution = snapshot.execution;
+  const facts: Fact[] = [
+    ["Immutable snapshot", "Available; retained admitted artifact"],
+    ["Snapshot artifact ID", snapshot.artifact.id],
+    ["Snapshot artifact SHA-256", snapshot.artifact.sha256],
+    ["Selected provider", snapshot.selected.provider],
+    ["Selected model", snapshot.selected.model],
+    ["Provider selection source", sourceFact(execution.provider.source)],
+    ["Model selection source", sourceFact(execution.model.source)],
+    ["Requested model", execution.model.value ?? "Provider default"],
+    ["Thinking option", execution.thinkingOptionId.value ?? "Provider default"],
+    ["Thinking source", sourceFact(execution.thinkingOptionId.source)],
+    ["Approval mode", snapshot.permissions.modeId ?? "Provider default"],
+    ["Approval source", sourceFact(execution.modeId.source)],
+    ["Policy qualified at admission", String(execution.ok)],
+    ["Routing reason", "Unavailable; policy field sources are recorded, not a routing decision"],
+    ["Preapproved tool count", String(snapshot.permissions.preapprovedToolCount)],
+    ["MCP server count", String(snapshot.permissions.mcpServerCount)],
+    ["App count", String(snapshot.permissions.appCount)],
+    ["Contact bots", snapshot.permissions.contactBots],
+    ["Admitted system prompt hash", snapshot.systemPromptHash ?? "Unavailable"],
+    ["Admitted user prompt hash", snapshot.userPromptHash ?? "Unavailable"],
+    ["Admitted environment version", snapshot.environmentVersion ?? "Unavailable"],
+  ];
+  for (const [label, field, unit] of [
+    ["Wall-time budget", execution.budget.maxRunSeconds, "seconds"],
+    ["Cost budget", execution.budget.maxRunCostUsd, "USD"],
+    ["Token budget", execution.budget.maxRunTokens, "tokens"],
+    ["Concurrency limit", execution.concurrency.maxConcurrentRuns, "runs"],
+  ] as const) {
+    facts.push([
+      label,
+      `${field.value === null ? "No configured limit" : `${field.value} ${unit}`}; ${sourceFact(field.source)}`,
+    ]);
+  }
+  facts.push([
+    "Budget enforcement",
+    "Configured limits are not observed spend or proof an active call can be interrupted",
+  ]);
+  facts.push(...snapshotContextFacts(snapshot));
+  return facts;
+}
+
+function snapshotContextFacts(snapshot: Extract<RunSnapshot, { status: "available" }>): Fact[] {
+  const facts: Fact[] = [];
+  if (snapshot.memory) {
+    const memory = snapshot.memory;
+    const stats = memory.stats;
+    facts.push(
+      ["Memory backend", memory.backend],
+      ["Memory content SHA-256", memory.contentHash],
+      [
+        "Memory included",
+        `${stats.includedLines}/${stats.totalLines} lines; ${stats.includedBytes}/${stats.totalBytes} bytes`,
+      ],
+      ["Memory omitted", `${stats.omittedLines} lines; ${stats.omittedBytes} bytes`],
+      ["Memory budget", `${stats.maxLines} lines; ${stats.maxBytes} bytes; estimator ${stats.estimator}`],
+      ["Memory truncation", stats.truncation ?? "None"],
+    );
+  } else facts.push(["Memory receipt", "Unavailable"]);
+  snapshot.playbooks.forEach((playbook, index) => {
+    facts.push([
+      `Playbook ${index + 1}`,
+      `${playbook.id}; version ${playbook.version ?? "unavailable"}; SHA-256 ${playbook.contentHash}`,
+    ]);
+  });
+  if (!snapshot.playbooks.length) facts.push(["Playbooks", "None admitted"]);
+  snapshot.inputArtifacts.forEach((artifact, index) => {
+    facts.push([
+      `Input reference ${index + 1}`,
+      `${artifact.id}; SHA-256 of private locator ${artifact.sha256}; availability not checked (not a content hash)`,
+    ]);
+  });
+  if (!snapshot.inputArtifacts.length) facts.push(["Input references", "None admitted"]);
+  return facts;
+}
+
+export function runDetailEvidenceFacts(details: RunDetails): Fact[] {
+  const result = details.resultArtifacts;
+  const evidence = details.evidenceArtifacts;
+  const facts: Fact[] = [
+    [
+      "Result artifacts",
+      result.status === "recorded"
+        ? `${result.artifact.id}; content SHA-256 ${result.artifact.sha256}; availability not checked`
+        : "Unavailable; no retained result reference",
+    ],
+    [
+      "Evidence artifacts",
+      evidence.status === "recorded"
+        ? `${evidence.artifact.id}; content SHA-256 ${evidence.artifact.sha256}; availability not checked`
+        : "Unavailable; no retained evidence reference",
+    ],
+    ["External-action receipts", "Unavailable; no receipt producer evidence"],
+    ["Current stage", details.run?.executionStatus ?? "Unavailable"],
+    [
+      "Replay policy",
+      "No task retry is offered. Reconcile unknown creation or external effects before a new occurrence; infrastructure retry resumes only a proven no-effect stage.",
+    ],
+  ];
+  if (evidence.status === "recorded") {
+    facts.push(
+      ["Evidence source", evidence.source],
+      ["Reply complete", String(evidence.replyComplete)],
+      ["Timeline complete", String(evidence.timelineComplete)],
+      ["Evidence observed at", new Date(evidence.observedAt).toISOString()],
+    );
+  } else
+    facts.push([
+      "Source completeness",
+      "Unavailable; recorded creation/timeline positions do not establish a complete transcript",
+    ]);
+  facts.push(...recoveryFacts(details.run?.managed));
+  return facts;
+}
+
+function recoveryFacts(managed: RoutineRun["managed"]): Fact[] {
+  if (!managed) return [];
+  const facts: Fact[] = [];
+  facts.push(
+    [
+      "Admission time",
+      managed.admittedAt === undefined ? "Unavailable" : new Date(managed.admittedAt).toISOString(),
+    ],
+    ["Launch authorized", managed.launchIntent === undefined ? "Unavailable" : String(managed.launchIntent)],
+    [
+      "Deadline",
+      managed.deadlineAt == null ? "No recorded deadline" : new Date(managed.deadlineAt).toISOString(),
+    ],
+    [
+      "Wall-time clock start",
+      managed.firstReservedAt == null ? "Not recorded" : new Date(managed.firstReservedAt).toISOString(),
+    ],
+    [
+      "Enforced wall-time budget",
+      managed.maxRunSeconds == null
+        ? "No recorded limit"
+        : `${managed.maxRunSeconds} seconds; active termination still requires host evidence`,
+    ],
+    ["Cancellation error", managed.cancelError ?? "None recorded"],
+  );
+  return facts;
+}
+
+export function withAuthoritativeRun(details: RunDetails | undefined, run: RoutineRun): RunDetails {
+  return {
+    run: { ...run, output: null },
+    snapshot: details?.snapshot ?? { status: "unavailable", reason: "not_loaded" },
+    resultArtifacts: details?.resultArtifacts ?? { status: "unavailable" },
+    evidenceArtifacts: details?.evidenceArtifacts ?? { status: "unavailable" },
+    externalActionReceipts: details?.externalActionReceipts ?? { status: "unavailable" },
+  };
 }

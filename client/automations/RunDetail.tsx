@@ -4,7 +4,8 @@ import { ScrollView } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
-import { type RoutineRun, runsCancelRpc, runsGetRpc, runsReconcileRpc } from "../../shared/rpc";
+import { type RoutineRun, runsCancelRpc, runsReconcileRpc } from "../../shared/rpc";
+import { type RunDetails, runsDetailsRpc } from "../../shared/run-details";
 import { errorText } from "../native";
 import { Button } from "../panel/controls";
 import {
@@ -12,18 +13,31 @@ import {
   canRequestCancel,
   elapsedFact,
   type Fact,
+  immutableSnapshotFacts,
+  runDetailEvidenceFacts,
   snapshotFacts,
+  withAuthoritativeRun,
 } from "./run-presentation";
 
 export const RUNS_KEY = ["paseo-bots", "runs"] as const;
 type Colors = PluginTheme["colors"];
 
-export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: string; onBack(): void }) {
-  const get = useRpc(runsGetRpc);
+export function RunDetail({
+  colors,
+  runId,
+  onBack,
+  backLabel = "Back to runs",
+}: {
+  colors: Colors;
+  runId: string;
+  onBack(): void;
+  backLabel?: string;
+}) {
+  const get = useRpc(runsDetailsRpc);
   const cancel = useRpc(runsCancelRpc);
   const reconcile = useRpc(runsReconcileRpc);
   const queryClient = useQueryClient();
-  const queryKey = [...RUNS_KEY, "detail", runId];
+  const queryKey = [...RUNS_KEY, "details", runId];
   const query = useQuery({ queryKey, queryFn: () => get({ runId }), refetchInterval: 5_000 });
   const [pending, setPending] = useState<"cancel" | "reconcile" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,8 +48,12 @@ export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: st
     setError(null);
     try {
       if (kind === "cancel") {
+        await queryClient.cancelQueries({ queryKey });
         const result = await cancel({ runId });
-        queryClient.setQueryData(queryKey, { run: result.run });
+        await queryClient.cancelQueries({ queryKey });
+        queryClient.setQueryData<RunDetails>(queryKey, (details) =>
+          withAuthoritativeRun(details, result.run),
+        );
         setError(result.error);
       } else {
         await reconcile({ runId });
@@ -44,6 +62,7 @@ export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: st
       setError(errorText(cause));
     } finally {
       await queryClient.invalidateQueries({ queryKey: RUNS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["paseo-bots", "automations"] });
       setPending(null);
     }
   };
@@ -60,7 +79,7 @@ export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: st
           disabled={!!pending}
           onPress={() => void query.refetch()}
         />
-        <Button colors={colors} label="Back to runs" onPress={onBack} />
+        <Button colors={colors} label={backLabel} onPress={onBack} />
       </View>
       {query.isPending ? (
         <ActivityIndicator accessibilityLabel="Loading run" color={colors.foregroundMuted} />
@@ -80,13 +99,13 @@ export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: st
           Run not found. It may have been removed from retained history.
         </Text>
       ) : null}
-      {run ? (
+      {run && query.data ? (
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={{ gap: 12, paddingBottom: 24 }}
           keyboardShouldPersistTaps="handled"
         >
-          <RunEvidence colors={colors} run={run} />
+          <RunEvidence colors={colors} run={run} details={query.data} />
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
             <Button
               colors={colors}
@@ -116,7 +135,7 @@ export function RunDetail({ colors, runId, onBack }: { colors: Colors; runId: st
   );
 }
 
-function RunEvidence({ colors, run }: { colors: Colors; run: RoutineRun }) {
+function RunEvidence({ colors, run, details }: { colors: Colors; run: RoutineRun; details: RunDetails }) {
   const cancellation = cancellationMessage(run);
   return (
     <View style={{ gap: 12 }}>
@@ -153,7 +172,7 @@ function RunEvidence({ colors, run }: { colors: Colors; run: RoutineRun }) {
           ["Cycle ID", run.cycleId],
           ["Attempt ID", run.attemptId],
           ["Execution ID", run.executionId],
-          ["Session epoch", run.sessionEpoch],
+          ["Session epoch", String(run.sessionEpoch)],
           ["Occurrence", run.occurrenceKey],
           ["Parent run", run.parentRunId ?? "None"],
           ["Agent ID", run.agentId ?? "Not observed"],
@@ -161,6 +180,12 @@ function RunEvidence({ colors, run }: { colors: Colors; run: RoutineRun }) {
         ]}
       />
       <FactList colors={colors} title="Safe snapshot and coordinator metadata" facts={snapshotFacts(run)} />
+      <FactList
+        colors={colors}
+        title="Immutable admitted configuration"
+        facts={immutableSnapshotFacts(details.snapshot)}
+      />
+      <FactList colors={colors} title="Artifacts and recovery" facts={runDetailEvidenceFacts(details)} />
       {run.verification ? (
         <FactList
           colors={colors}

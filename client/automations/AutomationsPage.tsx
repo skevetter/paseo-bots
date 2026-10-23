@@ -8,6 +8,7 @@ import type { Bot } from "../../shared/bot";
 import { type RoutineRun, runsListRpc, runsReconcileRpc } from "../../shared/rpc";
 import { errorText } from "../native";
 import { Button } from "../panel/controls";
+import { RoutineCatalog } from "./RoutineCatalog";
 import { RUNS_KEY, RunDetail } from "./RunDetail";
 import { RunFilters } from "./RunFilters";
 import { elapsedFact, readinessMessage } from "./run-presentation";
@@ -30,6 +31,66 @@ export function AutomationsPage({
   onRun(runId: string | null): void;
   onClose(): void;
 }) {
+  const [tab, setTab] = useState<"catalog" | "runs">("catalog");
+  const activeTab = runId ? null : tab;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.surface0 }}>
+      <View style={{ flex: 1, padding: compact ? 12 : 24, gap: 12, display: runId ? "none" : "flex" }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+          <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 22, flexGrow: 1 }}>
+            Automations
+          </Text>
+          <Button
+            colors={colors}
+            label="Routine catalog"
+            variant={tab === "catalog" ? "default" : "secondary"}
+            onPress={() => setTab("catalog")}
+          />
+          <Button
+            colors={colors}
+            label="Run history"
+            variant={tab === "runs" ? "default" : "secondary"}
+            onPress={() => setTab("runs")}
+          />
+          <Button colors={colors} label="Back to bots" onPress={onClose} />
+        </View>
+        <View style={{ flex: 1, display: tab === "catalog" ? "flex" : "none" }}>
+          <RoutineCatalog
+            colors={colors}
+            compact={compact}
+            bots={bots}
+            onRun={onRun}
+            active={activeTab === "catalog"}
+          />
+        </View>
+        <View style={{ flex: 1, display: tab === "runs" ? "flex" : "none" }}>
+          <RunHistory colors={colors} bots={bots} onRun={onRun} active={activeTab === "runs"} />
+        </View>
+      </View>
+      {runId ? (
+        <RunDetail
+          key={runId}
+          colors={colors}
+          runId={runId}
+          onBack={() => onRun(null)}
+          backLabel={tab === "catalog" ? "Back to routines" : "Back to run history"}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+function RunHistory({
+  colors,
+  bots,
+  onRun,
+  active,
+}: {
+  colors: Colors;
+  bots: readonly Bot[];
+  onRun(runId: string): void;
+  active: boolean;
+}) {
   const list = useRpc(runsListRpc);
   const reconcile = useRpc(runsReconcileRpc);
   const queryClient = useQueryClient();
@@ -40,7 +101,8 @@ export function AutomationsPage({
   const query = useQuery({
     queryKey: [...RUNS_KEY, "list", input],
     queryFn: () => list(input),
-    refetchInterval: runId ? false : 5_000,
+    enabled: active,
+    refetchInterval: active ? 5_000 : false,
     retry: false,
   });
   const reload = () => {
@@ -60,12 +122,11 @@ export function AutomationsPage({
       setReconciling(false);
     }
   };
-  if (runId) return <RunDetail key={runId} colors={colors} runId={runId} onBack={() => onRun(null)} />;
   return (
-    <View style={{ flex: 1, backgroundColor: colors.surface0, padding: compact ? 12 : 24, gap: 12 }}>
+    <View style={{ flex: 1, gap: 12 }}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
         <Text accessibilityRole="header" style={{ color: colors.foreground, fontSize: 22, flexGrow: 1 }}>
-          Automations
+          Run history
         </Text>
         <Button
           colors={colors}
@@ -80,7 +141,6 @@ export function AutomationsPage({
           loading={reconciling}
           onPress={() => void reconcileAll()}
         />
-        <Button colors={colors} label="Back to bots" onPress={onClose} />
       </View>
       {query.isPending ? (
         <ActivityIndicator accessibilityLabel="Loading runs" color={colors.foregroundMuted} />

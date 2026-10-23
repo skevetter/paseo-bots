@@ -148,7 +148,7 @@ export class BotStore {
         revision: current.revision,
       });
       const outcome = applyOperation(current.values, operation, () => change);
-      if (change.fleet) outcome.receipt.originalRevision = current.revision;
+      if (change.fleet || change.automations) outcome.receipt.originalRevision = current.revision;
       const snapshot = await this.persist(outcome.values);
       const receipt = snapshot.values.receipts?.find((entry) => entry.operationId === operation.id);
       if (!receipt) throw new Error(`Operation ${operation.id} has no persisted receipt.`);

@@ -26,6 +26,24 @@ const FleetAuditSchema = z.object({
     .max(500),
 });
 
+/** Bounded routine transitions retain no prompts, provider config or credentials. */
+export const RoutineAuditSchema = z.object({
+  appliedOperationId: z.string().optional(),
+  rows: z
+    .array(
+      z.object({
+        targetId: z.string(),
+        botId: z.string(),
+        routineId: z.string(),
+        before: z.boolean(),
+        after: z.boolean(),
+        afterHash: z.string(),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+
 /** At most 200 receipts; unresolved operations pin theirs. If all are pinned, new operations refuse. */
 export const MAX_RECEIPTS = 200;
 
@@ -56,5 +74,6 @@ export const ReceiptSchema = z.object({
   originalRevision: z.string().min(1).optional(),
   newRevision: z.string().min(1).optional(),
   fleet: FleetAuditSchema.optional(),
+  automations: RoutineAuditSchema.optional(),
 });
 export type ApplicationReceipt = z.infer<typeof ReceiptSchema>;
