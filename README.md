@@ -120,6 +120,21 @@ it once to `routines.json.pre-run-store`, then atomically writes `{ version: 1, 
 Unsupported versioned files stay in place: reads and writes fail explicitly until a compatible plugin
 is installed or an operator restores a supported backup. Only corrupt files are set aside automatically.
 
+`SessionEpochSchema` / `SessionEpoch` in `shared/runs.ts` represent a nonnegative safe-integer
+provider-session generation, not an opaque id or plugin-process marker. `0` means legacy, unknown or
+unopened provenance; it is not evidence that an actual historical provider session opened.
+`newSessionEpoch(previous: number = 0)` validates the persisted previous value and returns the next
+generation (`1` initially), refusing invalid values and overflow beyond `Number.MAX_SAFE_INTEGER`.
+Only the provider-session owner advances and persists it on interactive reopen/resume. A read,
+plugin restart or history view must not advance it. The legacy scheduler has no session-open
+observation and records `0`; B06 owns observed-session lifecycle persistence.
+
+The unversioned history migration uses epoch `0`. Earlier B02 version-1 string epochs (`legacy`,
+`ses-...` or other string markers) also migrate to `0` on read; no generation is inferred from them.
+Valid numeric generations survive save/reopen unchanged. The next save writes numeric epochs in
+the existing version-1 envelope; rollbacks to the earlier string-epoch B02 build cannot safely read
+those records. Restore a supported backup explicitly rather than downgrading over numeric history.
+
 To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
 starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
 A fresh installation has no pre-migration backup. Without a restored old-format file, 1.3.0 cannot

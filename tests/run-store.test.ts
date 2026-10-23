@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import { admitRun, appendRun, emptyRecord, KEEP_RUNS, RunStore } from "../server/run-store";
-import { newSessionEpoch } from "../shared/runs";
+import { newSessionEpoch, SessionEpochSchema } from "../shared/runs";
 import { defined, makeRun, useTempPaseoHome } from "./helpers";
 
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url).pathname;
@@ -49,7 +49,7 @@ describe("run history saved before outcomes existed", () => {
       output: "All 12 invoices sent.",
       endedAt: "2026-09-18T09:04:00.000Z",
       purpose: "task",
-      sessionEpoch: "legacy",
+      sessionEpoch: 0,
       providerTurnId: null,
       parentRunId: null,
       verification: null,
@@ -275,5 +275,85 @@ describe("a broken run history file", () => {
     ).rejects.toThrow();
     expect(await readFile(store.path, "utf8")).toBe(original);
     expect(await readdir(pluginDataPath())).not.toContain(`routines-${file}.json.pre-run-store`);
+  });
+});
+
+describe("persisted provider-session generations", () => {
+  useTempPaseoHome("paseo-bots-session-generations-");
+
+  it("migrates version-1 process markers to unknown without inventing provider sessions", async () => {
+    const original = await readFile(fixture("routines-v1-process-epoch.json"), "utf8");
+    const store = await storeFrom(original);
+    const expected = JSON.parse(original).routines["rt-epoch"];
+    expected.runs = expected.runs.map((run: Record<string, unknown>) => ({ ...run, sessionEpoch: 0 }));
+    expect((await store.read()).routines["rt-epoch"]).toEqual(expected);
+    expect(await readFile(store.path, "utf8")).toBe(original);
+    await store.update(() => {});
+    expect((await new RunStore(store.path).read()).routines["rt-epoch"]).toEqual(expected);
+    expect(JSON.parse(await readFile(store.path, "utf8")).routines["rt-epoch"]).toEqual(expected);
+  });
+
+  it("keeps numeric generations across reopen and advances only from the persisted previous value", async () => {
+    const store = newStore();
+    await store.update((routines) => {
+      routines.rt = {
+        lastRunAt: null,
+        runs: [
+          makeRun("observed", { sessionEpoch: newSessionEpoch() }),
+          makeRun("upper-bound", { sessionEpoch: SessionEpochSchema.parse(Number.MAX_SAFE_INTEGER) }),
+        ],
+      };
+    });
+    const reopened = new RunStore(store.path);
+    expect(defined((await reopened.read()).routines.rt).runs.map((run) => run.sessionEpoch)).toEqual([
+      1,
+      Number.MAX_SAFE_INTEGER,
+    ]);
+    await reopened.update((routines) => {
+      const run = defined(routines.rt?.runs[0]);
+      run.sessionEpoch = newSessionEpoch(run.sessionEpoch);
+    });
+    const reopenedAgain = new RunStore(store.path);
+    expect(defined((await reopenedAgain.read()).routines.rt).runs[0]?.sessionEpoch).toBe(2);
+    expect(defined((await reopenedAgain.read()).routines.rt).runs[0]?.sessionEpoch).toBe(2);
+  });
+});
+
+describe("invalid persisted generation transitions", () => {
+  useTempPaseoHome("paseo-bots-invalid-generations-");
+
+  it("refuses invalid writes without replacing valid history", async () => {
+    const store = newStore();
+    await store.update((routines) => {
+      routines.rt = { lastRunAt: null, runs: [makeRun("existing", { sessionEpoch: newSessionEpoch(4) })] };
+    });
+    const before = await readFile(store.path, "utf8");
+    for (const invalid of [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1, "7"]) {
+      await expect(
+        store.update((routines) => {
+          Object.assign(defined(routines.rt?.runs[0]), { sessionEpoch: invalid });
+        }),
+      ).rejects.toThrow();
+      expect(await readFile(store.path, "utf8")).toBe(before);
+    }
+    expect(defined((await store.read()).routines.rt).runs[0]?.sessionEpoch).toBe(5);
+  });
+
+  it("does not repair invalid numeric epochs into an observed or unknown session", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const runs = [
+      makeRun("known", { sessionEpoch: newSessionEpoch(6) }),
+      ...[-1, 1.5, Number.MAX_SAFE_INTEGER + 1].map((sessionEpoch, index) => ({
+        ...makeRun(`invalid-${index}`),
+        sessionEpoch,
+      })),
+    ];
+    const store = await storeFrom(
+      JSON.stringify({ version: 1, routines: { rt: { lastRunAt: null, runs } } }),
+    );
+    const loaded = defined((await store.read()).routines.rt).runs;
+    expect(loaded.map((run) => [run.id, run.sessionEpoch])).toEqual([["known", 7]]);
+    expect(errors).toHaveBeenCalledTimes(1);
+    errors.mockRestore();
   });
 });

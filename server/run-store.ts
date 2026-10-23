@@ -72,7 +72,7 @@ function upgradeRun(routineId: string, raw: Record<string, unknown>): Record<str
     cycleId: derivedId("cyc", routineId, id),
     attemptId: derivedId("att", routineId, id),
     executionId: derivedId("exe", routineId, id),
-    sessionEpoch: "legacy",
+    sessionEpoch: 0,
     occurrenceKey: occurrenceKeyOf(routineId, String(raw.trigger), String(raw.scheduledFor), id),
     parentRunId: null,
     providerTurnId: null,
@@ -88,7 +88,11 @@ function upgradeRun(routineId: string, raw: Record<string, unknown>): Record<str
 function readRun(routineId: string, raw: unknown, dropped: string[]): RoutineRun[] {
   if (!isObject(raw)) return [];
   const candidate = "executionStatus" in raw ? raw : upgradeRun(routineId, raw);
-  const parsed = RoutineRunShape.safeParse(candidate);
+  // Earlier B02 files recorded a plugin-process string here, not provider-session evidence.
+  // Never infer a generation from that marker, even when it looks numeric.
+  const normalized =
+    typeof candidate.sessionEpoch === "string" ? { ...candidate, sessionEpoch: 0 } : candidate;
+  const parsed = RoutineRunShape.safeParse(normalized);
   if (!parsed.success) {
     dropped.push(`${routineId}/${String(raw.id)}: ${parsed.error.issues[0]?.message ?? "unreadable"}`);
     return [];

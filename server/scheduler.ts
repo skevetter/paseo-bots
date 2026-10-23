@@ -7,7 +7,7 @@ import type { Bot, Routine } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import { decide } from "../shared/routines";
 import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
-import { isTerminal, newSessionEpoch, providerTurnId, settleTurn, type Trigger } from "../shared/runs";
+import { isTerminal, providerTurnId, SessionEpochSchema, settleTurn, type Trigger } from "../shared/runs";
 import { pluginDataPath } from "./bot-home";
 import { startChat } from "./chats";
 import { readJson, writeJson } from "./files";
@@ -24,6 +24,8 @@ const WEBHOOK_BODY_MAX = 256 * 1024;
 const WEBHOOK_TEXT_MAX = 48_000;
 const WEBHOOK_CALLS_PER_MINUTE = 10;
 const WEBHOOK_UNFINISHED = 3;
+// Legacy launches have no provider-session-open observation; plugin startup is not a session boundary.
+const UNOBSERVED_SESSION_EPOCH = SessionEpochSchema.parse(0);
 
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
@@ -99,7 +101,6 @@ export class RoutineScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking: Promise<void> | null = null;
   private readonly hooks = serial();
-  private readonly epoch = newSessionEpoch();
   private readonly hookCalls = new Map<string, number[]>();
   /** Runs whose chat is starting, by routine and run id. */
   private readonly launches = new Map<string, Map<string, Promise<void>>>();
@@ -243,7 +244,7 @@ export class RoutineScheduler {
     const record = records[routine.id] ?? emptyRecord();
     records[routine.id] = record;
     const now = new Date();
-    const run = admitRun({ routineId: routine.id, trigger, due, now, epoch: this.epoch });
+    const run = admitRun({ routineId: routine.id, trigger, due, now, epoch: UNOBSERVED_SESSION_EPOCH });
     if (trigger === "schedule") record.lastRunAt = run.startedAt;
     const blocked = await this.blocked(request, record);
     appendRun(record, run);
@@ -383,7 +384,7 @@ export class RoutineScheduler {
   private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {
     const at = now.toISOString();
     const run: RoutineRun = {
-      ...admitRun({ routineId: routine.id, trigger: "schedule", due, now, epoch: this.epoch }),
+      ...admitRun({ routineId: routine.id, trigger: "schedule", due, now, epoch: UNOBSERVED_SESSION_EPOCH }),
       endedAt: at,
       executionStatus: "canceled",
       taskOutcome: "no_change",

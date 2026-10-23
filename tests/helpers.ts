@@ -74,7 +74,7 @@ export function makeRun(id: string, patch: Partial<RoutineRun> = {}): RoutineRun
     cycleId: `cyc-${id}`,
     attemptId: `att-${id}`,
     executionId: `exe-${id}`,
-    sessionEpoch: "ses-test",
+    sessionEpoch: 0,
     occurrenceKey: `rt#${id}`,
     parentRunId: null,
     providerTurnId: null,

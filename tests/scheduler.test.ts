@@ -192,6 +192,7 @@ describe("the routine scheduler", () => {
       trigger: "manual",
       executionStatus: "running",
       taskOutcome: "unknown",
+      sessionEpoch: 0,
       agentId: "run-chat-1",
     });
     // No results chat: nothing is posted.

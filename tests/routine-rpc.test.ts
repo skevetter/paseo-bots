@@ -89,6 +89,7 @@ describe("routine responses read by an old client", () => {
         status: "succeeded",
         executionStatus: "completed",
         taskOutcome: "unknown",
+        sessionEpoch: 0,
         verification: null,
       });
       const store = new RunStore(path);
