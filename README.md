@@ -31,8 +31,11 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 2. Start blank, from a role, from a preset, or from a bot or team file under **Import**.
 3. Chat with the bot. The panel button at the top right of a chat opens its settings.
 4. Press **Skills & Tools** below the bot list to add skills, MCP servers and apps. Give them to a bot under its **Skills** and **Access** settings.
+5. Press **Fleet** (the checklist icon) in the bot-list footer to inspect effective runtime settings, manage immutable policies, and preview atomic changes to selected bots. Existing chats are unaffected. See [Fleet UI](docs/fleet-ui.md) and [operation guarantees](docs/fleet-operations.md).
 
 An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
+
+Version 3 bot files carry a resolved runtime-policy snapshot rather than source-host policy IDs. Definitions and imported bots are admitted together; approvals still come from the destination. See [portable policies](docs/portable-policies.md) for format compatibility and rollback.
 
 ## Memory limits and history
 

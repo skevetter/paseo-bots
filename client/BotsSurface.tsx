@@ -24,6 +24,7 @@ import {
   openBotMenuFromPane,
   openChatMenu,
   openDisplayMenu,
+  openFleet,
   openTeamMenu,
   renameBot,
   type SurfaceContext,
@@ -33,9 +34,11 @@ import {
 } from "./botsSurfaceActions";
 import { ChatPane, type OutgoingMessage } from "./ChatPane";
 import { type BotHost, type LocalHost, useBotHost } from "./data";
+import { FleetPage } from "./fleet/FleetPage";
 import { LibraryView } from "./library/LibraryView";
 import { errorText, nativeTokens } from "./native";
 import { BotPanel } from "./panel/BotPanel";
+import { Button } from "./panel/controls";
 import { Splash } from "./Splash";
 import { newMessageId } from "./sent-attachments";
 import type { Selection } from "./sidebar/types";
@@ -152,7 +155,11 @@ function renderSidebar(ctx: SurfaceContext): ReactElement {
       onChatMenu={(request) => openChatMenu(ctx, request)}
       onDisplayMenu={(anchor) => openDisplayMenu(ctx, anchor)}
       onEditTeam={ctx.setEditingTeam}
-      onTeamMap={() => ctx.setTeamMap(true)}
+      onTeamMap={() => {
+        ctx.setFleet(false);
+        ctx.setTeamMap(true);
+      }}
+      onFleet={() => void openFleet(ctx)}
     />
   );
 }
@@ -195,6 +202,20 @@ function renderTeamMap(ctx: SurfaceContext): ReactElement {
 function renderPane(ctx: SurfaceContext): ReactElement {
   const { selectedBot, selection, layout, panel } = ctx;
   if (ctx.teamMap) return renderTeamMap(ctx);
+  if (ctx.fleet) {
+    if (Object.keys(ctx.drafts).length > 0)
+      return (
+        <View style={{ padding: 24, gap: 12 }}>
+          <Text accessibilityRole="alert" style={{ color: ctx.colors.statusDanger }}>
+            Save pending bot edits before changing fleet settings. Unsaved drafts cannot overwrite a bulk
+            operation.
+          </Text>
+          <Button colors={ctx.colors} label="Retry saving bot edits" onPress={() => void ctx.flush()} />
+          <Button colors={ctx.colors} label="Back to bots" onPress={() => ctx.setFleet(false)} />
+        </View>
+      );
+    return <FleetPage colors={ctx.colors} compact={layout.compact} onClose={() => ctx.setFleet(false)} />;
+  }
   if (!selectedBot || !selection) return <Splash colors={ctx.colors} />;
   return (
     <SelectedChat
@@ -222,7 +243,7 @@ function renderPane(ctx: SurfaceContext): ReactElement {
 
 function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
   const { selectedBot, panel, layout } = ctx;
-  if (!selectedBot || !panel.open) return null;
+  if (ctx.fleet || !selectedBot || !panel.open) return null;
   return (
     <BotPanel
       key={`${selectedBot.id}:${ctx.panelVersion}`}
@@ -281,8 +302,12 @@ function renderCompact(ctx: SurfaceContext, parts: ScreenParts): ReactElement {
     <View ref={ctx.paneRef} collapsable={false} style={{ flex: 1 }}>
       {parts.tabProps ? <TeamTabSwitcher {...parts.tabProps} /> : null}
       {parts.sidebar}
-      {ctx.selection || teamMap ? (
-        <SlideOver onClose={() => (teamMap ? ctx.setTeamMap(false) : ctx.setSelection(null))}>
+      {ctx.selection || teamMap || ctx.fleet ? (
+        <SlideOver
+          onClose={() =>
+            ctx.fleet ? ctx.setFleet(false) : teamMap ? ctx.setTeamMap(false) : ctx.setSelection(null)
+          }
+        >
           {parts.pane}
         </SlideOver>
       ) : null}

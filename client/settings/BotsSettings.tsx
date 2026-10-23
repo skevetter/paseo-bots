@@ -8,6 +8,7 @@ import {
   SettingsSelect,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { plural } from "../../shared/activity";
 import { startingMode } from "../../shared/approval";
@@ -19,8 +20,9 @@ import {
   DEFAULT_BOT_DEFAULTS,
 } from "../../shared/bot";
 import { runsUnattended } from "../../shared/bot-checks";
-import { addImportedBots } from "../../shared/library";
-import { exportTeamRpc, importTeamRpc } from "../../shared/rpc";
+import { importsApplyRpc } from "../../shared/imports";
+import { exportTeamRpc, importTeamRpc, stateReadRpc } from "../../shared/rpc";
+import { prefixedId } from "../../shared/uuid";
 import { useBotHost, useProviders } from "../data";
 import { confirmDialog, errorText } from "../native";
 import { Button, SheetActions } from "../panel/controls";
@@ -28,6 +30,7 @@ import { FormTextArea } from "../panel/fields";
 import { CardNote } from "../panel/rows";
 import { Alert } from "../panel/status";
 import type { PaseoProviderEntry } from "../paseo";
+import { showSaved } from "../state-query";
 import { useBotState } from "../useBotState";
 import { ControlSection } from "./ControlSection";
 
@@ -93,7 +96,6 @@ export function BotsSettings({ theme, host, layout }: PluginSurfaceProps) {
         colors={colors}
         bots={values.bots.filter((bot) => !bot.archived)}
         groups={values.groups ?? []}
-        commit={commit}
       />
       <ControlSection colors={colors} compact={layout.compact} />
     </>
@@ -250,19 +252,12 @@ function importedMessage(imported: {
   ].join(" ");
 }
 
-function TeamSection({
-  colors,
-  bots,
-  groups,
-  commit,
-}: {
-  colors: Colors;
-  bots: Bot[];
-  groups: BotGroup[];
-  commit: ReturnType<typeof useBotState>["commit"];
-}) {
+function TeamSection({ colors, bots, groups }: { colors: Colors; bots: Bot[]; groups: BotGroup[] }) {
   const exportTeam = useRpc(exportTeamRpc);
   const importTeam = useRpc(importTeamRpc);
+  const applyImports = useRpc(importsApplyRpc);
+  const readState = useRpc(stateReadRpc);
+  const queryClient = useQueryClient();
   const toast = useToast();
   const [includeMemory, setIncludeMemory] = useState(false);
   const [json, setJson] = useState("");
@@ -287,10 +282,21 @@ function TeamSection({
     setBusy("import");
     try {
       const imported = await importTeam({ json });
-      if (await commit((current) => addImportedBots(current, imported.bots, imported.teams))) {
-        setJson("");
-        toast.show(importedMessage(imported), { variant: "success" });
+      const current = await readState({});
+      const result = await applyImports({
+        operationId: prefixedId("import"),
+        revision: current.revision,
+        bots: imported.bots,
+        teams: imported.teams,
+      });
+      if (result.status === "conflict") {
+        await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "state"] });
+        throw new Error(`${result.error} Review refreshed settings before importing again.`);
       }
+      await showSaved(queryClient, { revision: result.revision, values: result.values });
+      void queryClient.invalidateQueries({ queryKey: ["paseo-bots", "fleet"] });
+      setJson("");
+      toast.show(importedMessage(imported), { variant: "success" });
     } catch (error) {
       toast.error(errorText(error));
     } finally {
