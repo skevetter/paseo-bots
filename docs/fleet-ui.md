@@ -32,4 +32,8 @@ New bot imports, settings team imports and duplication admit parsed bots plus th
 
 ## Validation boundary
 
-Behavioral tests cover a deterministic 100-bot fleet, effective-setting/source filters, opaque-ID selection, keyboard/range boundaries, stale and late previews, incompatible provider guards and referenced policy deletion. A direct Bun smoke exercises the real selection/filter and bulk state helpers with 100 rows. These checks do not establish rendering or host action success. Real desktop/compact screenshots and RPC action validation require the isolated scratch daemon with plugins explicitly authorized and the backend handlers integrated; do not enable plugins on a live daemon for validation.
+Behavioral tests cover a deterministic 100-bot fleet, effective-setting/source filters, opaque-ID selection, keyboard/range boundaries, stale and late previews, incompatible provider guards and referenced policy deletion. A direct Bun smoke exercises the real selection/filter and bulk state helpers with 100 rows.
+
+The integrated plugin was loaded into an explicitly authorized, isolated loopback Paseo 0.13.0-beta.2 daemon, without changing the live daemon or installed checkout. Its real web surface rendered 100 bots at 1600x1000 and 390x844; desktop and compact screenshots were captured. Space selected an exact bot ID. An unavailable-provider preview disabled apply. After provider metadata became available, a real concurrent config edit produced a visible stale-preview conflict. Explicit refresh and re-preview allowed apply, which displayed the persisted operation ID and original/new revisions. The policy editor refused deletion of a referenced policy and displayed all 100 bot referrers.
+
+No model agents were launched for validation. Native iOS/Android rendering and Windows were not exercised. A compact browser viewport is evidence of responsive web layout, not a native-device test.

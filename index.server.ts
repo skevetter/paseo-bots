@@ -46,8 +46,8 @@ import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
 import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
-import { importsApplyRpc } from "./shared/imports";
 import { fleetApplyRpc, fleetListRpc, fleetPreviewRpc, fleetRevertRpc } from "./shared/fleet";
+import { importsApplyRpc } from "./shared/imports";
 import {
   appsAccountsRpc,
   appsCatalogRpc,

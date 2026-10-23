@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyImportedBots } from "../server/imports";
-import { BotStore } from "../server/state";
 import type { ImportedEntry } from "../server/share";
+import { BotStore } from "../server/state";
 import { INHERITABLE, PolicySchema, resolveBot } from "../shared/policies";
 import { makeBot, NOW, useTempPaseoHome } from "./helpers";
 
