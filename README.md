@@ -102,3 +102,5 @@ npm run bench
 ```
 
 Paseo supplies React 19.1, React Native 0.81 and React Query 5.90 at runtime. Use no newer React Query API.
+
+What Paseo versions and SDK behavior the plugin relies on, and the fixtures that pin them, is in [docs/compatibility.md](docs/compatibility.md). Update it together with `tests/sdk-contract.test.ts` when `@getpaseo/client` or `@getpaseo/plugin` changes.
