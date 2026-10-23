@@ -1,11 +1,13 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { recentWork } from "../shared/activity";
 import type { AppAccount, PromptApp } from "../shared/apps";
 import type { Bot, BotGroup, BotState, Library } from "../shared/bot";
 import { botSkills } from "../shared/bot-agent";
 import { composeSystemPrompt, type PromptContext, promptSections } from "../shared/bot-prompt";
-
+import type { MemoryContextReceipt } from "../shared/chat";
 import { teamOf, teamPrompt } from "../shared/groups";
+import { budgetStats } from "../shared/memory-budget";
 import { type PaseoToolsConfig, paseoToolsState } from "../shared/paseo-tools";
 import { selectPlaybooks } from "../shared/playbooks";
 import { accounts, catalog, readState } from "./composio";
@@ -48,7 +50,7 @@ export async function promptContext(
   bot: Bot,
   { local, library, paseoTools }: { local: boolean; library: Library; paseoTools: boolean },
   start: ChatStart = {},
-): Promise<PromptContext> {
+): Promise<PromptContext & { memoryContextReceipt: MemoryContextReceipt | null }> {
   // Playbooks and teams live in the settings, so they travel with the bot to any host.
   const playbooks = selectPlaybooks(start.message ?? "", bot.playbooks);
   const team = start.team ? teamPrompt(start.team.group, bot, start.team.bots) : null;
@@ -56,6 +58,7 @@ export async function promptContext(
   if (!local)
     return {
       memory: "",
+      memoryContextReceipt: null,
       memoryPath: null,
       recentWork: [],
       playbooks,
@@ -78,8 +81,14 @@ export async function promptContext(
     bot.id,
     skills.map((skill) => skill.id),
   );
+  const memory = await injectedMemory(bot.id);
   return {
-    memory: (await injectedMemory(bot.id)).text,
+    memory: memory.text,
+    memoryContextReceipt: {
+      backend: "files",
+      contentHash: createHash("sha256").update(memory.text.trim()).digest("hex"),
+      stats: budgetStats(memory),
+    },
     memoryPath: join(memoryFolder(bot.id), MAIN_MEMORY),
     recentWork: recentWork(await recentLogEntries(bot.id, 3), new Date()),
     playbooks,
@@ -124,5 +133,13 @@ export async function systemPrompt(
     { local, library, paseoTools: local ? await paseoToolsOn(paseo, bot.provider) : true },
     start,
   );
-  return { systemPrompt: composeSystemPrompt(bot, context), sections: promptSections(bot, context) };
+  return {
+    systemPrompt: composeSystemPrompt(bot, context),
+    sections: promptSections(bot, context),
+    memoryContextReceipt: context.memoryContextReceipt,
+    playbooks: context.playbooks.map((playbook) => ({
+      id: playbook.id,
+      contentHash: createHash("sha256").update(JSON.stringify(playbook)).digest("hex"),
+    })),
+  };
 }

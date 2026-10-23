@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { readState, writeState } from "../server/composio";
 import { BodyTooLargeError, readBody } from "../server/mcp-http";
 import { Relay } from "../server/relay";
+import { askBot } from "../server/tools/bots";
 import type { Bot, McpServerConfig } from "../shared/bot";
 import { newUuid } from "../shared/uuid";
 import { defined, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
@@ -758,5 +759,101 @@ describe("the relay's app limits", () => {
     });
     expect(answer.status).toBe(200);
     expect(defined(composio().forwarded.at(-1)).body).not.toContain("GMAIL_SEND_EMAIL");
+  });
+});
+
+describe("frozen managed relay authorization", () => {
+  useTempPaseoHome("paseo-bots-frozen-relay-");
+  const sendFrozen = (target: { url: string; authorization: string }, message: unknown) =>
+    send(target, message, { connection: "close" });
+
+  it("does not grant bot contact after access changes, including before and after cold restoration", async () => {
+    const bot = makeBot({ contactBots: "off" });
+    const host = fakeHost([bot]);
+    const relay = new Relay(host, [askBot]);
+    const agentId = newUuid();
+    const frozen = { tools: true, apps: false, permissions: await relay.preparePermissions(bot) };
+    const plugin = await relay.mountPrepared(bot.id, agentId, frozen);
+    const target = httpMount(plugin.tools ?? null);
+    const list = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    bot.contactBots = "allow";
+    try {
+      expect(await (await sendFrozen(target, list)).json()).toMatchObject({ result: { tools: [] } });
+      const call = await sendFrozen(target, {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "ask_bot", arguments: { bot: "other", message: "act" } },
+      });
+      expect(await call.json()).toMatchObject({ error: { message: "Unknown tool ask_bot" } });
+    } finally {
+      await relay.stop();
+    }
+    const recovered = new Relay(host, [askBot]);
+    try {
+      await recovered.start();
+      expect((await sendFrozen(target, list)).status).toBe(401);
+      const restored = await recovered.mountPrepared(bot.id, agentId, JSON.parse(JSON.stringify(frozen)));
+      const restoredTarget = httpMount(restored.tools ?? null);
+      expect(await (await sendFrozen(restoredTarget, list)).json()).toMatchObject({ result: { tools: [] } });
+      await expect(
+        recovered.mountPrepared(bot.id, agentId, {
+          ...frozen,
+          permissions: { ...frozen.permissions, contactBots: "allow" },
+        }),
+      ).rejects.toThrow("conflicting permissions");
+    } finally {
+      await recovered.stop();
+    }
+  });
+
+  it("keeps admitted app tool and account limits after current bot access broadens and a cold JSON roundtrip", async () => {
+    const composio = await startFakeComposio();
+    process.env.PASEO_BOTS_COMPOSIO_ORIGIN = composio.origin;
+    const bot = gmailBot("bot-frozen", { tools: ["gmail_fetch_emails"], account: "ca_1" });
+    const host = fakeHost([bot]);
+    const relay = new Relay(host, []);
+    const agentId = newUuid();
+    let recovered: Relay | null = null;
+    try {
+      await writeState({
+        apiKey: "ak_frozen_limits",
+        sessionId: "trs_1",
+        mcpUrl: `${composio.origin}/mcp/echo`,
+        multiAccount: true,
+      });
+      const frozen = { tools: false, apps: true, permissions: await relay.preparePermissions(bot) };
+      const plugin = await relay.mountPrepared(bot.id, agentId, frozen);
+      const target = httpMount(plugin.apps ?? null);
+      bot.apps.push("slack");
+      bot.appRules = { gmail: { tools: "all", account: null } };
+      const before = composio.forwarded.length;
+      const refused = await sendFrozen(target, execute({ tool_slug: "GMAIL_SEND_EMAIL" }));
+      expect(await refused.text()).toContain("isn't allowed to run GMAIL_SEND_EMAIL");
+      expect(composio.forwarded).toHaveLength(before);
+      await relay.stop();
+      recovered = new Relay(host, []);
+      await recovered.start();
+      expect((await sendFrozen(target, execute({ tool_slug: "GMAIL_FETCH_EMAILS" }))).status).toBe(401);
+      const restored = await recovered.mountPrepared(bot.id, agentId, JSON.parse(JSON.stringify(frozen)));
+      const restoredTarget = httpMount(restored.apps ?? null);
+      const wrongAccount = await sendFrozen(
+        restoredTarget,
+        execute({ tool_slug: "GMAIL_FETCH_EMAILS", account: "other" }),
+      );
+      expect(await wrongAccount.text()).toContain("may only use the account");
+      expect((await sendFrozen(restoredTarget, execute({ tool_slug: "GMAIL_FETCH_EMAILS" }))).status).toBe(
+        200,
+      );
+      expect(JSON.parse(defined(composio.forwarded.at(-1)).body)).toMatchObject({
+        params: { arguments: { tools: [{ tool_slug: "GMAIL_FETCH_EMAILS", account: "ca_1" }] } },
+      });
+      expect(await (await sendFrozen(restoredTarget, WORKBENCH)).text()).toContain("remote workbench");
+    } finally {
+      await relay.stop();
+      await recovered?.stop();
+      delete process.env.PASEO_BOTS_COMPOSIO_ORIGIN;
+      composio.close();
+    }
   });
 });
