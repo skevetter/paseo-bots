@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { startChat } from "../server/chats";
 import { BotsHost } from "../server/host";
+import { LocalChatStarts } from "../server/local-starts";
 import { Relay } from "../server/relay";
+import { RunCoordinator } from "../server/run-coordinator";
 import { type Bot, type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { type ChatApi, startBotChat } from "../shared/chat";
 import { PolicySchema, unsetOverrides } from "../shared/policies";
@@ -22,9 +24,9 @@ function harness(values: BotState) {
     setTitle: async () => undefined,
     archive: async () => undefined,
     agents: {
-      create: async ({ config }: { config: LaunchConfig }) => {
+      create: async ({ config, agentId }: { config: LaunchConfig; agentId: string }) => {
         configs.push(config);
-        return { id: `chat-${configs.length}` };
+        return { id: agentId };
       },
     },
   };
@@ -77,6 +79,9 @@ describe("chat launch policy resolution", () => {
     const values = policyState(bot);
     const { api, host, configs } = harness(values);
     const relay = new Relay(host, []);
+    const coordinator = new RunCoordinator(host, relay);
+    const starts = new LocalChatStarts(host, relay, coordinator);
+    host.bindChatStarts(starts);
     try {
       await startBotChat(api, {
         bot,
@@ -86,11 +91,13 @@ describe("chat launch policy resolution", () => {
         prompt: "p",
         systemPrompt: "s",
       });
-      await startChat(host, relay, bot, { prompt: "p", title: "", labels: {} });
+      await startChat(host, { botId: bot.id, prompt: "p", title: "", labels: {} });
       const expected = { provider: "claude/policy-model", modeId: "acceptEdits", thinkingOptionId: "high" };
       expect(settings(defined(configs[0]))).toEqual(expected);
       expect(settings(defined(configs[1]))).toEqual(expected);
     } finally {
+      starts.stop();
+      await coordinator.stop();
       await relay.stop();
     }
   });
@@ -140,14 +147,19 @@ describe("routine launch permissions", () => {
     const bot = unsetOverrides(base, ["model"]);
     const { host, configs } = harness(policyState(bot));
     const relay = new Relay(host, []);
+    const coordinator = new RunCoordinator(host, relay);
+    const starts = new LocalChatStarts(host, relay, coordinator);
+    host.bindChatStarts(starts);
     try {
-      await startChat(host, relay, bot, { prompt: "p", title: "", labels: {}, routineId: "rt" });
+      await startChat(host, { botId: bot.id, prompt: "p", title: "", labels: {}, routineId: "rt" });
       expect(settings(defined(configs[0]))).toEqual({
         provider: "claude/routine-model",
         modeId: "default",
         thinkingOptionId: "high",
       });
     } finally {
+      starts.stop();
+      await coordinator.stop();
       await relay.stop();
     }
   });

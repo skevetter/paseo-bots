@@ -6,6 +6,7 @@ import { ControlServer } from "../server/control/server";
 import type { ControlContext, ControlTool } from "../server/control/tool";
 import { BotsHost } from "../server/host";
 import { MemoryJournal } from "../server/journal";
+import { LocalChatStarts } from "../server/local-starts";
 import { Relay } from "../server/relay";
 import { RoutineScheduler } from "../server/scheduler";
 import { BotStore } from "../server/state";
@@ -38,6 +39,8 @@ export async function startControl(
     commands: new CommandAllowlist(),
     settings: async () => toggles,
   };
+  const starts = new LocalChatStarts(host, relay, context.scheduler.coordinator);
+  host.bindChatStarts(starts);
   const server = new ControlServer(context, tools, 0);
   const url = await server.start();
   const token = await controlToken();
@@ -71,6 +74,7 @@ export async function startControl(
     };
   };
   const stop = async () => {
+    starts.stop();
     await Promise.all([server.stop(), context.scheduler.stop(), relay.stop()]);
   };
   return { url, token, post, call, context, store, toggles, server, stop };

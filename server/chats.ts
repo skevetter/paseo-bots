@@ -1,15 +1,16 @@
 import { createHash } from "node:crypto";
+import type { z } from "zod";
 import { APPS_MCP_NAME } from "../shared/apps";
 import { type Bot, type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { TOOLS_MCP_NAME } from "../shared/bot-tools";
 import {
-  type CreationObserver,
   launchPreparedBotChat,
   type PreparedBotChat,
   type PreparedLaunchOptions,
   prepareBotChat,
   type StartChatInput,
 } from "../shared/chat";
+import type { LocalChatInputSchema, LocalChatStartResult } from "../shared/local-start";
 import { newUuid } from "../shared/uuid";
 import { ensureBotHome } from "./bot-home";
 import type { BotsHost } from "./host";
@@ -101,24 +102,10 @@ export async function launchPreparedChat(
   return launchPreparedBotChat(host.requirePaseo(), await refreshPreparedChat(relay, prepared), options);
 }
 
-/** Direct callers retain the same plain-chat convenience path; admission routing is owned by the coordinator. */
-export async function startChat(
+/** Ordinary local starts share the explicitly bound admission service. */
+export function startChat(
   host: BotsHost,
-  relay: Relay,
-  bot: Bot,
-  input: Omit<PrepareChatInput, "agentId" | "idempotencyKey"> & {
-    title: string;
-    labels: Record<string, string>;
-    agentId?: string;
-    idempotencyKey?: string;
-    onEvent?: CreationObserver;
-  },
-): Promise<string> {
-  const agentId = input.agentId ?? newUuid();
-  const prepared = await prepareChat(host, relay, bot, {
-    ...input,
-    agentId,
-    idempotencyKey: input.idempotencyKey ?? `paseo-bots:${agentId}`,
-  });
-  return launchPreparedChat(host, relay, prepared, { onEvent: input.onEvent });
+  input: Omit<z.input<typeof LocalChatInputSchema>, "requestId"> & { requestId?: string },
+): Promise<LocalChatStartResult> {
+  return host.requireChatStarts().create({ ...input, requestId: input.requestId ?? newUuid() });
 }

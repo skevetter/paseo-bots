@@ -8,10 +8,11 @@ import type { CreationEvidence } from "../shared/chat";
 
 export type Features = Record<string, boolean>;
 
-type HeldRequest = "create" | "workspaces";
+type HeldRequest = "create" | "workspaces" | "agents";
 const HELD_FRAMES: Record<HeldRequest, readonly unknown[]> = {
   create: ["agent.create.request", "create_agent_request"],
   workspaces: ["fetch_workspaces_request"],
+  agents: ["fetch_agent_request"],
 };
 
 export interface FakeDaemon {
@@ -23,6 +24,7 @@ export interface FakeDaemon {
   release(): void;
   setProviders(entries: ProviderEntry[]): void;
   creation(events: Omit<CreationEvidence, "idempotencyKey">[], error?: string): void;
+  setAgent(agentId: string, patch: Record<string, unknown> | null): void;
   close(): Promise<void>;
 }
 
@@ -70,6 +72,7 @@ class DaemonReplies {
   ];
   creationEvents: Omit<CreationEvidence, "idempotencyKey">[] = [];
   creationError: string | null = null;
+  readonly agents = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly reply: (message: unknown) => void) {}
 
@@ -92,6 +95,17 @@ class DaemonReplies {
             requestId,
             entries: [FIXTURE_WORKSPACE],
             pageInfo: { nextCursor: null, prevCursor: null, hasMore: false },
+          },
+        });
+        break;
+      case "fetch_agent_request":
+        this.reply({
+          type: "fetch_agent_response",
+          payload: {
+            requestId,
+            agent: this.agents.get(message.agentId as string) ?? null,
+            project: null,
+            error: null,
           },
         });
         break;
@@ -129,6 +143,8 @@ class DaemonReplies {
 
   private agentCreate(message: Record<string, unknown>): void {
     const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
+    const agent = agentSnapshot(agentId, { labels: message.labels ?? {} });
+    if (!this.creationError) this.agents.set(agentId, agent);
     const snapshots = this.creationEvents.map((event) => ({
       ...event,
       idempotencyKey: message.idempotencyKey,
@@ -138,7 +154,7 @@ class DaemonReplies {
       type: "agent.create.response",
       payload: {
         requestId: message.requestId,
-        agent: this.creationError ? null : agentSnapshot(agentId),
+        agent: this.creationError ? null : agent,
         error: this.creationError,
         creation: snapshots.at(-1),
       },
@@ -239,6 +255,10 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
     creation(events, error) {
       server.creationEvents = events;
       server.creationError = error ?? null;
+    },
+    setAgent(agentId, patch) {
+      if (patch === null) server.agents.delete(agentId);
+      else server.agents.set(agentId, agentSnapshot(agentId, patch));
     },
   };
 }
