@@ -37,6 +37,8 @@ An imported bot or team file brings its instructions, model, skills, routines an
 
 Version 3 bot files carry a resolved runtime-policy snapshot rather than source-host policy IDs. Definitions and imported bots are admitted together; approvals still come from the destination. See [portable policies](docs/portable-policies.md) for format compatibility and rollback.
 
+Committed proposal changes cannot be dismissed: retry acceptance or let startup recovery finish them. Accepted proposals remain protected from retention until their receipt pin is durably released; interrupted completion is reconciled without applying the changes again. Recovery also finishes receipt-backed proposals dismissed by an older version. Keep both `state.json` and `proposals.json` when backing up or rolling back interrupted operations.
+
 ## Memory limits and history
 
 Chats load up to 200 lines and 24,000 UTF-8 bytes from `MEMORY.md`, stopping at a whole-line boundary. The Memory panel shows how much was included and omitted. Edit the file or move detail to a topic file when it exceeds the limit.

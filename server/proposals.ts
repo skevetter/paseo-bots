@@ -76,8 +76,13 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 async function save(proposals: Proposal[]): Promise<void> {
   const retained = [...proposals];
   while (retained.length > KEEP) {
-    const oldest = retained.findIndex((proposal) => proposal.status !== "pending");
-    if (oldest === -1) throw new Error("Too many pending proposals. Resolve one before creating more.");
+    const oldest = retained.findIndex(
+      (proposal) => proposal.status !== "pending" && !proposal.completionPending,
+    );
+    if (oldest === -1)
+      throw new Error(
+        "Too many unresolved proposals. Reconcile committed work or resolve a pending proposal.",
+      );
     retained.splice(oldest, 1);
   }
   await writeJson(storePath(), { proposals: retained }, 0o600);
@@ -120,15 +125,37 @@ function pending(proposals: readonly Proposal[], id: string): Proposal {
   return current;
 }
 
-async function resolve(id: string, status: "accepted" | "dismissed"): Promise<Proposal> {
+async function resolve(id: string, status: "accepted" | "dismissed", committed = false): Promise<Proposal> {
   const proposals = await load();
-  const resolved = { ...pending(proposals, id), status, resolvedAt: new Date().toISOString() };
+  const current = committed ? proposals.find((proposal) => proposal.id === id) : pending(proposals, id);
+  if (!current) throw new Error("This proposal is no longer available.");
+  const resolved = {
+    ...current,
+    status,
+    resolvedAt: new Date().toISOString(),
+    ...(committed ? { completionPending: true } : {}),
+  };
   await save(proposals.map((proposal) => (proposal.id === id ? resolved : proposal)));
   return resolved;
 }
 
-export function dismissProposal(id: string): Promise<Proposal> {
-  return serial(() => resolve(id, "dismissed"));
+export function dismissProposal(id: string, store: Pick<BotStore, "read">): Promise<Proposal> {
+  return serial(async () => {
+    pending(await load(), id);
+    if (findReceipt((await store.read()).values, id))
+      throw new Error(
+        "These changes are already committed. Reconcile the operation instead of dismissing it.",
+      );
+    return resolve(id, "dismissed");
+  });
+}
+
+async function clearCompletion(id: string): Promise<void> {
+  const proposals = await load();
+  const current = proposals.find((proposal) => proposal.id === id);
+  if (!current?.completionPending) return;
+  delete current.completionPending;
+  await save(proposals);
 }
 
 function withRoutine(
@@ -277,8 +304,12 @@ export function acceptProposal(
 ): Promise<{ proposal: Proposal; skill?: AcceptedSkill; receipt?: ApplicationReceipt }> {
   return serial(async () => {
     const { skill, receipt } = await apply(pending(await load(), id), services);
-    const proposal = await resolve(id, "accepted");
-    if (receipt) await services.store.completeOperation(operationFor(proposal));
+    const proposal = await resolve(id, "accepted", receipt !== null);
+    if (receipt) {
+      await services.store.completeOperation(operationFor(proposal));
+      await clearCompletion(id);
+      delete proposal.completionPending;
+    }
     return {
       proposal,
       ...(skill ? { skill } : {}),
@@ -298,18 +329,21 @@ export interface Recovery {
 
 /** Publication conflicts leave the proposal and its pin intact for explicit reconciliation. */
 async function finish(proposal: Proposal, store: AcceptServices["store"], recovery: Recovery): Promise<void> {
-  if (proposal.status === "dismissed") return;
   const { values } = await store.read();
-  if (!findReceipt(values, proposal.id)) return;
+  if (!findReceipt(values, proposal.id)) {
+    if (!values.pendingOperations?.includes(proposal.id)) await clearCompletion(proposal.id);
+    return;
+  }
   const operation = operationFor(proposal);
   try {
     checkedReceipt(values, operation);
-    if (proposal.status === "pending") {
+    if (proposal.status !== "accepted") {
       if (proposal.kind === "skill") await reconcileSkill(proposal, store);
-      await resolve(proposal.id, "accepted");
+      await resolve(proposal.id, "accepted", true);
       recovery.accepted.push(proposal.id);
     }
     await store.completeOperation(operation);
+    await clearCompletion(proposal.id);
   } catch (error) {
     if (!(error instanceof OperationConflictError || error instanceof SkillPublicationConflictError))
       throw error;

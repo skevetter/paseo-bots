@@ -84,7 +84,7 @@ describe("accepting proposals on the host", () => {
     await expect(acceptProposal(stale.id, { store, commands })).rejects.toThrow("Nobody");
     const pending = await listProposals({ status: "pending", origin: "control" });
     expect(pending.map((proposal) => proposal.id)).toContain(stale.id);
-    expect((await dismissProposal(stale.id)).status).toBe("dismissed");
+    expect((await dismissProposal(stale.id, store)).status).toBe("dismissed");
     expect((await listProposals({ status: "pending" })).map((proposal) => proposal.id)).not.toContain(
       stale.id,
     );

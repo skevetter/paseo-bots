@@ -276,7 +276,7 @@ describe("skill proposals", () => {
       proposal.kind === "skill" ? proposal.data.text : "",
     );
     await expect(acceptProposal(id, services)).rejects.toThrow("already saved");
-    await expect(dismissProposal(id)).rejects.toThrow("already saved");
+    await expect(dismissProposal(id, store)).rejects.toThrow("already saved");
 
     const other = defined(
       proposalIdOf({
@@ -288,7 +288,7 @@ describe("skill proposals", () => {
       }),
       "proposal id",
     );
-    expect((await dismissProposal(other)).status).toBe("dismissed");
+    expect((await dismissProposal(other, store)).status).toBe("dismissed");
     await expect(acceptProposal(other, services)).rejects.toThrow("dismissed");
     await expect(acceptProposal("p-0000000000", services)).rejects.toThrow("no longer available");
   });
