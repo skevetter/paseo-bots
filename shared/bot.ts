@@ -257,6 +257,7 @@ export const ImportedBotSchema = z.object({
   bot: BotSchema,
   skills: z.array(ImportedSkillSchema),
   mcpServers: z.array(BotMcpServerSchema),
+  policies: z.array(PolicySchema).max(1).optional(),
 });
 
 export const APPROVALS = ["provider", "ask", "unattended"] as const;
