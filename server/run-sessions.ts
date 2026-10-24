@@ -114,6 +114,7 @@ export class ManagedSessions {
   private acknowledgeAgent(run: RoutineRun): void {
     if (!run.managed) throw new Error("Missing managed agent activation.");
     run.managed.hostCreatedAt ??= this.now();
+    run.agentCreationStatus = "created";
     if (run.executionStatus === "starting") run.executionStatus = "running";
   }
 

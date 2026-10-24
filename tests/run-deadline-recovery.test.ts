@@ -212,7 +212,8 @@ describe("durable queue deadlines", () => {
     const expired = await runOf(reopened, run.id);
     expect(expired).toMatchObject({
       executionStatus: "canceled",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
       agentId: run.agentId,
     });
     expect(expired.managed).toMatchObject({ reservation: false, firstReservedAt: null });
@@ -231,7 +232,11 @@ describe("durable queue deadlines", () => {
     expect(reopened.launches).toHaveLength(0);
     now = START + 1_000;
     const expired = await reopened.coordinator.startPrepared(run.id);
-    expect(expired).toMatchObject({ executionStatus: "canceled", taskOutcome: "no_change" });
+    expect(expired).toMatchObject({
+      executionStatus: "canceled",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
+    });
     expect(expired.managed).toMatchObject({ launchIntent: false, reservation: false });
     expect((await reopened.coordinator.startPrepared(run.id)).executionStatus).toBe("canceled");
     expect(reopened.launches).toHaveLength(0);
@@ -657,7 +662,11 @@ describe("retry deadlines and deterministic host refusal", () => {
       occurrence("retry-deadline", { deadlineAt: START + 5_000 }),
     );
     const run = await observed(h, admission, "failed");
-    expect(run).toMatchObject({ executionStatus: "failed", taskOutcome: "no_change" });
+    expect(run).toMatchObject({
+      executionStatus: "failed",
+      taskOutcome: "unknown",
+      agentCreationStatus: "unknown",
+    });
     expect(run.managed?.reservation).toBe(false);
     expect(run.managed?.attempts).toHaveLength(1);
     now += 20_000;
@@ -704,7 +713,11 @@ describe("retry deadlines and deterministic host refusal", () => {
       await h.coordinator.admitPrepared(makePrepared(), occurrence("unsupported")),
       "failed",
     );
-    expect(run).toMatchObject({ executionStatus: "failed", taskOutcome: "no_change" });
+    expect(run).toMatchObject({
+      executionStatus: "failed",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
+    });
     expect(run.managed?.reservation).toBe(false);
     expect(run.managed?.attempts).toHaveLength(1);
     await close(h);

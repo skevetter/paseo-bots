@@ -59,9 +59,9 @@ export class CreationWaits {
   private async decision(id: string, expired: boolean): Promise<CreationWaitResult | null> {
     const run = await this.get(id);
     if (!run) throw new Error("Run not found.");
-    if (run.managed?.hostCreatedAt !== undefined && run.agentId)
+    if ((run.agentCreationStatus === "created" || run.managed?.hostCreatedAt !== undefined) && run.agentId)
       return { status: "created", agentId: run.agentId, run };
-    if (isTerminal(run.executionStatus) && run.taskOutcome === "no_change")
+    if (isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created")
       return { status: "not_created", run };
     return expired || isTerminal(run.executionStatus) ? { status: "pending", run } : null;
   }

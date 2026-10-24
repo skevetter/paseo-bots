@@ -179,7 +179,8 @@ describe("legacy shutdown before and during creation", () => {
         await vi.waitFor(() => expect(stopped).toBe(true));
         const { run } = await pending;
         expect(run.executionStatus).toBe(phase === "preparation" ? "canceled" : "starting");
-        expect(run.taskOutcome).toBe(phase === "preparation" ? "no_change" : "unknown");
+        expect(run.taskOutcome).toBe("unknown");
+        expect(run.agentCreationStatus).toBe(phase === "preparation" ? "not_created" : "unknown");
         const before = await readFile(join(pluginDataPath(), "routines.json"), "utf8");
         held.resolve();
         await vi.waitFor(() => expect(released).toBe(true));

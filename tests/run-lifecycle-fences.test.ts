@@ -226,34 +226,50 @@ async function assertClosedSessionCallbacks() {
 }
 
 describe("managed lifecycle fences", () => {
-  it("keeps cancellation final when a pending create later proves a matching no-effect failure", async () => {
-    const unblock = gate();
-    const h = await harness({
-      launch: async () => {
-        await unblock.promise;
-        throw new ProvenInfrastructureError("Provider proved create had no effect", "omp");
-      },
-    });
-    const { run, plan } = await prepare(h);
-    const starting = h.coordinator.startPrepared(run.id).catch((error: unknown) => error);
-    await h.called.promise;
-    await h.coordinator.cancel(run.id);
-    const settled = h.store.next((state) => {
-      const current = stored(state, run.id);
-      return !!current.managed?.cancelRequested && current.executionStatus !== "starting";
-    });
-    unblock.resolve();
-    const saved = stored(await settled, run.id);
-    await starting;
-    expect.soft([saved.executionStatus, saved.taskOutcome]).toEqual(["canceled", "no_change"]);
-    expect.soft(saved.managed?.reservation).toBe(false);
-    expect.soft(saved.agentId).toBe(plan.agentId);
-    expect.soft(saved.executionId).toBe(run.executionId);
-    expect.soft(saved.managed?.attempts.map((attempt) => attempt.agentId)).toEqual([plan.agentId]);
-    h.clock.now += 10_000;
-    await h.coordinator.pump();
-    expect.soft(h.launches.map((launch) => launch.agentId)).toEqual([plan.agentId]);
-  });
+  it.each([false, true])(
+    "keeps cancellation final with task-no-effects proof and creation ACK=%s",
+    async (created) => {
+      const unblock = gate();
+      const h = await harness({
+        launch: async (_host, _relay, plan, observer) => {
+          if (created)
+            observer?.onEvent?.({
+              kind: "agent",
+              idempotencyKey: plan.idempotencyKey,
+              revision: 1,
+              phase: "agent_ready",
+              workspaceId: "workspace-1",
+              agentId: plan.agentId,
+              error: null,
+            });
+          await unblock.promise;
+          throw new ProvenInfrastructureError("Provider proved create had no effect", "omp");
+        },
+      });
+      const { run, plan } = await prepare(h);
+      const starting = h.coordinator.startPrepared(run.id).catch((error: unknown) => error);
+      await h.called.promise;
+      await h.coordinator.cancel(run.id);
+      const settled = h.store.next((state) => {
+        const current = stored(state, run.id);
+        return !!current.managed?.cancelRequested && current.executionStatus !== "starting";
+      });
+      unblock.resolve();
+      const saved = stored(await settled, run.id);
+      await starting;
+      expect
+        .soft([saved.executionStatus, saved.taskOutcome, saved.agentCreationStatus])
+        .toEqual(["canceled", "unknown", created ? "created" : "unknown"]);
+      expect.soft(saved.managed?.reservation).toBe(false);
+      expect.soft(saved.managed?.hostCreatedAt).toBe(created ? NOW : undefined);
+      expect.soft(saved.agentId).toBe(plan.agentId);
+      expect.soft(saved.executionId).toBe(run.executionId);
+      expect.soft(saved.managed?.attempts.map((attempt) => attempt.agentId)).toEqual([plan.agentId]);
+      h.clock.now += 10_000;
+      await h.coordinator.pump();
+      expect.soft(h.launches.map((launch) => launch.agentId)).toEqual([plan.agentId]);
+    },
+  );
 
   it("does not settle a resumed generation from stale or generation-less completion evidence", async () => {
     const h = await harness();
@@ -294,8 +310,9 @@ describe("managed lifecycle fences", () => {
 });
 
 describe("terminal execution and shutdown ownership fences", () => {
-  it("requires a new plan before interactive reopening of every terminal managed execution", async () => {
-    for (const kind of ["completed", "failed", "canceled"] as const) {
+  it.each(["completed", "failed", "canceled"] as const)(
+    "requires a new plan before reopening a %s managed execution",
+    async (kind) => {
       const h = await harness();
       const { plan, run, resumed } = await activeSession(h);
       const end: ExecutionEnd & { sessionEpoch: SessionEpoch } = {
@@ -325,8 +342,8 @@ describe("terminal execution and shutdown ownership fences", () => {
         ),
       ).toBeNull();
       expect(await readFile(h.store.path)).toEqual(legacyBytes);
-    }
-  });
+    },
+  );
 
   it("closes launch and callback fences permanently before releasing coordinator ownership", async () => {
     await assertStoppedBeforeCreate();

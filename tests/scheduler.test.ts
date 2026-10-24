@@ -12,7 +12,12 @@ import { Relay } from "../server/relay";
 import type { CoordinatorOptions } from "../server/run-coordinator";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
 import { type Bot, EMPTY_LIBRARY, type Routine } from "../shared/bot";
-import { type ChatApi, type PreparedBotChat, prepareBotChat } from "../shared/chat";
+import {
+  type ChatApi,
+  type PreparedBotChat,
+  PreparedLaunchNotCreatedError,
+  prepareBotChat,
+} from "../shared/chat";
 import { PolicySchema } from "../shared/policies";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
 import { makePrepared } from "./coordinator-fixture";
@@ -624,7 +629,7 @@ describe("routine runs that can't start", () => {
       endedAt: null,
       managed: { reservation: true },
     });
-    expect(facts((await scheduler.runNow("bot-x", "rt-x")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-x", "rt-x")).run)).toBe("canceled/unknown/skipped-busy");
     await scheduler.coordinator.pump();
     expect(launch).toHaveBeenCalledTimes(1);
     expect(appended.map((card) => [facts(card.item.data), card.item.data.error])).toEqual([
@@ -659,6 +664,7 @@ describe("routine runs that can't start", () => {
     expect(run).toMatchObject({
       executionStatus: "failed",
       taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
       agentId: null,
       error: expect.stringContaining("another host"),
     });
@@ -834,7 +840,7 @@ describe("routine history saved earlier", () => {
       ["lost", null],
       ["recent", null],
     ]);
-    expect(facts((await scheduler.runNow("bot-s", "rt-s")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-s", "rt-s")).run)).toBe("canceled/unknown/skipped-busy");
     expect(launch).not.toHaveBeenCalled();
   });
 
@@ -1135,7 +1141,7 @@ describe("legacy routine execution without managed accounting", () => {
     expect(second.agentId).not.toBe(first.agentId);
     const secondAgent = defined(second.agentId, "second legacy agent");
     status.set(secondAgent, "initializing");
-    expect(facts((await scheduler.runNow("legacy", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("legacy", "rt-1")).run)).toBe("canceled/unknown/skipped-busy");
     unreachable.add(secondAgent);
     const third = (await scheduler.runNow("legacy", "rt-1")).run;
     expect(third.executionStatus).toBe("running");
@@ -1151,28 +1157,39 @@ describe("legacy routine execution without managed accounting", () => {
     });
   });
 
-  it("reports a failed legacy launch without creating a managed reservation or blocking a new request", async () => {
-    let calls = 0;
-    const { scheduler } = await startScheduler(
-      [makeBot({ id: "legacy", executionMode: "legacy", routines: [routine({ createdAt: fresh() })] })],
-      async (prepared) => {
-        if (++calls === 1) throw new Error("Legacy launch failed.");
-        return prepared.agentId;
-      },
-    );
-    const first = (await scheduler.runNow("legacy", "rt-1")).run;
-    expect(first).toMatchObject({
-      executionStatus: "failed",
-      taskOutcome: "unknown",
-      agentId: null,
-      error: "Legacy launch failed.",
-    });
-    expect(first.managed ?? null).toBeNull();
-    const second = (await scheduler.runNow("legacy", "rt-1")).run;
-    expect(second.executionStatus).toBe("running");
-    expect(second.managed ?? null).toBeNull();
-    expect(calls).toBe(2);
-  });
+  it.each([
+    { failure: new Error("Legacy launch failed."), creation: "unknown" },
+    {
+      failure: new PreparedLaunchNotCreatedError("Workspace failed before SDK entry"),
+      creation: "not_created",
+    },
+  ])(
+    "reports legacy $creation launch evidence without a managed reservation or blocking a new request",
+    async ({ failure, creation }) => {
+      let calls = 0;
+      const { scheduler } = await startScheduler(
+        [makeBot({ id: "legacy", executionMode: "legacy", routines: [routine({ createdAt: fresh() })] })],
+        async (prepared) => {
+          if (++calls === 1) throw failure;
+          return prepared.agentId;
+        },
+      );
+      const first = (await scheduler.runNow("legacy", "rt-1")).run;
+      expect(first).toMatchObject({
+        executionStatus: "failed",
+        taskOutcome: "unknown",
+        agentCreationStatus: creation,
+        agentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        error: failure.message,
+      });
+      expect(first.managed ?? null).toBeNull();
+      const second = (await scheduler.runNow("legacy", "rt-1")).run;
+      expect(second.executionStatus).toBe("running");
+      expect(second.agentCreationStatus).toBe("created");
+      expect(second.managed ?? null).toBeNull();
+      expect(calls).toBe(2);
+    },
+  );
 });
 
 describe("legacy webhook overlap and execution mode changes", () => {
@@ -1375,7 +1392,8 @@ describe("managed routine queue deadlines", () => {
     await scheduler.coordinator.pump();
     expect(await scheduler.coordinator.get(waiting.id)).toMatchObject({
       executionStatus: "canceled",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
       managed: { reservation: false },
     });
     expect((await scheduler.coordinator.get(active.id))?.managed?.reservation).toBe(true);
@@ -1386,28 +1404,46 @@ describe("managed routine queue deadlines", () => {
 describe("legacy terminal evidence during launch", () => {
   useSchedulerHome("paseo-bots-scheduler-legacy-early-end-");
 
-  it("preserves completion and agent identity when the create reply fails after the turn ended", async () => {
-    let agentId = "";
-    const { scheduler } = await startScheduler(
-      [makeBot({ id: "legacy", executionMode: "legacy", routines: [webhook()] })],
-      async (prepared) => {
-        agentId = prepared.agentId;
-        await scheduler.finished("rt-1", agentId, {
-          outcome: { kind: "completed" },
-          reply: "Observed completed work.",
-        });
-        throw new Error("Creation reply was lost after completion.");
-      },
-    );
-    const { run } = await scheduler.runNow("legacy", "rt-1");
-    expect(run).toMatchObject({
-      executionStatus: "completed",
-      taskOutcome: "unknown",
-      agentId,
-      output: "Observed completed work.",
-    });
-    expect(run.managed ?? null).toBeNull();
-  });
+  it.each([false, true])(
+    "preserves terminal completion across a late create reply with failure=%s",
+    async (fails) => {
+      let agentId = "";
+      let endedAt: string | null = null;
+      const { scheduler } = await startScheduler(
+        [makeBot({ id: "legacy", executionMode: "legacy", routines: [webhook()] })],
+        async (prepared) => {
+          agentId = prepared.agentId;
+          await scheduler.finished("rt-1", agentId, {
+            outcome: { kind: "completed" },
+            reply: "Observed completed work.",
+          });
+          endedAt = (await runsOf(scheduler, "rt-1")).at(-1)?.endedAt ?? null;
+          if (fails) throw new Error("Creation reply was lost after completion.");
+          return prepared.agentId;
+        },
+      );
+      const { run } = await scheduler.runNow("legacy", "rt-1");
+      expect(run).toMatchObject({
+        executionStatus: "completed",
+        taskOutcome: "unknown",
+        agentCreationStatus: "created",
+        agentId,
+        output: "Observed completed work.",
+      });
+      expect(run.managed ?? null).toBeNull();
+      expect(run.endedAt).toBe(endedAt);
+      const stillCreated = await scheduler.coordinator.finishLegacy(run.id, {
+        executionStatus: "failed",
+        agentCreationStatus: "not_created",
+        endedAt: "unrelated-late-time",
+      });
+      expect(stillCreated).toMatchObject({
+        executionStatus: "completed",
+        endedAt,
+        agentCreationStatus: "created",
+      });
+    },
+  );
 });
 
 describe("managed routine completion provenance", () => {
@@ -1425,6 +1461,6 @@ describe("managed routine completion provenance", () => {
       taskOutcome: "unknown",
       managed: { reservation: true },
     });
-    expect(facts((await scheduler.runNow("epoch", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("epoch", "rt-1")).run)).toBe("canceled/unknown/skipped-busy");
   });
 });

@@ -2,8 +2,9 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { RunArtifacts } from "../server/run-artifacts";
 import { emptyRecord, RunStore } from "../server/run-store";
-import { ManagedRunSchema } from "../shared/managed-runs";
+import { CoordinatorStateSchema, ManagedRunSchema } from "../shared/managed-runs";
 import { newSessionEpoch } from "../shared/runs";
 import { defined, makeRun } from "./helpers";
 
@@ -212,5 +213,98 @@ describe("fair ordering of pre-v3 managed admissions", () => {
     await expect(store.updateState(() => {})).rejects.toThrow("admission order exhausted");
     expect(await readFile(path, "utf8")).toBe(original);
     expect(await readdir(directory)).toEqual(["routines.json"]);
+  });
+});
+
+describe("historical no-change development labels", () => {
+  it.each([1, 2, 3])(
+    "normalizes unverified v%i labels without losing retained execution evidence",
+    async (version) => {
+      const artifacts = new RunArtifacts(directory);
+      const artifact =
+        version === 1
+          ? { id: "a".repeat(64), sha256: "a".repeat(64) }
+          : await artifacts.put({ privateInput: "retained frozen data" });
+      const managedRun = oldQueuedRun("failed-preparation", "2026-10-01T09:00:00.000Z", 1);
+      Object.assign(defined(managedRun.managed), {
+        reservation: true,
+        artifact,
+        result: artifact,
+        evidencePins: ["audit-pin"],
+      });
+      const runs = [
+        { ...managedRun, executionStatus: "failed", taskOutcome: "no_change" },
+        {
+          ...makeRun("skipped-busy"),
+          executionStatus: "canceled",
+          skipped: "busy",
+          taskOutcome: "no_change",
+        },
+        { ...makeRun("unverified-completion"), taskOutcome: "no_change" },
+      ];
+      const coordinator = CoordinatorStateSchema.parse({
+        occurrences: Object.fromEntries(runs.map((run) => [run.occurrenceKey, run.id])),
+        requests: {
+          retained: {
+            runId: managedRun.id,
+            recordId: "rt",
+            botId: "bot-a",
+            requestHash: "a".repeat(64),
+            mode: "managed",
+          },
+        },
+        circuits: { omp: { failures: 2, openUntil: 0, probe: false } },
+        admissionOrder: 1,
+      });
+      const original = JSON.stringify({
+        version,
+        routines: { rt: { lastRunAt: null, runs } },
+        coordinator,
+      });
+      await writeFile(path, original);
+      const store = new RunStore(path);
+      const read = await store.read();
+      expect(read.coordinator).toEqual(coordinator);
+      expect(defined(read.routines.rt).runs).toEqual(runs.map((run) => ({ ...run, taskOutcome: "unknown" })));
+      expect(defined(read.routines.rt).runs.map((run) => run.agentCreationStatus)).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
+      expect(await readFile(path, "utf8")).toBe(original);
+      await store.updateState(() => {});
+      if (version < 3) expect(await readFile(`${path}.v${version}.bak`, "utf8")).toBe(original);
+      const reopened = new RunStore(path);
+      expect(await reopened.get(managedRun.id)).toEqual({
+        ...managedRun,
+        executionStatus: "failed",
+        taskOutcome: "unknown",
+      });
+      expect((await reopened.read()).coordinator).toEqual(coordinator);
+      if (version > 1)
+        expect(await artifacts.get(artifact)).toEqual({ privateInput: "retained frozen data" });
+    },
+  );
+
+  it("preserves completed no-change with pinned verification without inventing creation proof", async () => {
+    const run = {
+      ...makeRun("deterministic-no-work"),
+      taskOutcome: "no_change",
+      verification: {
+        verifier: { id: "approved-no-work", digest: "a".repeat(64) },
+        at: "2026-10-23T10:00:00Z",
+      },
+    };
+    const original = JSON.stringify({
+      version: 3,
+      routines: { rt: { lastRunAt: null, runs: [run] } },
+      coordinator: { occurrences: {}, circuits: {} },
+    });
+    await writeFile(path, original);
+    const store = new RunStore(path);
+    expect(await store.get(run.id)).toEqual(run);
+    expect(await readFile(path, "utf8")).toBe(original);
+    await store.updateState(() => {});
+    expect(await new RunStore(path).get(run.id)).toEqual(run);
   });
 });

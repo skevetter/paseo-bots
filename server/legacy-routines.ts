@@ -1,5 +1,6 @@
 import type { Bot, BotState, Routine } from "../shared/bot";
-import { ROUTINE_LABEL } from "../shared/chat";
+import { type CreationEvidence, PreparedLaunchNotCreatedError, ROUTINE_LABEL } from "../shared/chat";
+import { HostCapabilityError } from "../shared/host-capability";
 import type { RoutineRecord, RoutineRun } from "../shared/rpc";
 import { isTerminal, type Trigger } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
@@ -7,6 +8,7 @@ import { launchPreparedChat, prepareChat } from "./chats";
 import type { BotsHost } from "./host";
 import type { Relay } from "./relay";
 import type { CoordinatorOptions, RunCoordinator } from "./run-coordinator";
+import { HostCallNotDispatchedError } from "./run-deadlines";
 
 export interface LegacyRoutineInput {
   state: BotState;
@@ -59,7 +61,7 @@ export class LegacyRoutineRunner {
     const run = routines[routineId]?.runs.find(
       (entry) => !entry.managed && entry.agentId === agentId && !isTerminal(entry.executionStatus),
     );
-    return run ? this.coordinator.finishLegacy(run.id, patch) : null;
+    return run ? this.coordinator.finishLegacy(run.id, { ...patch, agentCreationStatus: "created" }) : null;
   }
 
   private async runOne(input: LegacyRoutineInput): Promise<RoutineRun> {
@@ -82,7 +84,7 @@ export class LegacyRoutineRunner {
     if (!created || isTerminal(run.executionStatus)) return run;
     if (this.stopping) return this.cancelBeforeLaunch(run);
     const agentId = newUuid();
-    await this.coordinator.finishLegacy(run.id, { agentId });
+    await this.coordinator.finishLegacy(run.id, { agentId, agentCreationStatus: "not_created" });
     if (this.stopping) return this.cancelBeforeLaunch(run);
     return this.launch(input, run, agentId);
   }
@@ -96,7 +98,8 @@ export class LegacyRoutineRunner {
     if (input.bot.hostId) {
       Object.assign(run, {
         executionStatus: "failed",
-        taskOutcome: "no_change",
+        taskOutcome: "unknown",
+        agentCreationStatus: "not_created",
         agentId: null,
         endedAt: this.timestamp(),
         error: `${input.bot.name} runs on another host, so its chats can't be started from here.`,
@@ -108,7 +111,8 @@ export class LegacyRoutineRunner {
     if (!managed && busy.length < (input.trigger === "webhook" ? 3 : 1)) return;
     Object.assign(run, {
       executionStatus: "canceled",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
       skipped: "busy",
       agentId: null,
       endedAt: this.timestamp(),
@@ -143,6 +147,8 @@ export class LegacyRoutineRunner {
 
   private async launch(input: LegacyRoutineInput, run: RoutineRun, agentId: string): Promise<RoutineRun> {
     let creating = false;
+    let created = false;
+    let outcomeUnknown = false;
     try {
       if (this.stopping) return this.cancelBeforeLaunch(run);
       const prepared = await this.beforeStop(
@@ -158,18 +164,34 @@ export class LegacyRoutineRunner {
         }),
       );
       if (!prepared || this.stopping) return this.cancelBeforeLaunch(run);
+      await this.coordinator.finishLegacy(run.id, { agentCreationStatus: "unknown" });
       creating = true;
       const actual = await this.beforeStop(
         (this.options.launch ?? launchPreparedChat)(this.host, this.relay, prepared.value, {
           signal: this.stoppingController.signal,
+          onEvent: (evidence: CreationEvidence) => {
+            created ||=
+              evidence.kind === "agent" &&
+              evidence.agentId === agentId &&
+              ["agent_ready", "prompt_started", "completed"].includes(evidence.phase);
+            outcomeUnknown ||= evidence.outcomeUnknown === true;
+          },
         }),
       );
-      if (!actual) return { ...run, agentId };
+      if (!actual)
+        return this.coordinator.finishLegacy(run.id, {
+          agentId,
+          agentCreationStatus: created ? "created" : "unknown",
+        });
       if (actual.value !== agentId)
         throw new Error("Host did not preserve the selected legacy agent identity.");
-      return await this.coordinator.finishLegacy(run.id, { executionStatus: "running", agentId });
+      return await this.coordinator.finishLegacy(run.id, {
+        executionStatus: "running",
+        agentId,
+        agentCreationStatus: "created",
+      });
     } catch (error) {
-      return this.failLaunch(run, agentId, creating, error);
+      return this.failLaunch(run, agentId, creating, created, outcomeUnknown, error);
     }
   }
 
@@ -177,14 +199,28 @@ export class LegacyRoutineRunner {
     run: RoutineRun,
     agentId: string,
     creating: boolean,
+    created: boolean,
+    outcomeUnknown: boolean,
     error: unknown,
   ): Promise<RoutineRun> | RoutineRun {
-    if (this.stopping) return creating ? { ...run, agentId } : this.cancelBeforeLaunch(run);
+    const notCreated =
+      !creating ||
+      (!created &&
+        !outcomeUnknown &&
+        (error instanceof PreparedLaunchNotCreatedError ||
+          error instanceof HostCapabilityError ||
+          error instanceof HostCallNotDispatchedError));
+    if (this.stopping && !notCreated)
+      return this.coordinator.finishLegacy(run.id, {
+        agentId,
+        agentCreationStatus: created ? "created" : "unknown",
+      });
     return this.coordinator.finishLegacy(run.id, {
-      executionStatus: "failed",
+      executionStatus: this.stopping ? "canceled" : "failed",
       taskOutcome: "unknown",
       endedAt: this.timestamp(),
-      agentId: null,
+      agentId,
+      agentCreationStatus: created ? "created" : notCreated ? "not_created" : "unknown",
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -199,7 +235,8 @@ export class LegacyRoutineRunner {
   private cancelBeforeLaunch(run: RoutineRun): Promise<RoutineRun> {
     return this.coordinator.finishLegacy(run.id, {
       executionStatus: "canceled",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
       endedAt: this.timestamp(),
       agentId: null,
     });

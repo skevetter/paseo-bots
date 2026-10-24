@@ -317,7 +317,8 @@ export class RunCoordinator {
     const existing = existingRequest(state, run.occurrenceKey, request.requestHash);
     if (existing) return copy(existing);
     run.executionStatus = "failed";
-    run.taskOutcome = "no_change";
+    run.taskOutcome = "unknown";
+    run.agentCreationStatus = "not_created";
     run.error = error;
     if (input.deadlineAt !== undefined && input.deadlineAt <= this.now()) run.executionStatus = "canceled";
     run.endedAt = new Date(this.now()).toISOString();
@@ -461,6 +462,7 @@ export class RunCoordinator {
     run.agentId = prepared.agentId;
     run.purpose = prepared.purpose;
     run.executionStatus = "queued";
+    run.agentCreationStatus = "not_created";
     run.managed = {
       botId: prepared.botId,
       routineId: input.routineId ?? null,
@@ -541,7 +543,8 @@ export class RunCoordinator {
   private recordBusy(run: RoutineRun, coalesced: RoutineRun | undefined): void {
     if (!run.managed) throw new Error("Missing managed overlap metadata.");
     run.executionStatus = "canceled";
-    run.taskOutcome = "no_change";
+    run.taskOutcome = "unknown";
+    run.agentCreationStatus = "not_created";
     run.skipped = "busy";
     run.endedAt = new Date(this.now()).toISOString();
     run.managed.coalescedInto = coalesced?.id ?? null;
@@ -576,7 +579,8 @@ export class RunCoordinator {
         if (existing) return copy(existing);
         if (prior) throw new Error("Missed occurrence already recorded; replay refused.");
         run.executionStatus = "canceled";
-        run.taskOutcome = "no_change";
+        run.taskOutcome = "unknown";
+        run.agentCreationStatus = "not_created";
         run.skipped = "missed";
         run.endedAt = now.toISOString();
         const record = state.routines[routineId] ?? emptyRecord();
@@ -668,9 +672,12 @@ export class RunCoordinator {
   private patchLegacy(state: RunSnapshot, runId: string, patch: Partial<RoutineRun>): RoutineRun {
     const run = lookup(state, runId);
     if (!run || run.managed) throw new Error("Legacy run not found.");
+    const creation = run.agentCreationStatus;
     if (isTerminal(run.executionStatus)) {
       if (patch.agentId) run.agentId = patch.agentId;
+      if (patch.agentCreationStatus === "created") run.agentCreationStatus = "created";
     } else Object.assign(run, patch);
+    if (creation === "created") run.agentCreationStatus = "created";
     return copy(run);
   }
 
@@ -829,6 +836,7 @@ export class RunCoordinator {
     const prepared = await this.serial(() => this.store.updateState((state) => this.beginLaunch(state, id)));
     if (!prepared || this.closing) return;
     let evidence: CreationEvidence | null = null;
+    let created = false;
     try {
       const agentId = await this.calls.run(
         (signal) =>
@@ -836,6 +844,7 @@ export class RunCoordinator {
             signal,
             onEvent: (value) => {
               evidence = value;
+              created ||= this.isCreationAck(prepared.agentId, value);
             },
           }),
         "Managed agent creation",
@@ -844,7 +853,7 @@ export class RunCoordinator {
         throw new Error("Host did not preserve the admitted agent identity; reconcile required.");
       await this.launched(id, evidence, prepared.labels[EXECUTION_LABEL]);
     } catch (error) {
-      await this.launchFailed(id, error, evidence, prepared.labels[EXECUTION_LABEL]);
+      await this.launchFailed(id, error, evidence, prepared.labels[EXECUTION_LABEL], created);
     }
   }
 
@@ -854,6 +863,7 @@ export class RunCoordinator {
     if (!this.canStart(run) || expireBeforeLaunch(run, this.now())) return null;
     const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
     if (this.closing) return null;
+    if (run.agentCreationStatus !== "created") run.agentCreationStatus = "unknown";
     run.executionStatus = "starting";
     this.setAttempt(run, "starting");
     return artifact.prepared;
@@ -879,6 +889,7 @@ export class RunCoordinator {
     const run = lookup(state, id);
     if (!run?.managed || run.executionId !== executionId) return;
     run.managed.hostCreatedAt ??= this.now();
+    run.agentCreationStatus = "created";
     this.creation(run, evidence);
     if (run.executionStatus === "starting") {
       run.executionStatus = evidence?.outcomeUnknown ? "unknown" : "running";
@@ -890,12 +901,24 @@ export class RunCoordinator {
 
   private creation(run: RoutineRun, evidence: CreationEvidence | null): void {
     if (!run.managed || !evidence) return;
+    if (run.agentId && this.isCreationAck(run.agentId, evidence)) {
+      run.agentCreationStatus = "created";
+      run.managed.hostCreatedAt ??= this.now();
+    }
     run.managed.creation = {
       key: evidence.idempotencyKey,
       revision: evidence.revision,
       phase: evidence.phase,
       outcomeUnknown: evidence.outcomeUnknown ?? false,
     };
+  }
+
+  private isCreationAck(agentId: string, evidence: CreationEvidence): boolean {
+    return (
+      evidence.kind === "agent" &&
+      evidence.agentId === agentId &&
+      ["agent_ready", "prompt_started", "completed"].includes(evidence.phase)
+    );
   }
 
   private setAttempt(
@@ -914,15 +937,20 @@ export class RunCoordinator {
     error: unknown,
     evidence: CreationEvidence | null,
     executionId: string | undefined,
+    created: boolean,
   ): Promise<void> {
     await this.serial(
       () =>
         this.store.updateState(async (state) => {
           const run = lookup(state, id);
           if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
+          if (created) {
+            run.agentCreationStatus = "created";
+            run.managed.hostCreatedAt ??= this.now();
+          }
           this.creation(run, evidence);
           run.error = errorText(error);
-          if (this.provenNoCreate(error, evidence)) {
+          if (run.agentCreationStatus !== "created" && this.provenNoCreate(error, evidence)) {
             this.noCreateFailure(run);
             return;
           }
@@ -950,7 +978,8 @@ export class RunCoordinator {
     if (!run.managed) throw new Error("Missing managed no-create evidence.");
     const status = run.managed.cancelRequested ? "canceled" : "failed";
     run.executionStatus = status;
-    run.taskOutcome = "no_change";
+    run.taskOutcome = "unknown";
+    run.agentCreationStatus = "not_created";
     run.endedAt = new Date(this.now()).toISOString();
     run.managed.reservation = false;
     run.managed.launchIntent = false;
@@ -978,7 +1007,13 @@ export class RunCoordinator {
     const managed = run.managed;
     if (!managed) return;
     if (managed.cancelRequested) {
-      this.noCreateFailure(run);
+      run.executionStatus = "canceled";
+      run.taskOutcome = "unknown";
+      run.endedAt = new Date(this.now()).toISOString();
+      managed.reservation = false;
+      managed.launchIntent = false;
+      managed.cancelError = null;
+      this.setAttempt(run, "canceled");
       return;
     }
     this.setAttempt(run, "failed");
@@ -995,7 +1030,7 @@ export class RunCoordinator {
     });
     if (next === null || next >= deadlineOf(run)) {
       run.executionStatus = "failed";
-      run.taskOutcome = "no_change";
+      run.taskOutcome = "unknown";
       run.endedAt = new Date(this.now()).toISOString();
       return;
     }
@@ -1007,6 +1042,10 @@ export class RunCoordinator {
     run.executionId = newExecutionId();
     run.sessionEpoch = SessionEpochSchema.parse(1);
     run.agentId = newUuid();
+    run.agentCreationStatus = "not_created";
+    delete managed.hostCreatedAt;
+    delete managed.evidence;
+    delete managed.result;
     artifact.prepared.agentId = run.agentId;
     artifact.prepared.idempotencyKey = run.executionId;
     artifact.prepared.clientMessageId = run.executionId;
@@ -1077,6 +1116,7 @@ export class RunCoordinator {
       observedAt,
     };
     run.managed.hostCreatedAt ??= observedAt;
+    run.agentCreationStatus = "created";
     return artifact;
   }
 
@@ -1108,7 +1148,9 @@ export class RunCoordinator {
         const beforeLaunch = run.executionStatus === "queued" || run.executionStatus === "reserved";
         if (beforeLaunch) {
           run.executionStatus = "canceled";
-          run.taskOutcome = "no_change";
+          run.taskOutcome = "unknown";
+          if (run.agentCreationStatus !== "created" && run.managed.hostCreatedAt === undefined)
+            run.agentCreationStatus = "not_created";
           run.endedAt = new Date(this.now()).toISOString();
           run.managed.reservation = false;
           run.managed.launchIntent = false;
@@ -1235,6 +1277,14 @@ export class RunCoordinator {
         await this.unknown(run, "Host agent identity did not match the admitted execution.");
         return;
       }
+      await this.serial(() =>
+        this.store.updateState((state) => {
+          const saved = lookup(state, run.id);
+          if (!saved?.managed || saved.executionId !== run.executionId) return;
+          saved.agentCreationStatus = "created";
+          saved.managed.hostCreatedAt ??= this.now();
+        }),
+      );
       const artifact = await this.artifacts.get<{ prepared: PreparedBotChat }>(run.managed.artifact);
       await this.calls.run(
         () => (this.options.refresh ?? refreshPreparedChat)(this.relay, artifact.prepared),
@@ -1310,6 +1360,7 @@ export class RunCoordinator {
       observedAt,
     };
     run.managed.hostCreatedAt ??= observedAt;
+    run.agentCreationStatus = "created";
     if (terminal) run.managed.result = artifact;
   }
 
