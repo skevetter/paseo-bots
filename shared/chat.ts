@@ -26,7 +26,7 @@ export const SETUP_PROMPT =
   "Let's set you up. Interview me one short question at a time about what I want from you, how I like to work, and what you should never do. " +
   "Then propose standing instructions for yourself and a starting MEMORY.md. Write the memory file once I confirm, and give me the instructions to paste into your Soul settings.";
 
-/** Older chats were titled "[Bot Name] …"; views grouped by bot drop the prefix. */
+/** Older chats were titled "[Bot Name] ..."; views grouped by bot drop the prefix. */
 export function displayTitle(title: string | null | undefined): string {
   return (title ?? "").replace(/^\[[^\]]*\]\s*/, "") || "New chat";
 }
@@ -112,28 +112,36 @@ async function ensureBotWorkspace(
   placement: BotPlacement,
   signal?: AbortSignal,
 ) {
-  assertLaunchActive(signal);
-  const { entries } = await api.workspaces.list();
-  assertLaunchActive(signal);
-  const mine = entries.find(
-    (workspace) =>
-      normalize(workspace.workspaceDirectory ?? workspace.projectRootPath) === normalize(placement.path) &&
-      // A custom folder can have other workspaces; only the one named after the bot is the bot's.
-      (placement.projectRoot !== null || workspace.title === bot.name),
-  );
-  if (mine) {
-    const handle = api.workspaces.ref(mine);
-    if (mine.title !== bot.name) await handle.setTitle(bot.name);
-    return handle;
+  try {
+    assertLaunchActive(signal);
+    const { entries } = await api.workspaces.list();
+    assertLaunchActive(signal);
+    const mine = entries.find(
+      (workspace) =>
+        normalize(workspace.workspaceDirectory ?? workspace.projectRootPath) === normalize(placement.path) &&
+        // A custom folder can have other workspaces; only the one named after the bot is the bot's.
+        (placement.projectRoot !== null || workspace.title === bot.name),
+    );
+    if (mine) {
+      const handle = api.workspaces.ref(mine);
+      if (mine.title !== bot.name) await handle.setTitle(bot.name);
+      return handle;
+    }
+    const projectId = placement.projectRoot
+      ? await botsProjectId(api, placement.projectRoot, signal)
+      : undefined;
+    assertLaunchActive(signal);
+    return await api.workspaces.create({
+      title: bot.name,
+      source: { kind: "directory", path: placement.path, ...(projectId ? { projectId } : {}) },
+    });
+  } catch (error) {
+    if (error instanceof PreparedLaunchNotCreatedError) throw error;
+    throw new PreparedLaunchNotCreatedError(
+      "Workspace setup failed before requesting agent creation.",
+      error,
+    );
   }
-  const projectId = placement.projectRoot
-    ? await botsProjectId(api, placement.projectRoot, signal)
-    : undefined;
-  assertLaunchActive(signal);
-  return api.workspaces.create({
-    title: bot.name,
-    source: { kind: "directory", path: placement.path, ...(projectId ? { projectId } : {}) },
-  });
 }
 
 export async function syncBotWorkspaceTitle(api: ChatApi, bot: Bot, placement: BotPlacement): Promise<void> {
@@ -198,9 +206,16 @@ export interface PreparedLaunchOptions {
   signal?: AbortSignal;
 }
 
-export class PreparedLaunchAbortedError extends Error {
+export class PreparedLaunchNotCreatedError extends Error {
   readonly code = "launch_not_created";
 
+  constructor(message: string, cause?: unknown) {
+    super(message, { cause });
+    this.name = "PreparedLaunchNotCreatedError";
+  }
+}
+
+export class PreparedLaunchAbortedError extends PreparedLaunchNotCreatedError {
   constructor() {
     super("Chat launch stopped before requesting agent creation.");
     this.name = "PreparedLaunchAbortedError";

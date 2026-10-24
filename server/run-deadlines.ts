@@ -27,6 +27,8 @@ export function expireBeforeLaunch(run: RoutineRun, now: number): boolean {
 
 export class HostCallUncertainError extends Error {}
 
+export class HostCallNotDispatchedError extends Error {}
+
 /** Abandoning a wait never asserts that the host call or its external effects stopped. */
 export class BoundedHostCalls {
   private readonly abandoners = new Set<() => void>();
@@ -35,7 +37,7 @@ export class BoundedHostCalls {
 
   run<T>(call: (signal: AbortSignal) => Promise<T>, description: string): Promise<T> {
     if (this.closed)
-      return Promise.reject(new HostCallUncertainError("Host dispatch is permanently closed."));
+      return Promise.reject(new HostCallNotDispatchedError("Host dispatch is permanently closed."));
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       const abandon = () => {

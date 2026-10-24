@@ -3,7 +3,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BoundedHostCalls, HostCallUncertainError } from "../server/run-deadlines";
+import {
+  BoundedHostCalls,
+  HostCallNotDispatchedError,
+  HostCallUncertainError,
+} from "../server/run-deadlines";
 
 let directory: string;
 let calls: BoundedHostCalls;
@@ -56,7 +60,7 @@ describe("bounded host operation lifetime", () => {
           return "created";
         }, "fresh operation");
       if (reason === "shutdown") {
-        await expect(next()).rejects.toBeInstanceOf(HostCallUncertainError);
+        await expect(next()).rejects.toBeInstanceOf(HostCallNotDispatchedError);
         await expect(readFile(fresh)).rejects.toMatchObject({ code: "ENOENT" });
       } else {
         expect(await next()).toBe("created");

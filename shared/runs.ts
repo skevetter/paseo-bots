@@ -105,6 +105,10 @@ export const EXECUTION_STATUSES = [
 export const ExecutionStatusSchema = z.enum(EXECUTION_STATUSES);
 export type ExecutionStatus = z.infer<typeof ExecutionStatusSchema>;
 
+/** Agent creation evidence is independent of whether the task needed or achieved a change. */
+export const AgentCreationStatusSchema = z.enum(["not_created", "created", "unknown"]);
+export type AgentCreationStatus = z.infer<typeof AgentCreationStatusSchema>;
+
 const TERMINAL: Record<ExecutionStatus, boolean> = {
   queued: false,
   reserved: false,

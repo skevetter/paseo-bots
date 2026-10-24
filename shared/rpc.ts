@@ -16,6 +16,7 @@ import { MemoryBudgetStatsSchema } from "./memory-budget";
 import { PolicyBodySchema, PolicyIdSchema, PolicySchema, ReferrerSchema, ResolutionSchema } from "./policies";
 import { ProposalSchema } from "./proposals";
 import {
+  AgentCreationStatusSchema,
   AttemptIdSchema,
   CycleIdSchema,
   ExecutionIdSchema,
@@ -52,7 +53,11 @@ const HostReadinessSchema = z.enum(["waiting_for_host_api", "reconciling", "read
 export const helloRpc = defineRpc({
   name: "bots.hello",
   input: z.object({}),
-  output: z.object({ scheduler: z.boolean(), readiness: HostReadinessSchema.optional() }),
+  output: z.object({
+    version: z.string(),
+    scheduler: z.boolean(),
+    readiness: HostReadinessSchema.optional(),
+  }),
 });
 
 export const stateReadRpc = defineRpc({
@@ -318,6 +323,7 @@ export const RoutineRunShape = z.object({
   startedAt: z.string(),
   endedAt: z.string().nullable(),
   executionStatus: ExecutionStatusSchema,
+  agentCreationStatus: AgentCreationStatusSchema.optional(),
   taskOutcome: TaskOutcomeSchema,
   verification: VerificationSchema.nullable(),
   /** Set when the run never launched, because the routine was still working or the time was missed. */

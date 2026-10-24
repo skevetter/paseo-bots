@@ -4,8 +4,10 @@ import { APPS_MCP_NAME } from "../shared/apps";
 import { type Bot, type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { TOOLS_MCP_NAME } from "../shared/bot-tools";
 import {
+  type ChatApi,
   launchPreparedBotChat,
   type PreparedBotChat,
+  PreparedLaunchNotCreatedError,
   type PreparedLaunchOptions,
   prepareBotChat,
   type StartChatInput,
@@ -98,8 +100,19 @@ export async function launchPreparedChat(
   prepared: PreparedBotChat,
   options?: PreparedLaunchOptions,
 ): Promise<string> {
-  if (prepared.hostId) throw new Error("A remote prepared chat must launch on its selected host.");
-  return launchPreparedBotChat(host.requirePaseo(), await refreshPreparedChat(relay, prepared), options);
+  let api: ChatApi;
+  let rebound: PreparedBotChat;
+  try {
+    if (prepared.hostId) throw new Error("A remote prepared chat must launch on its selected host.");
+    api = host.requirePaseo();
+    rebound = await refreshPreparedChat(relay, prepared);
+  } catch (error) {
+    throw new PreparedLaunchNotCreatedError(
+      "Local relay setup failed before requesting agent creation.",
+      error,
+    );
+  }
+  return launchPreparedBotChat(api, rebound, options);
 }
 
 /** Ordinary local starts share the explicitly bound admission service. */

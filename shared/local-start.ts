@@ -1,7 +1,13 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
 import { WireAttachmentSchema, WireImageSchema } from "./attachments";
-import { ExecutionStatusSchema, PurposeSchema, RunIdSchema, TaskOutcomeSchema } from "./runs";
+import {
+  AgentCreationStatusSchema,
+  ExecutionStatusSchema,
+  PurposeSchema,
+  RunIdSchema,
+  TaskOutcomeSchema,
+} from "./runs";
 
 export const LocalChatInputSchema = z.strictObject({
   botId: z.string().min(1),
@@ -26,6 +32,7 @@ export const ExecutionPlanIdSchema = z.templateLiteral(["run-", z.uuid()]);
 export const LocalRunSummarySchema = z.strictObject({
   id: RunIdSchema,
   executionStatus: ExecutionStatusSchema,
+  agentCreationStatus: AgentCreationStatusSchema.optional(),
   taskOutcome: TaskOutcomeSchema,
   purpose: PurposeSchema,
 });
