@@ -121,7 +121,8 @@ export interface SurfaceLayoutState {
 
 export interface DraftState {
   drafts: Record<string, Bot>;
-  flush(): Promise<void>;
+  flush(): Promise<boolean>;
+  hasDraft(botId: string): boolean;
   patchBot(botId: string, patch: Partial<Bot>): void;
   updateBot(botId: string, patch: Partial<Bot>, recordHistory?: boolean): Promise<boolean>;
 }
@@ -289,32 +290,46 @@ function useSurfaceLayout(): SurfaceLayoutState {
   };
 }
 
-function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
+export function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
   const [drafts, setDrafts] = useState<Record<string, Bot>>({});
   const draftsRef = useRef(drafts);
-  draftsRef.current = drafts;
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const saving = useRef<Promise<boolean> | null>(null);
 
   const flush = async () => {
     clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
+    if (saving.current) return saving.current;
     const pending = draftsRef.current;
-    if (Object.keys(pending).length === 0) return;
-    const ok = await commit((values) => applyDrafts(values, pending));
-    if (ok) setDrafts((current) => withoutSaved(current, pending));
+    if (Object.keys(pending).length === 0) return true;
+    const save = commit((values) => applyDrafts(values, pending)).then((ok) => {
+      if (ok) {
+        draftsRef.current = withoutSaved(draftsRef.current, pending);
+        setDrafts(draftsRef.current);
+      }
+      return ok;
+    });
+    saving.current = save;
+    try {
+      return await save;
+    } finally {
+      saving.current = null;
+    }
   };
 
   const patchBot = (botId: string, patch: Partial<Bot>) => {
-    setDrafts((current) => {
-      const base =
-        current[botId] ??
-        (latest.current.status === "ready"
-          ? latest.current.values.bots.find((bot) => bot.id === botId)
-          : undefined);
-      return base
-        ? { ...current, [botId]: patchBotOverrides(base, { ...patch, updatedAt: new Date().toISOString() }) }
-        : current;
-    });
+    const current = draftsRef.current;
+    const base =
+      current[botId] ??
+      (latest.current.status === "ready"
+        ? latest.current.values.bots.find((bot) => bot.id === botId)
+        : undefined);
+    if (!base) return;
+    draftsRef.current = {
+      ...current,
+      [botId]: patchBotOverrides(base, { ...patch, updatedAt: new Date().toISOString() }),
+    };
+    setDrafts(draftsRef.current);
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
   };
@@ -325,16 +340,18 @@ function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
 
   /** Patches any unsaved draft too, so autosave can't undo the change. */
   const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
-    setDrafts((current) =>
-      current[botId] ? { ...current, [botId]: patchBotOverrides(current[botId], patch) } : current,
-    );
+    const current = draftsRef.current;
+    if (current[botId]) {
+      draftsRef.current = { ...current, [botId]: patchBotOverrides(current[botId], patch) };
+      setDrafts(draftsRef.current);
+    }
     return commit((values) => patchSavedBot(values, botId, patch, recordHistory));
   };
 
-  return { drafts, flush, patchBot, updateBot };
+  return { drafts, flush, hasDraft: (botId) => Boolean(draftsRef.current[botId]), patchBot, updateBot };
 }
 
-function useLibraryEntry(flush: () => Promise<void>, setLibraryView: Setter<LibraryViewState | null>) {
+function useLibraryEntry(flush: () => Promise<boolean>, setLibraryView: Setter<LibraryViewState | null>) {
   /** Saves bot edits first so the library sees them. */
   const enterLibrary = (target: LibraryTarget | null) => {
     void flush();

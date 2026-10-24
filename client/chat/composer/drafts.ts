@@ -54,7 +54,12 @@ export function setDraft(
       return;
     drafts = {
       ...drafts,
-      [key]: { text: draft.text, attachments: draft.attachments, updatedAt: Date.now() },
+      [key]: {
+        text: draft.text,
+        attachments: draft.attachments,
+        messageId: draft.messageId,
+        updatedAt: Date.now(),
+      },
     };
   }
   schedulePersist();
