@@ -14,6 +14,8 @@ const ProposalBase = z.object({
   status: z.enum(["pending", "accepted", "dismissed"]),
   createdAt: z.string(),
   resolvedAt: z.string().nullable(),
+  /** Retain the acceptance record until its operation pin has been durably released. */
+  completionPending: z.boolean().optional(),
 });
 
 /** `name` is the folder name; `text` the full SKILL.md. */

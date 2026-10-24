@@ -3,9 +3,12 @@ import { once } from "node:events";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { type AppLimit, checkAppCall } from "../shared/apps";
 import type { AppRule, Bot, McpServerConfig } from "../shared/bot";
+import type { PluginServers } from "../shared/bot-agent";
+import type { FrozenRelayPermissions } from "../shared/chat";
 import { accounts, appTools, connectedSlugs, deadline, readState, session, writeState } from "./composio";
 import type { BotsHost } from "./host";
 import { readCapped } from "./http";
+import { publishLegacyRelayGrant, readLegacyRelayGrant } from "./legacy-relay-grants";
 import { json, readMessage, refuseNonPost, tokenMatches } from "./mcp-http";
 import { answerMcp, type BotTool } from "./tools/mcp";
 
@@ -26,6 +29,24 @@ function botToken(secret: string, botId: string): string {
 
 function toolsToken(secret: string, botId: string, agentId: string): string {
   return sign(secret, `tools:${botId}:${agentId}`);
+}
+
+function creationRelayToken(
+  secret: string,
+  {
+    botId,
+    agentId,
+    prepared,
+    kind,
+  }: {
+    botId: string;
+    agentId?: string;
+    prepared: boolean;
+    kind: "tools" | "apps";
+  },
+): string {
+  const subject = kind === "tools" ? (prepared ? "prepared-tools" : "tools") : "apps";
+  return agentId ? sign(secret, `${subject}:${botId}:${agentId}`) : botToken(secret, botId);
 }
 
 /** Returns true when it handled the request. */
@@ -65,7 +86,18 @@ export class Relay {
   private server: Server | null = null;
   private listening: Promise<number> | null = null;
   private starts = 0;
+  private closed = false;
+  private readonly requireActive = () => {
+    if (this.closed) throw new Error("The relay has been unloaded.");
+  };
   private readonly routes: RelayRoute[] = [];
+  private readonly preparedPermissions = new Map<
+    string,
+    {
+      botId: string;
+      permissions: FrozenRelayPermissions;
+    }
+  >();
 
   constructor(
     private readonly host: BotsHost,
@@ -78,6 +110,7 @@ export class Relay {
 
   /** Reuses the previous port when it's free so running chats keep their URLs. A failed start can be retried. */
   start(): Promise<number> {
+    if (this.closed) return Promise.reject(new Error("The relay has been unloaded."));
     if (!this.listening) {
       const listening = this.open(this.starts);
       this.listening = listening;
@@ -130,6 +163,75 @@ export class Relay {
     await closed;
   }
 
+  /** Unload is terminal; ordinary stop remains restartable for recovery. */
+  close(): Promise<void> {
+    this.closed = true;
+    this.preparedPermissions.clear();
+    return this.stop();
+  }
+
+  async preparePermissions(bot: Bot): Promise<FrozenRelayPermissions> {
+    const limits = await appLimits(bot);
+    return {
+      contactBots: bot.contactBots,
+      apps: [...bot.apps],
+      appLimits: Object.fromEntries(
+        [...limits].map(([slug, limit]) => [
+          slug,
+          {
+            tools: limit.tools ? [...limit.tools] : null,
+            account: limit.account,
+          },
+        ]),
+      ),
+    };
+  }
+
+  /** Recovery refreshes endpoints and credentials, never the admitted authorization. */
+  async mountPrepared(
+    botId: string,
+    agentId: string,
+    frozen: { tools: boolean; apps: boolean; permissions: FrozenRelayPermissions },
+    options: { durableLegacy?: boolean } = {},
+  ): Promise<PluginServers> {
+    this.requireActive();
+    this.checkPreparedConflict(botId, agentId, frozen.permissions);
+    if (options.durableLegacy) {
+      await publishLegacyRelayGrant({ botId, agentId, frozen, permissions: frozen.permissions });
+      this.requireActive();
+      this.checkPreparedConflict(botId, agentId, frozen.permissions);
+    }
+    this.preparedPermissions.set(agentId, {
+      botId,
+      permissions: JSON.parse(JSON.stringify(frozen.permissions)) as FrozenRelayPermissions,
+    });
+    let apps: McpServerConfig | null = null;
+    if (frozen.apps) {
+      const state = await readState();
+      if (!state.apiKey) throw new Error("The admitted connected-app relay is unavailable.");
+      const port = await this.start();
+      apps = {
+        type: "http",
+        url: `http://127.0.0.1:${port}/mcp/${botId}/${agentId}`,
+        headers: { Authorization: `Bearer ${sign(state.secret, `apps:${botId}:${agentId}`)}` },
+      };
+    }
+    let tools: McpServerConfig | null = null;
+    if (frozen.tools) {
+      const state = await readState();
+      const port = await this.start();
+      tools = {
+        type: "http",
+        url: `http://127.0.0.1:${port}/bots/${botId}/${agentId}/prepared`,
+        headers: { Authorization: `Bearer ${sign(state.secret, `prepared-tools:${botId}:${agentId}`)}` },
+      };
+    }
+    return {
+      tools,
+      apps,
+    };
+  }
+
   async mountApps(botId: string): Promise<McpServerConfig | null> {
     const state = await readState();
     if (!state.apiKey) return null;
@@ -167,38 +269,74 @@ export class Relay {
 
   private async dispatch(request: IncomingMessage, response: ServerResponse) {
     const path = (request.url ?? "").split("?")[0] ?? "";
-    const apps = /^\/mcp\/([^/]+)$/.exec(path);
+    const apps = /^\/mcp\/([^/]+)(?:\/([^/]+))?$/.exec(path);
     if (apps) {
-      const [, botId] = apps;
-      return await this.handleApps(request, response, botId);
+      const [, botId, agentId] = apps;
+      return await this.handleApps(request, response, botId, agentId);
     }
-    const tools = /^\/bots\/([^/]+)\/([^/]+)$/.exec(path);
+    const tools = /^\/bots\/([^/]+)\/([^/]+)(\/prepared)?$/.exec(path);
     if (tools) {
-      const [, botId, agentId] = tools;
-      return await this.handleTools(request, response, botId, agentId);
+      const [, botId, agentId, prepared] = tools;
+      return await this.handleTools(request, response, { botId, agentId, prepared: Boolean(prepared) });
     }
     for (const route of this.routes) if (await route(request, response, path)) return;
     json(response, 404, { error: "not found" });
   }
 
+  private async relayAccess(
+    request: IncomingMessage,
+    identity: { botId: string; agentId?: string; prepared: boolean; kind: "tools" | "apps" },
+  ): Promise<{ permissions: FrozenRelayPermissions | null } | null> {
+    const { botId, agentId, prepared } = identity;
+    if (!ID.test(botId) || (agentId && !ID.test(agentId))) return null;
+    const state = await readState();
+    const token = creationRelayToken(state.secret, identity);
+    if (!tokenMatches(token, request.headers.authorization)) return null;
+    if (!prepared) return { permissions: null };
+    const admitted = agentId ? await this.admittedPrepared(botId, agentId) : null;
+    return admitted ? { permissions: admitted.permissions } : null;
+  }
+
+  private checkPreparedConflict(botId: string, agentId: string, permissions: FrozenRelayPermissions): void {
+    const previous = this.preparedPermissions.get(agentId);
+    if (
+      previous &&
+      (previous.botId !== botId || JSON.stringify(previous.permissions) !== JSON.stringify(permissions))
+    ) {
+      throw new Error("Prepared relay identity has conflicting permissions.");
+    }
+  }
+
+  /** Cold restore reads a receipt only after the bearer verified; the process map then caches it. */
+  private async admittedPrepared(
+    botId: string,
+    agentId: string,
+  ): Promise<{ botId: string; permissions: FrozenRelayPermissions } | null> {
+    if (this.closed) return null;
+    const known = this.preparedPermissions.get(agentId);
+    if (known) return known.botId === botId ? known : null;
+    const grant = await readLegacyRelayGrant(agentId);
+    if (this.closed || !grant || grant.botId !== botId) return null;
+    const current = this.preparedPermissions.get(agentId);
+    if (current) return current.botId === botId ? current : null;
+    const admitted = { botId, permissions: grant.permissions };
+    this.preparedPermissions.set(agentId, admitted);
+    return admitted;
+  }
+
   private async handleTools(
     request: IncomingMessage,
     response: ServerResponse,
-    botId: string,
-    agentId: string,
+    identity: { botId: string; agentId: string; prepared: boolean },
   ) {
-    const state = await readState();
-    if (
-      !ID.test(botId) ||
-      !ID.test(agentId) ||
-      !tokenMatches(toolsToken(state.secret, botId, agentId), request.headers.authorization)
-    ) {
-      return json(response, 401, { error: "unauthorized" });
-    }
+    const { botId, agentId } = identity;
+    const access = await this.relayAccess(request, { ...identity, kind: "tools" });
+    if (!access) return json(response, 401, { error: "unauthorized" });
     if (refuseNonPost(request, response)) return;
     const message = await readMessage(request, response);
     if (!message) return;
     const bot = await this.host.bot(botId);
+    this.requireActive();
     const id = (message.id as string | number | undefined) ?? null;
     if (!bot || bot.archived)
       return json(response, 403, {
@@ -208,9 +346,9 @@ export class Relay {
       });
     const answer = await answerMcp(
       message,
-      { name: "paseo-bots", tools: this.tools },
+      { name: "paseo-bots", tools: this.tools, beforeCall: this.requireActive },
       {
-        bot,
+        bot: access.permissions ? { ...bot, contactBots: access.permissions.contactBots } : bot,
         agentId,
         host: this.host,
         relay: this,
@@ -220,17 +358,26 @@ export class Relay {
     json(response, 200, answer);
   }
 
-  private async handleApps(request: IncomingMessage, response: ServerResponse, botId: string) {
-    const state = await readState();
-    if (!ID.test(botId) || !tokenMatches(botToken(state.secret, botId), request.headers.authorization)) {
-      return json(response, 401, { error: "unauthorized" });
-    }
+  private async handleApps(
+    request: IncomingMessage,
+    response: ServerResponse,
+    botId: string,
+    agentId?: string,
+  ) {
+    const access = await this.relayAccess(request, {
+      botId,
+      agentId,
+      prepared: agentId !== undefined,
+      kind: "apps",
+    });
+    if (!access) return json(response, 401, { error: "unauthorized" });
     if (refuseNonPost(request, response)) return;
     const message = await readMessage(request, response);
     if (!message) return;
     const bot = await this.host.bot(botId);
     const id = (message.id as string | number | undefined) ?? null;
-    if (!bot || bot.archived || bot.hostId || bot.apps.length === 0) {
+    const allowed = access.permissions?.apps ?? bot?.apps ?? [];
+    if (!bot || bot.archived || bot.hostId || allowed.length === 0) {
       return json(response, 403, {
         jsonrpc: "2.0",
         id,
@@ -240,10 +387,9 @@ export class Relay {
         },
       });
     }
-    // Limits need Composio's tool lists, so they're looked up for tool calls only.
-    const limits = message.method === "tools/call" ? await appLimits(bot) : new Map<string, AppLimit>();
+    const limits = await this.admittedAppLimits(bot, access.permissions, message.method === "tools/call");
     const verdict = checkAppCall(message, {
-      allowed: bot.apps,
+      allowed,
       connected: await connectedSlugs(),
       limits,
     });
@@ -254,13 +400,30 @@ export class Relay {
         result: { content: [{ type: "text", text: verdict.refusal }], isError: true },
       });
     // Re-encoded so Composio parses exactly what was checked (no duplicate keys read another way).
+    this.requireActive();
     await this.forward(request, response, JSON.stringify(verdict.message));
+  }
+
+  private async admittedAppLimits(
+    bot: Bot,
+    frozen: FrozenRelayPermissions | null,
+    toolCall: boolean,
+  ): Promise<Map<string, AppLimit>> {
+    if (!frozen) return toolCall ? appLimits(bot) : new Map<string, AppLimit>();
+    return new Map(
+      Object.entries(frozen.appLimits).map(([slug, limit]) => [
+        slug,
+        { tools: limit.tools ? new Set(limit.tools) : null, account: limit.account },
+      ]),
+    );
   }
 
   private async forward(request: IncomingMessage, response: ServerResponse, body: string) {
     const transport = request.headers["mcp-session-id"];
     const send = async (recreate: boolean) => {
+      this.requireActive();
       const upstream = await session({ recreate });
+      this.requireActive();
       return fetch(upstream.mcpUrl, {
         method: "POST",
         headers: {

@@ -11,10 +11,12 @@ import {
   SkillIdSchema,
   TeamFileTeamSchema,
 } from "./bot";
+import { ManagedRunSchema } from "./managed-runs";
 import { MemoryBudgetStatsSchema } from "./memory-budget";
 import { PolicyBodySchema, PolicyIdSchema, PolicySchema, ReferrerSchema, ResolutionSchema } from "./policies";
 import { ProposalSchema } from "./proposals";
 import {
+  AgentCreationStatusSchema,
   AttemptIdSchema,
   CycleIdSchema,
   ExecutionIdSchema,
@@ -46,11 +48,16 @@ export const ensureBotHomeRpc = defineRpc({
   output: z.object({ root: z.string(), path: z.string() }),
 });
 
+const HostReadinessSchema = z.enum(["waiting_for_host_api", "reconciling", "ready", "stopped"]);
 /** Lets the daemon side start running routines. */
 export const helloRpc = defineRpc({
   name: "bots.hello",
   input: z.object({}),
-  output: z.object({ scheduler: z.boolean() }),
+  output: z.object({
+    version: z.string(),
+    scheduler: z.boolean(),
+    readiness: HostReadinessSchema.optional(),
+  }),
 });
 
 export const stateReadRpc = defineRpc({
@@ -316,14 +323,16 @@ export const RoutineRunShape = z.object({
   startedAt: z.string(),
   endedAt: z.string().nullable(),
   executionStatus: ExecutionStatusSchema,
+  agentCreationStatus: AgentCreationStatusSchema.optional(),
   taskOutcome: TaskOutcomeSchema,
   verification: VerificationSchema.nullable(),
-  /** Set when the run never launched, because the routine was still working or the time was missed. */
+  /** Admission disposition only: not proof of task outcome, host creation, or external effects. */
   skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   /** The start of the bot's reply once the run finished. */
   output: z.string().nullable(),
   error: z.string().nullable(),
+  managed: ManagedRunSchema.optional(),
 });
 export const RoutineRunSchema = RoutineRunShape.superRefine((run, context) => {
   const issue = runStateIssue(run);
@@ -337,6 +346,7 @@ const RoutineRunCardShape = z.object({
   scheduledFor: z.string(),
   executionStatus: ExecutionStatusSchema,
   taskOutcome: TaskOutcomeSchema,
+  verification: VerificationSchema.nullable().default(null),
   skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   output: z.string().nullable(),
@@ -351,7 +361,12 @@ function upgradeCard(data: unknown): unknown {
 }
 
 /** A plugin timeline item, replaced (same id) when the run finishes. */
-export const RoutineRunCardSchema = z.preprocess(upgradeCard, RoutineRunCardShape);
+export const RoutineRunCardSchema = z.preprocess(
+  upgradeCard,
+  RoutineRunCardShape.transform((card) =>
+    runStateIssue(card) ? { ...card, taskOutcome: "unknown" as const, verification: null } : card,
+  ),
+);
 export type RoutineRunCard = z.infer<typeof RoutineRunCardShape>;
 export const ROUTINE_RUN_CARD = { kind: "routine-run", version: 1 } as const;
 
@@ -381,8 +396,39 @@ export const routineStatusRpc = defineRpc({
 
 export const routineRunNowRpc = defineRpc({
   name: "bots.routines.run-now",
-  input: z.object({ botId: BotId, routineId: z.string() }),
+  input: z.object({ botId: BotId, routineId: z.string(), requestId: z.string().min(1).max(200).optional() }),
   output: z.object({ run: RoutineRunResponseSchema }),
+});
+
+export const runsListRpc = defineRpc({
+  name: "bots.runs.list",
+  input: z.object({
+    cursor: z.string().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    botId: BotId.optional(),
+    routineId: z.string().optional(),
+    executionStatus: ExecutionStatusSchema.optional(),
+  }),
+  output: z.object({
+    runs: z.array(RoutineRunSchema),
+    cursor: z.string().nullable(),
+    readiness: HostReadinessSchema,
+  }),
+});
+export const runsGetRpc = defineRpc({
+  name: "bots.runs.get",
+  input: z.object({ runId: RunIdSchema }),
+  output: z.object({ run: RoutineRunSchema.nullable() }),
+});
+export const runsCancelRpc = defineRpc({
+  name: "bots.runs.cancel",
+  input: z.object({ runId: RunIdSchema }),
+  output: z.object({ run: RoutineRunSchema, error: z.string().nullable() }),
+});
+export const runsReconcileRpc = defineRpc({
+  name: "bots.runs.reconcile",
+  input: z.object({ runId: RunIdSchema.optional() }),
+  output: z.object({ runs: z.array(RoutineRunSchema), readiness: HostReadinessSchema }),
 });
 
 /** `rotate` replaces the secret so the old URL stops working. */

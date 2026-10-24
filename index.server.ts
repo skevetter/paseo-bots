@@ -1,4 +1,4 @@
-import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
+import type { PluginLifecycleEvents, PluginServerContext } from "@getpaseo/plugin/server";
 import { turnEnded, turnStarted } from "./server/activity";
 import { hostProviders, newBotStart } from "./server/apply-context";
 import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
@@ -25,6 +25,7 @@ import { generateAvatar, imageStatus, removeImageKey, setImageKey } from "./serv
 import { applyImportedBots } from "./server/imports";
 import { MemoryJournal } from "./server/journal";
 import { deleteSkill, importSkills, migrateBotSkills, readSkill, writeSkill } from "./server/library";
+import { LocalChatStarts, registerLocalStarts } from "./server/local-starts";
 import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
@@ -44,6 +45,7 @@ import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
 import { BOT_TOOLS } from "./server/tools";
 import { saveUpload } from "./server/uploads";
+import { lastTurn } from "./shared/activity";
 import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import { fleetApplyRpc, fleetListRpc, fleetPreviewRpc, fleetRevertRpc } from "./shared/fleet";
@@ -96,6 +98,10 @@ import {
   routineRunNowRpc,
   routineStatusRpc,
   routineWebhookRpc,
+  runsCancelRpc,
+  runsGetRpc,
+  runsListRpc,
+  runsReconcileRpc,
   skillDeleteRpc,
   skillImportRpc,
   skillReadRpc,
@@ -105,6 +111,7 @@ import {
   systemPromptRpc,
   uploadRpc,
 } from "./shared/rpc";
+import { PLUGIN_VERSION } from "./shared/version";
 
 interface ChatEventServices {
   host: BotsHost;
@@ -152,6 +159,26 @@ function handleFleet(server: PluginServerContext, host: BotsHost, scheduler: Rou
   server.handle(fleetRevertRpc, (input, context) => {
     host.attach(context.paseo);
     return revertFleetChange(host, input);
+  });
+}
+
+function handleRuns(server: PluginServerContext, host: BotsHost, scheduler: RoutineScheduler) {
+  const coordinator = scheduler.coordinator;
+  server.handle(runsListRpc, (input, context) => {
+    host.attach(context.paseo);
+    return coordinator.list(input);
+  });
+  server.handle(runsGetRpc, async ({ runId }, context) => {
+    host.attach(context.paseo);
+    return { run: await coordinator.get(runId) };
+  });
+  server.handle(runsCancelRpc, ({ runId }, context) => {
+    host.attach(context.paseo);
+    return coordinator.cancel(runId);
+  });
+  server.handle(runsReconcileRpc, ({ runId }, context) => {
+    host.attach(context.paseo);
+    return coordinator.reconcile(runId);
   });
 }
 
@@ -217,12 +244,58 @@ function handleSkillsAndApps(server: PluginServerContext) {
   server.handle(appsToolsRpc, appTools);
 }
 
-function handleChatEvents(
-  server: PluginServerContext,
-  { host, journal, scheduler, commands }: ChatEventServices,
+async function recordTurnEnd(
+  { host, journal, scheduler }: ChatEventServices,
+  event: PluginLifecycleEvents["agent.turn_ended"],
 ) {
+  const chat = await host.chatOf(event.agent.id).catch(() => null);
+  const reply = lastTurn(event.timeline).reply;
+  const turn = { outcome: event.outcome, reply, turnId: event.turnId };
+  const settle = chat
+    ? chat.routineId
+      ? scheduler.finished(chat.routineId, event.agent.id, turn)
+      : scheduler.finishedChat(chat.botId, event.agent.id, turn)
+    : scheduler.coordinator.finished(event.agent.id, {
+        kind: event.outcome.kind,
+        turnId: event.turnId,
+        reply,
+        error: event.outcome.kind === "failed" ? event.outcome.error.message : null,
+      });
+  // SDK turn hooks have no session epoch; never label an old callback with the latest generation.
+  await Promise.all([
+    settle.catch((error: unknown) => console.error("paseo-bots: couldn't settle chat execution", error)),
+    turnEnded(host, journal, event, chat).catch((error: unknown) =>
+      console.error("paseo-bots: couldn't record memory activity", error),
+    ),
+  ]);
+}
+
+function handleChatEvents(server: PluginServerContext, services: ChatEventServices) {
+  const { host, journal, scheduler, commands } = services;
+  server.before("agent.session_open", async ({ request }, context) => {
+    if (request.purpose === "history") return request;
+    if (!(await scheduler.coordinator.isManagedAgent(request.agentId))) return request;
+    host.attach(context.paseo);
+    const { agentId, workspaceId, provider, cwd, reason, purpose } = request;
+    const receipt = await scheduler.coordinator.sessionOpened({
+      agentId,
+      workspaceId,
+      provider,
+      cwd,
+      reason,
+      purpose,
+    });
+    if (!receipt)
+      throw new Error("Managed agent ownership has no current admitted provider-session execution.");
+    return request;
+  });
   server.on("agent.turn_started", async (event, context) => {
     host.attach(context.paseo);
+    await scheduler.coordinator
+      .sessionActive(event.agent.id)
+      .catch((error: unknown) =>
+        console.error("paseo-bots: couldn't record provider-session activation", error),
+      );
     await turnStarted(host, journal, event).catch((error: unknown) =>
       console.error("paseo-bots: couldn't check memory before a turn", error),
     );
@@ -240,9 +313,7 @@ function handleChatEvents(
   });
   server.on("agent.turn_ended", async (event, context) => {
     host.attach(context.paseo);
-    await turnEnded(host, journal, scheduler, event).catch((error: unknown) =>
-      console.error("paseo-bots: couldn't record a turn", error),
-    );
+    await recordTurnEnd(services, event);
   });
 }
 
@@ -266,6 +337,46 @@ function handleControl(server: PluginServerContext, services: Omit<ControlContex
   return stop;
 }
 
+function handleHost(
+  server: PluginServerContext,
+  {
+    store,
+    host,
+    relay,
+    scheduler,
+  }: { store: BotStore; host: BotsHost; relay: Relay; scheduler: RoutineScheduler },
+) {
+  server.handle(helloRpc, (_input, context) => {
+    host.attach(context.paseo);
+    return {
+      version: PLUGIN_VERSION,
+      scheduler: scheduler.running,
+      readiness: scheduler.coordinator.readiness,
+    };
+  });
+  server.handle(stateReadRpc, (_input, context) => {
+    host.attach(context.paseo);
+    return store.read();
+  });
+  server.handle(stateWriteRpc, ({ revision, values }) => store.write(revision, values));
+  server.handle(ensureBotHomeRpc, (input, context) => {
+    host.attach(context.paseo);
+    return ensureBotHome(input);
+  });
+  server.handle(systemPromptRpc, async (input, context) => {
+    host.attach(context.paseo);
+    return systemPrompt(input, await host.library(), context.paseo, await host.values());
+  });
+  server.handle(mountRpc, async ({ botId, agentId }, context) => {
+    host.attach(context.paseo);
+    const bot = await host.bot(botId);
+    return {
+      tools: await relay.mountTools(botId, agentId),
+      apps: bot?.apps.length ? await relay.mountApps(botId) : null,
+    };
+  });
+}
+
 export default function contribute(server: PluginServerContext) {
   prepareData();
   const store = new BotStore();
@@ -273,6 +384,8 @@ export default function contribute(server: PluginServerContext) {
   const relay = new Relay(host, BOT_TOOLS);
   void relay.start().catch((error: unknown) => console.error("paseo-bots: couldn't start the relay", error));
   const scheduler = new RoutineScheduler(host, relay);
+  const starts = new LocalChatStarts(host, relay, scheduler.coordinator);
+  host.bindChatStarts(starts);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
   void recoverProposals(store)
@@ -286,49 +399,28 @@ export default function contribute(server: PluginServerContext) {
     .catch((error: unknown) =>
       console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
     );
-  const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
-  server.handle(helloRpc, (_input, context) => {
-    attach(context);
-    return { scheduler: scheduler.running };
-  });
-  server.handle(stateReadRpc, (_input, context) => {
-    attach(context);
-    return store.read();
-  });
-  server.handle(stateWriteRpc, ({ revision, values }) => store.write(revision, values));
-  server.handle(ensureBotHomeRpc, (input, context) => {
-    attach(context);
-    return ensureBotHome(input);
-  });
-  server.handle(systemPromptRpc, async (input, context) =>
-    systemPrompt(input, await host.library(), context.paseo, await host.values()),
-  );
+  handleHost(server, { store, host, relay, scheduler });
   handleMemory(server, journal);
   handlePolicies(server, host);
   handleFleet(server, host, scheduler);
   handleSkillsAndApps(server);
-  server.handle(mountRpc, async ({ botId, agentId }) => {
-    const bot = await host.bot(botId);
-    return {
-      tools: await relay.mountTools(botId, agentId),
-      apps: bot?.apps.length ? await relay.mountApps(botId) : null,
-    };
-  });
   server.handle(proposalGetRpc, async ({ id }) => ({ proposal: await getProposal(id) }));
   server.handle(proposalListRpc, async (filter) => ({ proposals: await listProposals(filter) }));
   server.handle(proposalAcceptRpc, async ({ id }, context) => {
-    attach(context);
+    host.attach(context.paseo);
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
-  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
+  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id, store) }));
   server.handle(routineStatusRpc, async (_input, context) => {
-    attach(context);
+    host.attach(context.paseo);
     return routineStatusResponse(await scheduler.status());
   });
-  server.handle(routineRunNowRpc, async ({ botId, routineId }, context) => {
-    attach(context);
-    const { run } = await scheduler.runNow(botId, routineId);
+  handleRuns(server, host, scheduler);
+  registerLocalStarts(server, host, starts);
+  server.handle(routineRunNowRpc, async ({ botId, routineId, requestId }, context) => {
+    host.attach(context.paseo);
+    const { run } = await scheduler.runNow(botId, routineId, requestId);
     return { run: routineRunResponse(run) };
   });
   server.handle(routineWebhookRpc, ({ routineId, rotate }) => scheduler.webhookUrl(routineId, rotate));
@@ -343,6 +435,7 @@ export default function contribute(server: PluginServerContext) {
   const stopControl = handleControl(server, { host, relay, scheduler, journal, commands });
 
   return async () => {
-    await Promise.all([scheduler.stop(), relay.stop(), stopControl()]);
+    starts.stop();
+    await Promise.all([scheduler.stop(), relay.close(), stopControl()]);
   };
 }

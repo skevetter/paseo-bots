@@ -2,6 +2,7 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { LayoutRectangle } from "react-native";
 import type { Bot, BotGroup, BotListUi } from "../../shared/bot";
 import type { TeamTab } from "../../shared/groups";
+import type { Purpose } from "../../shared/runs";
 import type { LocalHost } from "../data";
 import type { NativeTokens } from "../native";
 import type { PaseoAgent } from "../paseo";
@@ -12,6 +13,7 @@ type Colors = PluginTheme["colors"];
 export interface StartRequest {
   id: string;
   prompt: string;
+  purpose?: Purpose;
 }
 
 export interface Selection {

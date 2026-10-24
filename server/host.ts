@@ -1,6 +1,7 @@
 import { BOT_LABEL, type Bot, type BotState, EMPTY_LIBRARY, type Library } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import { type Purpose, purposeFromLabels } from "../shared/runs";
+import type { LocalChatStarts } from "./local-starts";
 import type { PaseoApi } from "./paseo";
 import type { BotStore } from "./state";
 
@@ -9,9 +10,29 @@ import type { BotStore } from "./state";
 
 type Listener = (paseo: PaseoApi) => void;
 
+export interface BotChat {
+  botId: string;
+  title: string | null;
+  routineId: string | null;
+  /** Null when the chat names a purpose this version doesn't know. */
+  purpose: Purpose | null;
+  labels: Record<string, string>;
+}
+
 export class BotsHost {
   private api: PaseoApi | null = null;
   private readonly listeners = new Set<Listener>();
+  private chatStarts: Pick<LocalChatStarts, "create"> | null = null;
+
+  bindChatStarts(starts: Pick<LocalChatStarts, "create">): void {
+    if (this.chatStarts) throw new Error("Local chat starts are already bound.");
+    this.chatStarts = starts;
+  }
+
+  requireChatStarts(): Pick<LocalChatStarts, "create"> {
+    if (!this.chatStarts) throw new Error("Local chat starts have not been bound.");
+    return this.chatStarts;
+  }
 
   constructor(
     readonly store: Pick<
@@ -26,15 +47,19 @@ export class BotsHost {
     for (const listener of this.listeners) listener(paseo);
   }
 
-  onAttach(listener: Listener): void {
+  onAttach(listener: Listener): () => void {
     this.listeners.add(listener);
     if (this.api) listener(this.api);
+    return () => this.listeners.delete(listener);
   }
 
   get paseo(): PaseoApi | null {
     return this.api;
   }
 
+  get readiness(): "waiting_for_host_api" | "ready" {
+    return this.api ? "ready" : "waiting_for_host_api";
+  }
   requirePaseo(): PaseoApi {
     if (!this.api) throw new Error("Open Paseo once since the daemon started, then try again.");
     return this.api;
@@ -58,14 +83,7 @@ export class BotsHost {
 
   private readonly chatBots = new Map<string, string | null>();
 
-  async chatOf(agentId: string): Promise<{
-    botId: string;
-    title: string | null;
-    routineId: string | null;
-    /** Null when the chat names a purpose this version doesn't know. */
-    purpose: Purpose | null;
-    labels: Record<string, string>;
-  } | null> {
+  async chatOf(agentId: string): Promise<BotChat | null> {
     if (this.chatBots.get(agentId) === null) return null;
     const snapshot = await this.paseo?.agents
       .ref(agentId)

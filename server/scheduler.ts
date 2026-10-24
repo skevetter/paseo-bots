@@ -2,28 +2,27 @@ import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { join } from "node:path";
 import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
-import { foldText } from "../shared/activity";
-import type { Bot, Routine } from "../shared/bot";
+import type { Bot, BotState, Routine } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import { decide } from "../shared/routines";
-import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
-import { isTerminal, newSessionEpoch, providerTurnId, settleTurn, type Trigger } from "../shared/runs";
+import { ROUTINE_RUN_CARD, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
+import { providerTurnId, type Trigger } from "../shared/runs";
+import { newUuid } from "../shared/uuid";
 import { pluginDataPath } from "./bot-home";
-import { startChat } from "./chats";
 import { readJson, writeJson } from "./files";
 import type { BotsHost } from "./host";
+import { LegacyRoutineRunner } from "./legacy-routines";
 import { readBody } from "./mcp-http";
 import type { PaseoApi } from "./paseo";
 import type { Relay } from "./relay";
-import { admitRun, appendRun, emptyRecord, type Records, RunStore } from "./run-store";
+import { type CoordinatorOptions, RunCoordinator } from "./run-coordinator";
+import { type ReplayRequest, RequestConflictError, requestHashOf, requestKey } from "./run-requests";
+import { displayRecords } from "./run-store";
 
 const TICK_MS = 30_000;
-/** A run the app never saw finish (Paseo restarted mid-run) stops counting as running after this. */
-const STALE_RUN_MS = 12 * 3_600_000;
 const WEBHOOK_BODY_MAX = 256 * 1024;
 const WEBHOOK_TEXT_MAX = 48_000;
 const WEBHOOK_CALLS_PER_MINUTE = 10;
-const WEBHOOK_UNFINISHED = 3;
 
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
@@ -35,6 +34,13 @@ export interface WebhookEvent {
   body: string;
   contentType: string | null;
   receivedAt: string;
+}
+
+export interface TurnCompletion {
+  outcome: PluginTurnOutcome;
+  reply: string;
+  turnId?: string | null;
+  sessionEpoch?: number;
 }
 
 /** A webhook's event follows the instructions as marked, untrusted data. */
@@ -58,11 +64,14 @@ export function runPrompt(routine: Routine, event?: WebhookEvent): string {
 }
 
 interface RunRequest {
+  state: BotState;
   bot: Bot;
   routine: Routine;
   trigger: Trigger;
   due: Date;
   event?: WebhookEvent;
+  requestId?: string;
+  requestHash?: string;
 }
 
 interface HookReply {
@@ -76,11 +85,42 @@ function turnError(outcome: PluginTurnOutcome): string | null {
   return null;
 }
 
-/** The call returns before the run ends, so a caller is only ever told one of these three. */
+/** HTTP reports admission, even when a fast execution ended before its creation acknowledgement. */
 function webhookReply(run: RoutineRun): { code: number; state: "running" | "skipped-busy" | "failed" } {
   if (run.skipped === "busy") return { code: 429, state: "skipped-busy" };
-  if (run.executionStatus === "running") return { code: 202, state: "running" };
+  if (["queued", "reserved", "starting", "running", "completed"].includes(run.executionStatus))
+    return { code: 202, state: "running" };
   return { code: 500, state: "failed" };
+}
+
+function hookRunReply(run: RoutineRun): HookReply {
+  const { code, state } = webhookReply(run);
+  const created = run.agentCreationStatus === "created";
+  return {
+    status: code,
+    body: {
+      status: state,
+      ...(created && run.agentId && !run.skipped ? { chat: run.agentId } : {}),
+      ...(run.error ? { error: run.error } : {}),
+    },
+  };
+}
+
+function webhookIdentity(value: unknown): { requestId?: string } | { error: string } {
+  if (value === undefined) return {};
+  if (typeof value !== "string" || value.length < 1 || value.length > 200)
+    return { error: "Idempotency-Key must contain 1 to 200 characters." };
+  return { requestId: value };
+}
+
+function requestDigest(request: RunRequest, requestId: string): string {
+  if (request.event)
+    return requestHashOf({ body: request.event.body, contentType: request.event.contentType });
+  return requestHashOf({
+    botId: request.bot.id,
+    routineId: request.routine.id,
+    ...(request.trigger === "schedule" ? { scheduledFor: request.due.toISOString() } : { requestId }),
+  });
 }
 
 type Queue = <T>(task: () => Promise<T>) => Promise<T>;
@@ -96,21 +136,24 @@ function serial(): Queue {
 
 /** Idles until the Paseo API is captured from an RPC handler or hook (the app calls `bots.hello` on start). */
 export class RoutineScheduler {
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private timer: NodeJS.Timeout | undefined;
+  private readonly detach: () => void;
   private ticking: Promise<void> | null = null;
+  private stopping = false;
+  private readonly occurrences = new Map<string, Promise<unknown>>();
   private readonly hooks = serial();
-  private readonly epoch = newSessionEpoch();
   private readonly hookCalls = new Map<string, number[]>();
-  /** Runs whose chat is starting, by routine and run id. */
-  private readonly launches = new Map<string, Map<string, Promise<void>>>();
+  readonly coordinator: RunCoordinator;
+  private readonly legacy: LegacyRoutineRunner;
 
   constructor(
     private readonly host: BotsHost,
     private readonly relay: Relay,
-    private readonly launch: typeof startChat = startChat,
-    private readonly store = new RunStore(),
+    options: CoordinatorOptions = {},
   ) {
-    host.onAttach(() => {
+    this.coordinator = new RunCoordinator(host, relay, options);
+    this.legacy = new LegacyRoutineRunner(host, relay, this.coordinator, options);
+    this.detach = host.onAttach(() => {
       if (this.timer) return;
       this.timer = setInterval(() => void this.tick(), TICK_MS);
       void this.tick();
@@ -128,30 +171,42 @@ export class RoutineScheduler {
 
   /** Resolves once a tick that's under way has finished, so nothing writes routine state after it. */
   async stop(): Promise<void> {
-    if (this.timer) clearInterval(this.timer);
-    this.timer = null;
+    this.stopping = true;
+    clearInterval(this.timer);
+    this.timer = undefined;
+    this.detach();
+    // Stop dispatch immediately, but keep the shared writer open for proven legacy no-create receipts.
+    this.coordinator.stopLaunching();
+    const legacyStopped = this.legacy.stop();
     await this.ticking;
+    await legacyStopped;
+    await this.coordinator.stop();
+    await Promise.allSettled(this.occurrences.values());
   }
 
   async status() {
-    const { routines: saved } = await this.store.read();
-    const now = Date.now();
-    const routines = Object.fromEntries(
-      Object.entries(saved).map(([id, record]) => {
-        const runs = record.runs.map((run) =>
-          !isTerminal(run.executionStatus) && now - Date.parse(run.startedAt) > STALE_RUN_MS
-            ? { ...run, executionStatus: "unknown" as const, error: "It never finished." }
-            : run,
-        );
-        return [id, { ...record, runs }];
-      }),
-    );
-    return { scheduler: this.running, routines };
+    await this.coordinator.ready();
+    const { routines } = await this.coordinator.store.read();
+    return {
+      scheduler: this.running,
+      routines: displayRecords(routines),
+      readiness: this.coordinator.readiness,
+    };
   }
 
-  async runNow(botId: string, routineId: string): Promise<{ run: RoutineRun }> {
-    const { bot, routine } = await this.find(botId, routineId);
-    return { run: await this.run({ bot, routine, trigger: "manual", due: new Date() }) };
+  async runNow(botId: string, routineId: string, requestId = newUuid()): Promise<{ run: RoutineRun }> {
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
+    const requestHash = requestHashOf({ botId, routineId, requestId });
+    const existing = await this.coordinator.findRequest({
+      botId,
+      routineId,
+      trigger: "manual",
+      requestId,
+      requestHash,
+    });
+    if (existing) return { run: existing };
+    const target = await this.find(botId, routineId);
+    return { run: await this.run({ ...target, trigger: "manual", due: new Date(), requestId, requestHash }) };
   }
 
   async webhookUrl(routineId: string, rotate = false): Promise<{ url: string }> {
@@ -168,170 +223,106 @@ export class RoutineScheduler {
   }
 
   /** `turnId` is what the host called the turn; it is kept as evidence and never used to find the run. */
-  async finished(
-    routineId: string,
-    agentId: string,
-    { outcome, reply, turnId = null }: { outcome: PluginTurnOutcome; reply: string; turnId?: string | null },
-  ): Promise<void> {
-    const waiting = (record: RoutineRecord | undefined) =>
-      [...(record?.runs ?? [])]
-        .reverse()
-        .find((entry) => entry.agentId === agentId && !isTerminal(entry.executionStatus));
-    // A run whose chat is still starting is recorded once its launch settles, so a turn that ended early still matches.
-    await Promise.all(this.launches.get(routineId)?.values() ?? []);
-    const run = await this.store.update((records) => {
-      const found = waiting(records[routineId]);
-      if (!found) return null;
-      // The reply is the bot's own account of the work. It's kept as output and never decides the outcome.
-      Object.assign(found, {
-        ...settleTurn(outcome.kind),
-        endedAt: new Date().toISOString(),
-        providerTurnId: providerTurnId(turnId),
-        output: reply.trim() ? foldText(reply, 400) : null,
-        error: turnError(outcome),
-      });
-      return { ...found };
-    });
+  async finished(routineId: string, agentId: string, turn: TurnCompletion): Promise<void> {
+    const run = await this.finishExecution({ recordId: routineId, routineId, agentId, turn });
+    if (!run) return;
     const routine = (await this.host.bots())
       .flatMap((bot) => bot.routines)
       .find((entry) => entry.id === routineId);
-    if (run && routine) await this.postCard(routine, run);
+    if (routine) await this.postCard(routine, run);
   }
 
-  private async find(botId: string, routineId: string): Promise<{ bot: Bot; routine: Routine }> {
-    const bot = await this.host.bot(botId);
+  async finishedChat(botId: string, agentId: string, turn: TurnCompletion): Promise<void> {
+    await this.finishExecution({ recordId: `chat:${botId}`, agentId, turn });
+  }
+
+  private async finishExecution({
+    recordId,
+    routineId,
+    agentId,
+    turn: { outcome, reply, turnId = null, sessionEpoch },
+  }: {
+    recordId: string;
+    routineId?: string;
+    agentId: string;
+    turn: TurnCompletion;
+  }): Promise<RoutineRun | null> {
+    if (this.stopping) return null;
+    const managed = await this.coordinator.finished(agentId, {
+      kind: outcome.kind,
+      reply,
+      turnId,
+      error: turnError(outcome),
+      routineId,
+      sessionEpoch,
+    });
+    return (
+      managed ??
+      (await this.legacy.finished(recordId, agentId, {
+        executionStatus: outcome.kind,
+        taskOutcome: "unknown",
+        output: reply.trim().slice(0, 400) || null,
+        error: turnError(outcome),
+        endedAt: new Date().toISOString(),
+        providerTurnId: providerTurnId(turnId),
+      }))
+    );
+  }
+
+  private async find(
+    botId: string,
+    routineId: string,
+  ): Promise<Pick<RunRequest, "bot" | "routine" | "state">> {
+    const state = structuredClone(await this.host.values());
+    const bot = state.bots.find((entry) => entry.id === botId);
     const routine = bot?.routines.find((entry) => entry.id === routineId);
     if (!bot || !routine) throw new Error("Routine not found.");
-    return { bot, routine };
+    return { bot, routine, state };
   }
 
-  private async working(agentId: string | null): Promise<boolean> {
-    if (!agentId || !this.paseo) return false;
-    try {
-      const status = (await this.paseo.agents.ref(agentId).refresh())?.agent.status;
-      return status === "running" || status === "initializing";
-    } catch {
-      return false;
-    }
-  }
-
-  private newChat(bot: Bot, routine: Routine, prompt: string): Promise<string> {
-    return this.launch(this.host, this.relay, bot, {
-      prompt,
-      title: routine.name,
-      labels: { [ROUTINE_LABEL]: routine.id },
-      routineId: routine.id,
-    });
-  }
-
-  /** The results chat gets a card even when the run doesn't start. */
+  /** Only explicitly opted-in bots use managed admission and its enforcement. */
   private async run(request: RunRequest): Promise<RoutineRun> {
-    const { run, release } = await this.store.update((records) => this.reserve(request, records));
-    try {
-      if (release) await this.startChat(request, run);
-      await this.postCard(request.routine, run);
-    } finally {
-      release?.();
-    }
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
+    const requestId = request.requestId ?? newUuid();
+    const requestHash = request.requestHash ?? requestDigest(request, requestId);
+    const prior = await this.coordinator.findRequest({
+      botId: request.bot.id,
+      routineId: request.routine.id,
+      trigger: request.trigger,
+      requestId,
+      requestHash,
+      due: request.due,
+    });
+    if (prior) return prior;
+    if (this.stopping) throw new Error("Routine scheduler is stopping.");
+    const input = { ...request, requestId, requestHash, prompt: runPrompt(request.routine, request.event) };
+    const seconds = request.routine.runtime?.deadlineSeconds;
+    let run =
+      request.bot.executionMode === "managed"
+        ? await this.coordinator.admit({
+            ...input,
+            title: request.routine.name,
+            labels: { [ROUTINE_LABEL]: request.routine.id },
+            deadlineAt: seconds === undefined ? undefined : request.due.getTime() + seconds * 1000,
+          })
+        : await this.legacy.run(input);
+    if (run.managed && ["reserved", "starting"].includes(run.executionStatus))
+      run = (await this.coordinator.waitForCreation(run.id)).run;
+    await this.postCard(request.routine, run);
     return run;
   }
 
-  private async reserve(
-    request: RunRequest,
-    records: Records,
-  ): Promise<{ run: RoutineRun; release: (() => void) | null }> {
-    const { routine, trigger, due } = request;
-    const record = records[routine.id] ?? emptyRecord();
-    records[routine.id] = record;
-    const now = new Date();
-    const run = admitRun({ routineId: routine.id, trigger, due, now, epoch: this.epoch });
-    if (trigger === "schedule") record.lastRunAt = run.startedAt;
-    const blocked = await this.blocked(request, record);
-    appendRun(record, run);
-    if (!blocked) return { run, release: this.track(routine.id, run.id) };
-    Object.assign(run, { endedAt: run.startedAt, ...blocked });
-    return { run, release: null };
-  }
-
-  /** A run that never launched changed nothing, so its outcome is no_change. */
-  private async blocked(
-    { bot, routine, trigger }: RunRequest,
-    record: RoutineRecord,
-  ): Promise<Partial<RoutineRun> | null> {
-    if (bot.hostId)
-      return {
-        executionStatus: "failed",
-        taskOutcome: "no_change",
-        error: "Routines run on the host that stores the bot; this bot runs on another host.",
-      };
-    // Skip while the previous run is still working (webhooks allow a few at once).
-    const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
-    const starting = this.launches.get(routine.id);
-    const busy = await this.busyRuns(record, limit, starting);
-    return (starting?.size ?? 0) + busy >= limit
-      ? { executionStatus: "canceled", taskOutcome: "no_change", skipped: "busy" }
-      : null;
-  }
-
-  private track(routineId: string, runId: string): () => void {
-    let settle = () => {};
-    const launch = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    const launches = this.launches.get(routineId) ?? new Map();
-    this.launches.set(routineId, launches.set(runId, launch));
-    return () => {
-      launches.delete(runId);
-      if (launches.size === 0) this.launches.delete(routineId);
-      settle();
-    };
-  }
-
-  private async startChat(request: RunRequest, run: RoutineRun): Promise<void> {
-    const { bot, routine, event } = request;
-    let patch: Partial<RoutineRun>;
-    try {
-      patch = { agentId: await this.newChat(bot, routine, runPrompt(routine, event)) };
-    } catch (error) {
-      // The host may have made the chat before the call failed, so whether anything ran is unknown.
-      patch = {
-        executionStatus: "failed",
-        taskOutcome: "unknown",
-        endedAt: run.startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-    Object.assign(run, patch);
-    await this.store.update((records) => {
-      const saved = records[routine.id]?.runs.find((entry) => entry.id === run.id);
-      if (saved) Object.assign(saved, patch);
-    });
-  }
-
-  /** A run that's still starting already counts as starting. */
-  private async busyRuns(
-    record: RoutineRecord,
-    limit: number,
-    starting?: ReadonlyMap<string, unknown>,
-  ): Promise<number> {
-    const recent = record.runs
-      .filter((entry) => entry.agentId && !isTerminal(entry.executionStatus) && !starting?.has(entry.id))
-      .slice(-limit);
-    let busy = 0;
-    for (const entry of recent) if (await this.working(entry.agentId)) busy++;
-    return busy;
-  }
-
   private async postCard(routine: Routine, run: RoutineRun): Promise<void> {
-    if (!routine.resultsChatId || !this.paseo || run.skipped === "busy") return;
+    if (this.stopping || !routine.resultsChatId || !this.paseo || run.skipped === "busy") return;
     const data: RoutineRunCard = {
       routineName: routine.name,
       trigger: run.trigger,
       scheduledFor: run.scheduledFor,
       executionStatus: run.executionStatus,
       taskOutcome: run.taskOutcome,
+      verification: run.verification,
       skipped: run.skipped,
-      agentId: run.agentId,
+      agentId: run.agentCreationStatus === "created" ? run.agentId : null,
       output: run.output,
       error: run.error,
     };
@@ -345,7 +336,7 @@ export class RoutineScheduler {
   }
 
   private tick(): Promise<void> {
-    if (!this.ticking && this.paseo)
+    if (!this.stopping && !this.ticking && this.paseo)
       this.ticking = this.tickSafely().finally(() => {
         this.ticking = null;
       });
@@ -354,6 +345,7 @@ export class RoutineScheduler {
 
   private async tickSafely(): Promise<void> {
     try {
+      await this.coordinator.pump();
       await this.tickBots();
     } catch (error) {
       console.error("paseo-bots: routine tick failed", error);
@@ -361,40 +353,53 @@ export class RoutineScheduler {
   }
 
   private async tickBots(): Promise<void> {
-    const values = await this.host.values();
+    const values = structuredClone(await this.host.values());
     const { routines } = await this.status();
     const now = new Date();
     for (const bot of values.bots) {
       if (bot.archived || bot.hostId) continue;
       for (const routine of bot.routines)
-        await this.tickRoutine(bot, routine, routines[routine.id]?.lastRunAt ?? null, now);
+        await this.tickRoutine({ bot, state: values }, routine, routines[routine.id]?.lastRunAt ?? null, now);
     }
   }
 
-  private async tickRoutine(bot: Bot, routine: Routine, lastRunAt: string | null, now: Date): Promise<void> {
+  private async tickRoutine(
+    target: Pick<RunRequest, "state" | "bot">,
+    routine: Routine,
+    lastRunAt: string | null,
+    now: Date,
+  ): Promise<void> {
     try {
       const decision = decide(routine, lastRunAt, now);
-      if (decision.action === "run") await this.run({ bot, routine, trigger: "schedule", due: decision.due });
-      else if (decision.action === "skip-missed") await this.recordMissed(routine, decision.due, now);
+      if (decision.action === "run")
+        this.dispatch(routine, decision.due, () =>
+          this.run({ ...target, routine, trigger: "schedule", due: decision.due }),
+        );
+      else if (decision.action === "skip-missed")
+        this.dispatch(routine, decision.due, () => this.recordMissed(routine, decision.due, now));
     } catch (error) {
       console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
     }
   }
 
+  private dispatch(routine: Routine, due: Date, work: () => Promise<unknown>): void {
+    if (this.stopping) return;
+    const key = requestKey({ routineId: routine.id, trigger: "schedule", requestId: "schedule", due });
+    if (this.occurrences.has(key)) return;
+    const pending = Promise.resolve()
+      .then(() => {
+        if (!this.stopping) return work();
+      })
+      .catch((error: unknown) => {
+        if (!this.stopping)
+          console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
+      })
+      .finally(() => this.occurrences.delete(key));
+    this.occurrences.set(key, pending);
+  }
+
   private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {
-    const at = now.toISOString();
-    const run: RoutineRun = {
-      ...admitRun({ routineId: routine.id, trigger: "schedule", due, now, epoch: this.epoch }),
-      endedAt: at,
-      executionStatus: "canceled",
-      taskOutcome: "no_change",
-      skipped: "missed",
-    };
-    await this.store.update((records) => {
-      const record = { ...(records[routine.id] ?? emptyRecord()), lastRunAt: at };
-      appendRun(record, run);
-      records[routine.id] = record;
-    });
+    const run = await this.coordinator.recordMissed(routine.id, due, now);
     await this.postCard(routine, run);
   }
 
@@ -412,50 +417,99 @@ export class RoutineScheduler {
     routineId: string,
     secret: string,
   ): Promise<HookReply> {
-    if (request.method !== "POST") return { status: 405, body: { error: "Use POST." } };
-    const target = await this.webhookTarget(routineId, secret);
-    if ("status" in target) return target;
-    const now = Date.now();
-    if (this.throttled(routineId, now))
-      return { status: 429, body: { error: "Too many calls this minute." } };
-    let body: string;
+    const identity = await this.authorizeWebhook(request, routineId, secret);
+    if ("status" in identity) return identity;
+    const { requestId } = identity;
+    const replay = await this.knownWebhook(routineId, requestId);
+    const target = replay ? null : await this.webhookTarget(routineId);
+    if (target && "status" in target) return target;
+    const event = await this.readWebhookEvent(request);
+    if ("status" in event) return event;
+    if (replay)
+      return this.replayWebhook({
+        ...replay,
+        requestHash: requestHashOf({ body: event.body, contentType: event.contentType }),
+      });
+    if (!target) throw new Error("Webhook target is unavailable; launch refused.");
+    return this.runWebhook({
+      ...target,
+      trigger: "webhook",
+      due: new Date(event.receivedAt),
+      event,
+      requestId,
+    });
+  }
+
+  private async knownWebhook(
+    routineId: string,
+    requestId?: string,
+  ): Promise<Pick<ReplayRequest, "routineId" | "trigger" | "requestId"> | null> {
+    if (!requestId) return null;
+    const input = { routineId, trigger: "webhook" as const, requestId };
+    const { coordinator } = await this.coordinator.store.read();
+    return coordinator.occurrences[requestKey(input)] ? input : null;
+  }
+
+  private async readWebhookEvent(request: IncomingMessage): Promise<WebhookEvent | HookReply> {
     try {
-      body = await readBody(request, WEBHOOK_BODY_MAX);
+      return {
+        body: await readBody(request, WEBHOOK_BODY_MAX),
+        contentType: request.headers["content-type"] ?? null,
+        receivedAt: new Date().toISOString(),
+      };
     } catch {
       return { status: 413, body: { error: `Send at most ${WEBHOOK_BODY_MAX / 1024} KB.` } };
     }
-    const event: WebhookEvent = {
-      body,
-      contentType: request.headers["content-type"] ?? null,
-      receivedAt: new Date(now).toISOString(),
-    };
-    const run = await this.run({ ...target, trigger: "webhook", due: new Date(now), event });
-    const { code, state } = webhookReply(run);
-    return {
-      status: code,
-      body: {
-        status: state,
-        ...(run.agentId ? { chat: run.agentId } : {}),
-        ...(run.error ? { error: run.error } : {}),
-      },
-    };
+  }
+
+  private async runWebhook(request: RunRequest): Promise<HookReply> {
+    try {
+      return hookRunReply(await this.run(request));
+    } catch (error) {
+      if (error instanceof RequestConflictError) return { status: 409, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  private async replayWebhook(input: ReplayRequest): Promise<HookReply> {
+    try {
+      const run = await this.coordinator.findRequest(input);
+      if (!run) throw new Error("Webhook receipt is unavailable; replay refused.");
+      return hookRunReply(run);
+    } catch (error) {
+      if (error instanceof RequestConflictError) return { status: 409, body: { error: error.message } };
+      throw error;
+    }
+  }
+
+  private async authorizeWebhook(
+    request: IncomingMessage,
+    routineId: string,
+    secret: string,
+  ): Promise<{ requestId?: string } | HookReply> {
+    if (request.method !== "POST") return { status: 405, body: { error: "Use POST." } };
+    const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
+    if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret)))
+      return { status: 404, body: { error: "not found" } };
+    const identity = webhookIdentity(request.headers["idempotency-key"]);
+    if ("error" in identity) return { status: 400, body: { error: identity.error } };
+    if (this.throttled(routineId, Date.now()))
+      return { status: 429, body: { error: "Too many calls this minute." } };
+    return identity;
   }
 
   private async webhookTarget(
     routineId: string,
-    secret: string,
-  ): Promise<{ bot: Bot; routine: Routine } | HookReply> {
+  ): Promise<Pick<RunRequest, "bot" | "routine" | "state"> | HookReply> {
     const notFound: HookReply = { status: 404, body: { error: "not found" } };
-    const expected = (await readJson<Record<string, unknown>>(hooksPath(), {}))[routineId];
-    if (!isSecret(expected) || !timingSafeEqual(Buffer.from(expected), Buffer.from(secret))) return notFound;
-    const values = await this.host.values();
-    const bot = values.bots.find(
+    const state = structuredClone(await this.host.values());
+    const bot = state.bots.find(
       (entry) => !entry.archived && entry.routines.some((routine) => routine.id === routineId),
     );
     const routine = bot?.routines.find((entry) => entry.id === routineId);
     if (!bot || !routine || routine.schedule.kind !== "webhook") return notFound;
     if (!routine.enabled) return { status: 409, body: { error: "The routine is paused." } };
-    return { bot, routine };
+    return { bot, routine, state };
   }
 
   private throttled(routineId: string, now: number): boolean {

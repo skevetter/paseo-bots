@@ -3,7 +3,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { injectedMemory, listMemory, memoryFilePath } from "../server/memory";
 import {
-  journalSummary,
   lastTurn,
   logLine,
   matchesAll,
@@ -110,32 +109,11 @@ describe("search helpers", () => {
     expect(parseSince("2026-09-01", now)).toEqual(at(1, 0));
     expect(() => parseSince("last tuesday", now)).toThrow("Couldn't read");
   });
-
-  it("words journal rows the way the person reads them", () => {
-    const row = {
-      file: "MEMORY.md",
-      actor: "bot" as const,
-      via: "chat" as const,
-      chat: { title: "x" },
-      chats: [],
-      kind: "edited" as const,
-      added: 2,
-      removed: 0,
-    };
-    expect(journalSummary(row, "Scout")).toBe("Scout added 2 lines to MEMORY.md");
-    expect(journalSummary({ ...row, actor: "you", file: "clients.md", kind: "deleted" }, "Scout")).toBe(
-      "You deleted the clients topic",
-    );
-    expect(journalSummary({ ...row, added: 3, removed: 1 }, "Scout")).toBe(
-      "Scout rewrote 3 lines in MEMORY.md",
-    );
-  });
 });
 
 async function endInvoiceTurns(host: FakeHost) {
   const { turnEnded } = await import("../server/activity");
   const { MemoryJournal } = await import("../server/journal");
-  const scheduler = { finished: async () => {} };
   const journal = new MemoryJournal();
   const agent = {
     id: newUuid(),
@@ -158,19 +136,19 @@ async function endInvoiceTurns(host: FakeHost) {
     },
     { type: "assistant_message", text: "Sent the three Q3 invoices to Acme." },
   ] as never;
-  await turnEnded(host, journal, scheduler, {
+  await turnEnded(host, journal, {
     agent,
     turnId: "t1",
     outcome: { kind: "completed" },
     timeline,
   });
-  await turnEnded(host, journal, scheduler, {
+  await turnEnded(host, journal, {
     agent: { ...agent, id: "other-agent" },
     turnId: "t2",
     outcome: { kind: "completed" },
     timeline,
   });
-  await turnEnded(host, journal, scheduler, {
+  await turnEnded(host, journal, {
     agent,
     turnId: "t3",
     outcome: { kind: "canceled", reason: "stopped" },

@@ -2,7 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
-import { admitRun, appendRun, emptyRecord, KEEP_RUNS, RunStore } from "../server/run-store";
+import { admitRun, appendRun, emptyRecord, RunStore } from "../server/run-store";
 import { newSessionEpoch } from "../shared/runs";
 import { defined, makeRun, useTempPaseoHome } from "./helpers";
 
@@ -39,8 +39,8 @@ describe("run history saved before outcomes existed", () => {
     expect(runs.map((run) => [run.id, run.executionStatus, run.taskOutcome, run.skipped])).toEqual([
       ["run-aaaa1111", "completed", "unknown", null],
       ["run-bbbb2222", "failed", "unknown", null],
-      ["run-cccc3333", "canceled", "no_change", "busy"],
-      ["run-dddd4444", "canceled", "no_change", "missed"],
+      ["run-cccc3333", "canceled", "unknown", "busy"],
+      ["run-dddd4444", "canceled", "unknown", "missed"],
       ["run-eeee5555", "running", "unknown", null],
     ]);
     expect(runs[0]).toMatchObject({
@@ -49,7 +49,7 @@ describe("run history saved before outcomes existed", () => {
       output: "All 12 invoices sent.",
       endedAt: "2026-09-18T09:04:00.000Z",
       purpose: "task",
-      sessionEpoch: "legacy",
+      sessionEpoch: 0,
       providerTurnId: null,
       parentRunId: null,
       verification: null,
@@ -94,7 +94,7 @@ describe("run history saved before outcomes existed", () => {
     });
 
     const saved = JSON.parse(await readFile(store.path, "utf8"));
-    expect(saved.version).toBe(1);
+    expect(saved.version).toBe(3);
     expect(saved.routines["rt-runs"].runs).toHaveLength(6);
     expect(await readFile(`${store.path}.pre-run-store`, "utf8")).toBe(original);
 
@@ -206,13 +206,6 @@ describe("saving run history", () => {
     expect(defined((await store.read()).routines.rt).runs).toHaveLength(12);
   });
 
-  it("keeps the latest runs of a routine", async () => {
-    const record = emptyRecord();
-    for (let index = 0; index < KEEP_RUNS + 5; index++) appendRun(record, makeRun(`r-${index}`));
-    expect(record.runs).toHaveLength(KEEP_RUNS);
-    expect(record.runs[0]?.id).toBe("r-5");
-  });
-
   it("gives a scheduled occurrence the same key when it is admitted again, and a manual one its own", () => {
     const again = (trigger: "schedule" | "manual") => [
       admit(trigger).occurrenceKey,
@@ -229,14 +222,23 @@ describe("saving run history", () => {
 describe("a broken run history file", () => {
   useTempPaseoHome("paseo-bots-run-store-broken-");
 
-  it("is set aside, not overwritten", async () => {
+  it("preserves set-aside history and refuses new coverage until an explicit intact restore", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = '{"rt": {"lastRunAt": "2026-09-2';
     const store = await storeFrom(broken);
     expect((await store.read()).routines).toEqual({});
+    await expect(
+      store.update((routines) => {
+        routines.rt = { ...emptyRecord(), runs: [makeRun("fresh")] };
+      }),
+    ).rejects.toThrow();
+    await expect(store.isManagedAgent("unrelated")).rejects.toThrow();
+    await writeFile(store.path, JSON.stringify({ version: 1, routines: {} }));
+    await store.backfillManagedAgentClaims();
     await store.update((routines) => {
-      routines.rt = { ...emptyRecord(), runs: [makeRun("fresh")] };
+      routines.rt = { ...emptyRecord(), runs: [makeRun("after-explicit-restore")] };
     });
+    expect((await store.get("after-explicit-restore"))?.executionStatus).toBe("completed");
     const asides = await setAside();
     expect(asides).toHaveLength(1);
     expect(await readFile(join(pluginDataPath(), defined(asides[0])), "utf8")).toBe(broken);
@@ -245,15 +247,15 @@ describe("a broken run history file", () => {
   });
 
   it("refuses future history on every read and write without moving it away or running a change", async () => {
-    const future = JSON.stringify({ version: 2, routines: {}, occurrences: [{ key: "x" }] });
+    const future = JSON.stringify({ version: 4, routines: {}, occurrences: [{ key: "x" }] });
     const store = await storeFrom(future);
     const change = vi.fn();
-    await expect(store.read()).rejects.toThrow("Unsupported routine history version 2");
+    await expect(store.read()).rejects.toThrow("Unsupported routine history version 4");
     await expect(store.read()).rejects.toThrow("file left unchanged");
-    await expect(store.update(change)).rejects.toThrow("Unsupported routine history version 2");
-    await expect(store.write("missing", {})).rejects.toThrow("Unsupported routine history version 2");
+    await expect(store.update(change)).rejects.toThrow("Unsupported routine history version 4");
+    await expect(store.write("missing", {})).rejects.toThrow("Unsupported routine history version 4");
     await expect(new RunStore(store.path).update(change)).rejects.toThrow(
-      "Unsupported routine history version 2",
+      "Unsupported routine history version 4",
     );
     expect(change).not.toHaveBeenCalled();
     expect(await readFile(store.path, "utf8")).toBe(future);

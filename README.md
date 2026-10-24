@@ -35,6 +35,8 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 
 An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
 
+Committed proposal changes cannot be dismissed: retry acceptance or let startup recovery finish them. Accepted proposals remain protected from retention until their receipt pin is durably released; interrupted completion is reconciled without applying the changes again. Recovery also finishes receipt-backed proposals dismissed by an older version. Keep both `state.json` and `proposals.json` when backing up or rolling back interrupted operations.
+
 Version 3 bot files carry a resolved runtime-policy snapshot rather than source-host policy IDs. Definitions and imported bots are admitted together; approvals still come from the destination. See [portable policies](docs/portable-policies.md) for format compatibility and rollback.
 
 ## Memory limits and history
@@ -127,17 +129,64 @@ unknown execution, not a verified task failure. Never use `status` for verificat
 The webhook HTTP reply is unchanged (`running`, `skipped-busy` or `failed`); it reports admission, not
 the eventual outcome. Internal and persisted run records have no `status` field.
 
+Managed execution is explicit opt-in (`executionMode: "managed"`, or `execution_mode` through control
+changes); absent mode remains legacy. Both preserve existing policy bindings and routine overrides.
+Managed launches use durable occurrence/request identity, frozen restricted artifacts, deferred start
+intent, deadlines and capacity reservations before creation. Unknown host effects retain their
+reservation and are never automatically restarted. Provider-session generations are numeric and
+persisted per actual agent, not plugin processes; history reads do not create sessions. See
+[coordinator contracts, limits and recovery](docs/run-coordinator.md).
+
+Enable managed execution explicitly in a local bot's Model settings. Existing legacy conversations keep
+their original behavior; a managed chat is an isolated task record, and **Start new task** submits only
+the new message and attachments. It does not silently copy the previous transcript. Local starts go
+through server-owned admission; remote manual chats remain visibly outside managed enforcement.
+Unconfirmed starts retain their exact request identity and offer checking/cancellation without
+pretending the planned UUID exists. See [chat execution and retry behavior](docs/chat-execution.md).
+
+`bots.hello.version` comes from the loaded server module, not the plugin catalog. Compare it with the
+released version after an update; a catalog path or running indicator alone does not prove the new
+server code is serving requests.
+
+`no_change` is reserved for a successful deterministic check proving that no task work is needed.
+Like `verified_success` and `verified_failure`, it requires `executionStatus: completed` and the
+existing `verification: { verifier: { id, digest }, at }` referencing a pinned approved definition.
+B02 does not implement such a producer; deterministic monitoring belongs to B08. Failed inspection,
+failed pre-create, inability to launch, cancellation before launch, and busy/missed skips have
+`taskOutcome: unknown`. Neither task outcome nor a canceled label establishes external-effect or
+agent-creation state.
+
+Old skipped labels migrate to `canceled` / `unknown`, retaining the skip reason. Already-versioned
+B02 records containing unsupported `no_change` claims are retained: their outcome becomes `unknown`
+and no verifier is fabricated. IDs, numeric session generation, timestamps, output and other run
+metadata are preserved. Completed `no_change` with pinned verification remains unchanged. Reads do
+not rewrite history; subsequent atomic saves keep the existing one-time backup contract.
+Persisted results-chat cards use the same verification invariant when decoding older claims.
+
 Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
-verification. A read does not rewrite the file. The first save of an unversioned `routines.json` copies
-it once to `routines.json.pre-run-store`, then atomically writes `{ version: 1, routines }`.
-Unsupported versioned files stay in place: reads and writes fail explicitly until a compatible plugin
-is installed or an operator restores a supported backup. Only corrupt files are set aside automatically.
+verification. A read does not rewrite the file. First save of unversioned history preserves it once as
+`routines.json.pre-run-store`; first upgrades from version 1/2 preserve `routines.json.v1.bak` /
+`routines.json.v2.bak`. New writes use `{version:3,routines,coordinator}` and retain complete detailed
+history; the ordinary 30-terminal view is only a display projection. Unsupported future versions and
+malformed managed metadata stay in place and refuse access. The private `routines.json.initialized`
+marker prevents known missing/empty history from silently restarting; preserve it with metadata,
+artifacts and backups. Only uninitialized legacy corruption without prior managed evidence is set aside.
 
 To roll back to 1.3.0, stop Paseo and restore `routines.json.pre-run-store` over `routines.json` before
 starting the older plugin. This discards runs recorded after migration; the backup is not refreshed.
 A fresh installation has no pre-migration backup. Without a restored old-format file, 1.3.0 cannot
 interpret the new envelope. Outbound RPC compatibility is not on-disk downgrade compatibility, and
 results-chat cards written with the new fields are not guaranteed to render in the older plugin.
+To return to the prior version-1 RunStore release, stop Paseo and restore `routines.json.v1.bak`.
+To return to the prior version-2 coordinator, preserve current metadata/artifacts and restore
+`routines.json.v2.bak`; older readers cannot safely strip new intents, evidence or session generations.
+Restoring history does not undo external effects; preserve current artifacts and reconcile uncertain
+operations before admitting new work. A stale coordinator lock requires explicit manual recovery after
+checking that its recorded owner process is no longer running.
+RunStore synchronizes staged bytes before rename and the directory after publication; immutable
+migration backups must exactly match their validated original. These filesystem fault tests do not
+claim physical power-loss immunity. See the coordinator recovery guide before repairing a marker
+or a partial/conflicting backup.
 
 ## Development
 

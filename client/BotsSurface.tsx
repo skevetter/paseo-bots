@@ -2,14 +2,13 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
-import { SETUP_PROMPT, startBotChat, syncBotWorkspaceTitle } from "../shared/chat";
+import { SETUP_PROMPT, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
 import type { PolicyState } from "../shared/policies";
-import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
+import { ensureBotHomeRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
 import { autoStarter, withoutStart } from "./autoStart";
@@ -32,7 +31,10 @@ import {
   select,
   surfaceContext,
 } from "./botsSurfaceActions";
-import { ChatPane, type OutgoingMessage } from "./ChatPane";
+import { ChatPane } from "./ChatPane";
+import { type ChatStartFeedback, ChatStartNotices, useChatStartFeedback } from "./chat/LocalStartNotice";
+import { type StartChat, useStartChat } from "./chat/useStartChat";
+import { DraftRecovery, DraftRecoveryDialog, type DraftRecoveryProps } from "./DraftRecovery";
 import { type BotHost, type LocalHost, useBotHost } from "./data";
 import { FleetPage } from "./fleet/FleetPage";
 import { LibraryView } from "./library/LibraryView";
@@ -40,7 +42,6 @@ import { errorText, nativeTokens } from "./native";
 import { BotPanel } from "./panel/BotPanel";
 import { Button } from "./panel/controls";
 import { Splash } from "./Splash";
-import { newMessageId } from "./sent-attachments";
 import type { Selection } from "./sidebar/types";
 import { TeamMap } from "./teams/TeamMap";
 import { TeamSheet } from "./teams/TeamSheet";
@@ -199,18 +200,35 @@ function renderTeamMap(ctx: SurfaceContext): ReactElement {
   );
 }
 
-function renderPane(ctx: SurfaceContext): ReactElement {
+function draftRecoveryProps(ctx: SurfaceContext): DraftRecoveryProps {
+  return {
+    colors: ctx.colors,
+    botIds: Object.keys(ctx.drafts),
+    conflicts: ctx.draftConflicts,
+    saving: ctx.draftSaving,
+    onRetry: () => void ctx.flush(),
+    onDiscard: ctx.discardDrafts,
+    onDiscardAndReview: (botId) => {
+      ctx.discardDrafts(botId);
+      if (ctx.hasPendingDrafts()) return;
+      if (!ctx.values.bots.some((bot) => bot.id === botId)) {
+        ctx.toast.error("This bot no longer exists. Its unsaved edits were discarded.");
+        return;
+      }
+      select(ctx, { botId, chatId: null });
+      ctx.setPanel({ open: true, section: "overview" });
+    },
+  };
+}
+
+function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElement {
   const { selectedBot, selection, layout, panel } = ctx;
   if (ctx.teamMap) return renderTeamMap(ctx);
   if (ctx.fleet) {
-    if (Object.keys(ctx.drafts).length > 0)
+    if (ctx.hasPendingDrafts())
       return (
         <View style={{ padding: 24, gap: 12 }}>
-          <Text accessibilityRole="alert" style={{ color: ctx.colors.statusDanger }}>
-            Save pending bot edits before changing fleet settings. Unsaved drafts cannot overwrite a bulk
-            operation.
-          </Text>
-          <Button colors={ctx.colors} label="Retry saving bot edits" onPress={() => void ctx.flush()} />
+          <DraftRecovery {...draftRecoveryProps(ctx)} />
           <Button colors={ctx.colors} label="Back to bots" onPress={() => ctx.setFleet(false)} />
         </View>
       );
@@ -236,6 +254,9 @@ function renderPane(ctx: SurfaceContext): ReactElement {
       }
       onTogglePanel={() => ctx.setPanel({ open: !panel.open, section: panel.section })}
       onStarted={(chatId) => ctx.setSelection({ botId: selectedBot.id, chatId })}
+      feedback={feedback}
+      flush={ctx.flush}
+      hasDraft={ctx.hasDraft}
       onStartHandled={(id) => ctx.setSelection((current) => withoutStart(current, id))}
     />
   );
@@ -259,14 +280,18 @@ function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
       onSection={(section) => ctx.setPanel({ open: true, section })}
       onClose={() => ctx.setPanel({ open: false, section: panel.section })}
       onPatch={(patch) => ctx.patchBot(selectedBot.id, patch)}
-      flush={ctx.flush}
+      flush={async () => (await ctx.flush()) && !ctx.hasDraft(selectedBot.id)}
       onRestore={(snapshot) => {
         ctx.patchBot(selectedBot.id, snapshot);
         ctx.setPanelVersion((version) => version + 1);
         ctx.toast.show("Restored. Undo it from History if needed.", { variant: "success" });
       }}
       onSetup={() => {
-        select(ctx, { botId: selectedBot.id, chatId: null, start: { id: newUuid(), prompt: SETUP_PROMPT } });
+        select(ctx, {
+          botId: selectedBot.id,
+          chatId: null,
+          start: { id: newUuid(), prompt: SETUP_PROMPT, purpose: "maintenance" },
+        });
         // On phones the panel covers the chat.
         if (layout.compact) ctx.setPanel({ open: false, section: panel.section });
       }}
@@ -416,11 +441,12 @@ function renderRenameDialog(ctx: SurfaceContext): ReactElement | null {
 }
 
 function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
+  const feedback = useChatStartFeedback();
   const { colors, layout, keyboardHeight } = ctx;
   const parts: ScreenParts = {
     sidebar: renderSidebar(ctx),
     tabProps: teamTabProps(ctx),
-    pane: renderPane(ctx),
+    pane: renderPane(ctx, feedback),
     settingsPanel: renderSettingsPanel(ctx),
     libraryScreen: renderLibrary(ctx),
   };
@@ -440,6 +466,9 @@ function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
         style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}
         onLayout={(event) => ctx.setSurfaceWidth(event.nativeEvent.layout.width)}
       >
+        {ctx.hasPendingDrafts() && (ctx.settings.saveError || Object.keys(ctx.draftConflicts).length > 0) ? (
+          <DraftRecoveryDialog {...draftRecoveryProps(ctx)} />
+        ) : null}
         {layout.compact ? renderCompact(ctx, parts) : renderDesktop(ctx, parts)}
         {renderTeamSheet(ctx)}
         {renderNewBotDialog(ctx)}
@@ -470,53 +499,10 @@ interface SelectedChatProps {
   onTogglePanel(): void;
   onStarted(chatId: string): void;
   onStartHandled(id: string): void;
+  feedback: ChatStartFeedback;
+  flush(): Promise<boolean>;
+  hasDraft(botId: string): boolean;
 }
-
-interface StartChatOptions {
-  bot: Bot;
-  library: Library;
-  policy: PolicyState;
-  host: BotHost;
-  onStarted(chatId: string): void;
-}
-
-type StartChat = (message: OutgoingMessage) => Promise<void>;
-
-function useStartChat({ bot, library, policy, host, onStarted }: StartChatOptions): StartChat {
-  const ensureHome = useRpc(ensureBotHomeRpc);
-  const compose = useRpc(systemPromptRpc);
-  const mountServers = useRpc(mountRpc);
-  const queryClient = useQueryClient();
-
-  return async (message) => {
-    if (!host.api) throw new Error(`${host.label} is offline.`);
-    // The bot's folder holds its memory and skills even when it works elsewhere.
-    const home = await ensureHome({ botId: bot.id });
-    const placement = bot.cwd
-      ? { path: bot.cwd, projectRoot: null }
-      : { path: home.path, projectRoot: home.root };
-    const { systemPrompt } = await compose({ bot, local: host.isLocal, message: message.text });
-    // The plugin's tools and connected apps go through this host's relay, so only bots here get them.
-    const agentId = newUuid();
-    const plugin = host.isLocal ? await mountServers({ botId: bot.id, agentId }) : {};
-    const id = await startBotChat(host.api, {
-      bot,
-      library,
-      policy,
-      ...(host.isLocal ? { agentId } : {}),
-      plugin,
-      placement,
-      prompt: message.text,
-      systemPrompt,
-      images: message.images,
-      attachments: message.attachments,
-      clientMessageId: message.messageId,
-    });
-    await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "chats", host.key, bot.id] });
-    onStarted(id);
-  };
-}
-
 function useWorkspaceTitle(bot: Bot, host: BotHost) {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const latest = useRef({ bot, ensureHome });
@@ -543,12 +529,10 @@ function useAutoStart(selection: Selection, host: BotHost, start: StartChat, cle
   const [offer] = useState(() =>
     autoStarter({
       start: (request) =>
-        latest.current.start({
-          text: request.prompt,
-          messageId: newMessageId(),
-          images: [],
-          attachments: [],
-        }),
+        latest.current.start(
+          { text: request.prompt, messageId: request.id, images: [], attachments: [] },
+          request.purpose ?? "task",
+        ),
       clear: (id) => latest.current.clear(id),
       onError: (error) => latest.current.toast.error(`Couldn't start: ${errorText(error)}`),
     }),
@@ -573,29 +557,44 @@ function SelectedChat({
   onTogglePanel,
   onStarted,
   onStartHandled,
+  feedback,
+  flush,
+  hasDraft,
 }: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
-  const start = useStartChat({ bot, library, policy, host, onStarted });
+  const start = useStartChat({ bot, library, policy, host, onStarted, feedback, flush, hasDraft });
   useWorkspaceTitle(bot, host);
   useAutoStart(selection, host, start, onStartHandled);
 
   return (
-    <ChatPane
-      colors={colors}
-      bot={bot}
-      host={host}
-      chat={chat}
-      chatId={selection.chatId}
-      panelOpen={panelOpen}
-      layout={layout}
-      keyboardOpen={keyboardOpen}
-      typeVersion={typeVersion}
-      onBack={onBack}
-      onBotMenu={onBotMenu}
-      onTogglePanel={onTogglePanel}
-      onStart={start}
-      onOpenChat={onStarted}
-    />
+    <View style={{ flex: 1, minHeight: 0 }}>
+      <ChatStartNotices
+        colors={colors}
+        botId={bot.id}
+        host={host}
+        compact={layout.compact}
+        feedback={feedback}
+        onStarted={onStarted}
+        flush={flush}
+        hasDraft={hasDraft}
+      />
+      <ChatPane
+        colors={colors}
+        bot={bot}
+        host={host}
+        chat={chat}
+        chatId={selection.chatId}
+        panelOpen={panelOpen}
+        layout={layout}
+        keyboardOpen={keyboardOpen}
+        typeVersion={typeVersion}
+        onBack={onBack}
+        onBotMenu={onBotMenu}
+        onTogglePanel={onTogglePanel}
+        onStart={start}
+        onOpenChat={onStarted}
+      />
+    </View>
   );
 }

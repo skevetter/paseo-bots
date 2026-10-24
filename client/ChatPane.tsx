@@ -110,6 +110,7 @@ export function ChatPane({
         host={host}
         agentId={chatId}
         agent={chat.agent}
+        agentReady={!chat.loading}
         running={running}
         layout={layout}
         keyboardOpen={keyboardOpen}

@@ -1,10 +1,12 @@
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 import type { ComposerAttachment } from "../../../shared/attachments";
 import { getDraft, loadDrafts, setDraft } from "./drafts";
+import { editDraft } from "./submission";
 
 export interface DraftMessage {
   text: string;
   attachments: ComposerAttachment[];
+  messageId?: string;
 }
 
 export interface ComposerDraftState {
@@ -13,24 +15,24 @@ export interface ComposerDraftState {
   latest: RefObject<DraftMessage>;
   updateText(next: string): void;
   updateAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
+  replace(next: DraftMessage): void;
 }
 
 export function useComposerDraft(draftKey: string): ComposerDraftState {
   const initial = useMemo(() => getDraft(draftKey), [draftKey]);
-  const [text, setText] = useState(initial?.text ?? "");
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>(initial?.attachments ?? []);
+  const [draft, setState] = useState<DraftMessage>(initial ?? { text: "", attachments: [] });
   const touched = useRef(false);
-  const latest = useRef<DraftMessage>({ text, attachments });
-  latest.current = { text, attachments };
+  const latest = useRef(draft);
 
-  const updateText = (next: string) => {
+  const replace = (next: DraftMessage) => {
+    if (next === latest.current) return;
     touched.current = true;
-    setText(next);
+    latest.current = next;
+    setState(next);
   };
-  const updateAttachments = (update: (current: ComposerAttachment[]) => ComposerAttachment[]) => {
-    touched.current = true;
-    setAttachments(update);
-  };
+  const updateText = (text: string) => replace(editDraft(latest.current, { text }));
+  const updateAttachments = (update: (current: ComposerAttachment[]) => ComposerAttachment[]) =>
+    replace(editDraft(latest.current, { attachments: update(latest.current.attachments) }));
 
   // Phones read drafts from AsyncStorage after the first render; apply it unless the user already typed.
   useEffect(() => {
@@ -39,8 +41,8 @@ export function useComposerDraft(draftKey: string): ComposerDraftState {
       if (!alive || touched.current) return;
       const draft = getDraft(draftKey);
       if (draft) {
-        setText(draft.text);
-        setAttachments(draft.attachments);
+        latest.current = draft;
+        setState(draft);
       }
     });
     return () => {
@@ -49,8 +51,8 @@ export function useComposerDraft(draftKey: string): ComposerDraftState {
   }, [draftKey]);
 
   useEffect(() => {
-    if (touched.current) setDraft(draftKey, { text, attachments });
-  }, [draftKey, text, attachments]);
+    if (touched.current) setDraft(draftKey, draft);
+  }, [draftKey, draft]);
 
-  return { text, attachments, latest, updateText, updateAttachments };
+  return { ...draft, latest, updateText, updateAttachments, replace };
 }

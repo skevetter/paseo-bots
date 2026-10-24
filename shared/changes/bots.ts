@@ -117,6 +117,9 @@ export function addRoutine(
     schedule: scheduleFrom(change.schedule, new Date(context.now)),
     resultsChatId: null,
     createdAt: context.now,
+    ...(change.deadline_seconds === undefined
+      ? {}
+      : { runtime: { deadlineSeconds: change.deadline_seconds } }),
   };
   return withBot(values, { ...bot, routines: [...bot.routines, routine] }, context);
 }
@@ -134,6 +137,9 @@ export function updateRoutine(
     prompt: change.instructions?.trim() ?? routine.prompt,
     schedule: change.schedule ? scheduleFrom(change.schedule, new Date(context.now)) : routine.schedule,
     enabled: change.enabled ?? routine.enabled,
+    ...(change.deadline_seconds === undefined
+      ? {}
+      : { runtime: { ...routine.runtime, deadlineSeconds: change.deadline_seconds } }),
   };
   return withBot(
     values,

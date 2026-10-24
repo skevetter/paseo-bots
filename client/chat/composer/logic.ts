@@ -135,6 +135,7 @@ export interface ComposerDraft {
   text: string;
   attachments: ComposerAttachment[];
   updatedAt: number;
+  messageId?: string;
 }
 
 export function composerDraftKey(hostKey: string, botId: string, agentId: string | null): string {
@@ -167,7 +168,9 @@ function parseDraftEntry(value: unknown): ComposerDraft | null {
   const text = typeof entry.text === "string" ? entry.text : "";
   const attachments = Array.isArray(entry.attachments) ? entry.attachments.filter(isAttachment) : [];
   const updatedAt = typeof entry.updatedAt === "number" ? entry.updatedAt : 0;
-  return isDraftEmpty({ text, attachments }) ? null : { text, attachments, updatedAt };
+  if (isDraftEmpty({ text, attachments })) return null;
+  const messageId = typeof entry.messageId === "string" && entry.messageId ? entry.messageId : undefined;
+  return { text, attachments, updatedAt, ...(messageId ? { messageId } : {}) };
 }
 
 export function parseDrafts(raw: string | null | undefined): Record<string, ComposerDraft> {
@@ -205,7 +208,11 @@ export function serializeDrafts(
     if (!draft.attachments.some((attachment) => attachment.kind === "image")) continue;
     entries[index] = [
       key,
-      { ...draft, attachments: draft.attachments.filter((attachment) => attachment.kind !== "image") },
+      {
+        ...draft,
+        messageId: undefined,
+        attachments: draft.attachments.filter((attachment) => attachment.kind !== "image"),
+      },
     ];
     json = JSON.stringify(Object.fromEntries(entries.filter(([, value]) => !isDraftEmpty(value))));
   }
@@ -214,9 +221,10 @@ export function serializeDrafts(
 
 /** Keeps anything typed while the failed send was in flight. */
 export function restoreFailedSend(
-  failed: { text: string; attachments: ComposerAttachment[] },
-  current: { text: string; attachments: ComposerAttachment[] },
-): { text: string; attachments: ComposerAttachment[] } {
+  failed: { text: string; attachments: ComposerAttachment[]; messageId?: string },
+  current: { text: string; attachments: ComposerAttachment[]; messageId?: string },
+): { text: string; attachments: ComposerAttachment[]; messageId?: string } {
+  if (isDraftEmpty(current)) return failed;
   const typed = current.text.trim();
   const text = !typed ? failed.text : !failed.text ? current.text : `${failed.text}\n${current.text}`;
   const ids = new Set(failed.attachments.map((attachment) => attachment.id));

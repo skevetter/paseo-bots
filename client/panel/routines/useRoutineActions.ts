@@ -20,12 +20,16 @@ export interface RoutineActions {
 }
 
 function showRunOutcome(toast: ToastApi, routine: Routine, botName: string, started: RoutineRun) {
-  if (started.executionStatus === "running")
-    toast.show(`Started "${routine.name}". It appears as a chat under ${botName}.`, {
+  if (started.agentCreationStatus === "created" || started.managed?.hostCreatedAt !== undefined)
+    toast.show(`Chat created for "${routine.name}" under ${botName}. Task outcome: ${started.taskOutcome}.`, {
       variant: "success",
     });
   else if (started.skipped === "busy") toast.show(`"${routine.name}" is still working on its last run.`);
-  else toast.error(started.error ?? "Couldn't start the run.");
+  else if (["queued", "reserved", "starting", "unknown"].includes(started.executionStatus))
+    toast.show(
+      `"${routine.name}" was accepted; chat creation is not confirmed. Check Runs before submitting again.`,
+    );
+  else toast.error(started.error ?? "The run was not created.");
 }
 
 export function useRoutineActions({
@@ -48,7 +52,7 @@ export function useRoutineActions({
   const run = async (routine: Routine, lastRunId: string | null) => {
     mark(routine.id, { status: "starting" });
     try {
-      await flush();
+      if (!(await flush())) throw new Error("Save or discard unsaved bot edits before running this routine.");
       const { run: started } = await runNow({ botId: bot.id, routineId: routine.id });
       mark(routine.id, null);
       showRunOutcome(toast, routine, bot.name, started);
@@ -60,7 +64,7 @@ export function useRoutineActions({
 
   const copyWebhook = async (routine: Routine) => {
     try {
-      await flush();
+      if (!(await flush())) throw new Error("Save or discard unsaved bot edits before copying its webhook.");
       await copyText((await webhook({ routineId: routine.id })).url);
       toast.show("Webhook URL copied", { variant: "success" });
     } catch (error) {

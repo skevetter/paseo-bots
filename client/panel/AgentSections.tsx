@@ -6,6 +6,7 @@ import {
   SettingsRow,
   SettingsSection,
   SettingsSelect,
+  SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -30,6 +31,7 @@ import { AppsPicker } from "./AppsPicker";
 import type { PanelProps } from "./BotPanel";
 import { InputField, TextAreaField } from "./fields";
 import { LibraryPicker } from "./LibraryPicker";
+import { ModelPicker } from "./ModelPicker";
 import { AdvancedToggle, CardNote, DrillRow, SectionMeta } from "./rows";
 import { StatusBadge } from "./status";
 
@@ -244,7 +246,33 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
 
   return (
     <>
-      <AgentSection bot={bot} providers={providers.data} loading={providers.isLoading} onPatch={onPatch} />
+      <AgentSection
+        colors={colors}
+        bot={bot}
+        providers={providers.data}
+        loading={providers.isLoading}
+        onPatch={onPatch}
+      />
+      <SettingsSection
+        title="Execution"
+        info="Separate from model policy and approval. Changes apply to future tasks and routine runs, not existing conversations."
+      >
+        <SettingsCard>
+          <SettingsSwitch
+            label="Managed execution"
+            hint={
+              host.isLocal
+                ? "Opt in to durable task admission and capacity reservations. Each task starts separately; this does not enable routing or Memory Bridge, or enforce an in-flight spend cap."
+                : "Unavailable on another host. Manual chats use that host without local managed accounting, budgets or Memory Bridge."
+            }
+            value={host.isLocal && bot.executionMode === "managed"}
+            disabled={!host.isLocal}
+            onValueChange={(enabled) => {
+              if (host.isLocal) onPatch({ hostId: null, executionMode: enabled ? "managed" : "legacy" });
+            }}
+          />
+        </SettingsCard>
+      </SettingsSection>
 
       <AdvancedToggle colors={colors} open={advanced} onToggle={() => setAdvanced(!advanced)} />
       {advanced ? (
@@ -262,11 +290,13 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
 }
 
 function AgentSection({
+  colors,
   bot,
   providers,
   loading,
   onPatch,
 }: {
+  colors: PanelProps["colors"];
   bot: Bot;
   providers: readonly ProviderEntry[] | undefined;
   loading: boolean;
@@ -298,19 +328,13 @@ function AgentSection({
             });
           }}
         />
-        <SettingsSelect
-          label="Model"
-          value={provider ? (bot.model ?? "") : "Choose a provider first"}
+        <ModelPicker
+          key={`${bot.hostId ?? "local"}:${bot.provider}`}
+          colors={colors}
+          value={bot.model}
           disabled={!provider}
-          options={
-            provider
-              ? [
-                  { label: "Default", value: "" },
-                  ...models.map((entry) => ({ label: entry.label, value: entry.id })),
-                ]
-              : []
-          }
-          onValueChange={(value) => onPatch({ model: value || null, thinkingOptionId: null })}
+          models={models}
+          onChange={(value) => onPatch({ model: value, thinkingOptionId: null })}
         />
         {thinking.length > 0 ? (
           <SettingsSelect
@@ -366,6 +390,7 @@ function WhereItRunsSection({
           onValueChange={(value) =>
             onPatch({
               hostId: value || null,
+              executionMode: "legacy",
               provider: "",
               model: null,
               modeId: null,

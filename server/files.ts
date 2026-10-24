@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { link, lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const fileLocks = new Map<string, Promise<unknown>>();
@@ -89,4 +90,103 @@ export function writeAtomic(path: string, text: string, mode?: number): Promise<
 
 export function writeJson(path: string, value: unknown, mode?: number): Promise<void> {
   return writeAtomic(path, JSON.stringify(value, null, 2), mode);
+}
+
+async function syncDirectory(path: string): Promise<void> {
+  const directory = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+}
+
+async function durableDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  let current = await realpath(path);
+  // An existing ancestor may have been created by a caller without syncing its parent entry.
+  for (;;) {
+    await syncDirectory(current);
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
+async function withDurableStage(
+  path: string,
+  text: string,
+  mode: number | undefined,
+  publish: (temporary: string) => Promise<void>,
+): Promise<void> {
+  await durableDirectory(dirname(path));
+  const temporary = `${path}.${randomBytes(8).toString("hex")}.tmp`;
+  const stage = await open(temporary, "wx", 0o600);
+  try {
+    await stage.writeFile(text, "utf8");
+    if (mode !== undefined) await stage.chmod(mode);
+    await stage.sync();
+    await publish(temporary);
+  } finally {
+    try {
+      await stage.close();
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+}
+
+/** Sync before replacement; a post-publication directory-sync failure still requires recovery. */
+export function writeDurableAtomic(
+  path: string,
+  text: string,
+  options: { mode?: number; beforePublish?: () => Promise<void> } = {},
+): Promise<void> {
+  return withFileLock(path, () =>
+    withDurableStage(path, text, options.mode, async (temporary) => {
+      await options.beforePublish?.();
+      await rename(temporary, path);
+      await syncDirectory(await realpath(dirname(path)));
+    }),
+  );
+}
+
+async function verifyDurableExisting(path: string, text: string): Promise<void> {
+  try {
+    const existing = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    try {
+      const identity = await existing.stat();
+      if (!identity.isFile()) throw new Error("Existing target is not a regular file.");
+      if (!(await existing.readFile()).equals(Buffer.from(text, "utf8")))
+        throw new Error("Existing target bytes differ from the complete expected content.");
+      await existing.sync();
+      const current = await lstat(path);
+      if (!current.isFile() || current.ino !== identity.ino || current.dev !== identity.dev)
+        throw new Error("Existing target changed during validation.");
+    } finally {
+      await existing.close();
+    }
+  } catch (error) {
+    throw new Error(
+      `Durable publication refused for ${path}; recover the existing target without overwriting it.`,
+      {
+        cause: error,
+      },
+    );
+  }
+}
+
+/** A no-replace publication; only an exact, regular existing file is a recoverable replay. */
+export function publishDurableExclusive(path: string, text: string, mode?: number): Promise<void> {
+  return withFileLock(path, () =>
+    withDurableStage(path, text, mode, async (temporary) => {
+      try {
+        await link(temporary, path);
+      } catch (error) {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+        await verifyDurableExisting(path, text);
+      }
+      await syncDirectory(await realpath(dirname(path)));
+    }),
+  );
 }

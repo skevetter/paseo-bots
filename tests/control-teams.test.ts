@@ -169,7 +169,9 @@ describe("bot export and import control tools", () => {
       bots: [makeBot({ id: "bot-n", name: "Noter", mcpServerIds: ["notes"] })],
       library: { skills: [], mcpServers: [notes] },
     });
-    return String((await seeded.call("bots_export")).data.json);
+    const json = String((await seeded.call("bots_export")).data.json);
+    await seeded.stop();
+    return json;
   }
 
   it("holds a file that brings MCP servers for approval, and accepting it adds the bot", async () => {

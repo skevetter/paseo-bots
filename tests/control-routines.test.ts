@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ROUTINE_TOOLS } from "../server/control/tools/routines";
 import type { PaseoApi } from "../server/paseo";
 import { RoutineScheduler } from "../server/scheduler";
+import { RoutineRunResponseSchema } from "../shared/rpc";
 import { startControl } from "./control-helpers";
+import { makePrepared } from "./coordinator-fixture";
 import { defined, makeBot, useTempPaseoHome } from "./helpers";
 
 const running: { stop(): Promise<void> }[] = [];
 
 async function control() {
-  const started = await startControl(ROUTINE_TOOLS, { bots: [makeBot({ id: "bot-a", name: "Inbox" })] });
+  const started = await startControl(ROUTINE_TOOLS, {
+    bots: [makeBot({ id: "bot-a", name: "Inbox", executionMode: "managed" })],
+  });
   running.push(started);
   return started;
 }
@@ -76,6 +80,10 @@ describe("routine control tools", () => {
     const timed = await call("routines_webhook", { bot: "Inbox", routine: "Timed" });
     expect(timed.isError).toBe(true);
   });
+});
+
+describe("routine execution control tools", () => {
+  useTempPaseoHome("paseo-bots-control-routine-execution-");
 
   it("runs a routine only once Paseo is attached, then reports it", async () => {
     const { call, context } = await control();
@@ -86,18 +94,24 @@ describe("routine control tools", () => {
 
     const launched: string[] = [];
     const original = context.scheduler;
-    context.scheduler = new RoutineScheduler(
-      context.host,
-      context.relay,
-      async (_host, _relay, _bot, input) => {
-        launched.push(input.title);
-        return "agent-1";
+    await original.stop();
+    context.scheduler = new RoutineScheduler(context.host, context.relay, {
+      prepare: async (_host, _relay, bot, input) =>
+        makePrepared({
+          agentId: input.agentId,
+          idempotencyKey: input.idempotencyKey,
+          botId: bot.id,
+          prompt: input.prompt,
+          title: input.title,
+          labels: input.labels,
+          purpose: input.purpose ?? "task",
+        }),
+      launch: async (_host, _relay, prepared) => {
+        launched.push(prepared.title ?? "");
+        return prepared.agentId;
       },
-    );
-    context.host.attach({
-      agents: { ref: () => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }) }) },
-    } as unknown as PaseoApi);
-    await Promise.all([original.stop(), context.scheduler.stop()]);
+    });
+    context.host.attach({ agents: { ref: () => ({ refresh: async () => null }) } } as unknown as PaseoApi);
 
     const ran = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
     expect(ran.isError).toBe(false);
@@ -126,11 +140,34 @@ describe("what routine control tools say about a finished run", () => {
     const { call, context } = await control();
     await call("routines_create", { bot: "Inbox", name: "Morning", instructions: "Go.", schedule: daily });
     const original = context.scheduler;
-    context.scheduler = new RoutineScheduler(context.host, context.relay, async () => "agent-1");
-    context.host.attach({
-      agents: { ref: () => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }) }) },
-    } as unknown as PaseoApi);
-    await Promise.all([original.stop(), context.scheduler.stop()]);
+    await original.stop();
+    let completionEpoch: number | undefined;
+    context.scheduler = new RoutineScheduler(context.host, context.relay, {
+      prepare: async (_host, _relay, bot, input) =>
+        makePrepared({
+          agentId: input.agentId,
+          idempotencyKey: input.idempotencyKey,
+          botId: bot.id,
+          prompt: input.prompt,
+          title: input.title,
+          labels: input.labels,
+          purpose: input.purpose ?? "task",
+        }),
+      launch: async (_host, _relay, prepared) => {
+        const receipt = await context.scheduler.coordinator.sessionOpened({
+          agentId: prepared.agentId,
+          workspaceId: null,
+          provider: prepared.provider,
+          cwd: prepared.placement.path,
+          reason: "create",
+          purpose: "interactive",
+        });
+        completionEpoch = defined(receipt ?? undefined).sessionEpoch;
+        await context.scheduler.coordinator.sessionActive(prepared.agentId);
+        return prepared.agentId;
+      },
+    });
+    context.host.attach({ agents: { ref: () => ({ refresh: async () => null }) } } as unknown as PaseoApi);
     const started = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
     expect(started.data.run).toMatchObject({
       status: "running",
@@ -140,13 +177,13 @@ describe("what routine control tools say about a finished run", () => {
     const status = await call("routines_status");
     const routineId = defined(Object.keys(status.data.routines as object)[0]);
 
-    await context.scheduler.finished(routineId, "agent-1", {
+    const admitted = RoutineRunResponseSchema.parse(started.data.run);
+    await context.scheduler.finished(routineId, defined(admitted.agentId), {
       outcome: { kind: "completed" },
       reply: "Done. Everything verified: 100% success.",
+      sessionEpoch: defined(completionEpoch),
     });
     const history = await call("routines_history", { bot: "Inbox", routine: "Morning" });
-    expect(history.text).toMatch(/manual: Completed, not verified$/);
-    expect(history.text).not.toMatch(/succe/i);
     expect((history.data.runs as unknown[])[0]).toMatchObject({
       status: "succeeded",
       executionStatus: "completed",

@@ -273,6 +273,7 @@ describe("MCP server updates", () => {
       args: ["mcp-server-fetch"],
     });
 
+    await held.stop();
     const allowed = await control(seed, { allowElevated: true });
     const applied = await allowed.call("mcp_servers_update", { server: "fetch", config: devtools });
     expect(applied.data.status).toBe("applied");

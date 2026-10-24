@@ -1,4 +1,4 @@
-# Runtime policies and config envelope v2
+# Runtime policies and config envelope v3
 
 ## Defaults and adoption
 
@@ -148,27 +148,37 @@ references, and returns the full referrer list. Read-only MCP tools `policies_li
 
 ## Migration, failure and rollback
 
-Only `server/state.ts` owns config envelopes. Host `botSettings` is independently versioned at 3 and is
-unchanged. Routine run history has its own independent store and format.
+Host `botSettings` is independently versioned at 3 and is unchanged. Routine run history has its own
+independent store and format.
 
-Reading envelope version 1:
+Reading envelope version 1 or 2:
 
-1. Parse values using the current bot schema, keeping receipts, unresolved-operation pins and existing overrides.
-2. Atomically save the original bytes as `state.json.v1.bak` (mode 0600).
-3. Read the backup back and verify its SHA-256, then atomically save the digest as
-   `state.json.v1.bak.sha256`, using the standard `sha256  filename` checksum-file format.
-4. Atomically replace `state.json` with envelope version 2.
+1. Parse values using the current bot schema, keeping receipts, unresolved-operation pins, existing overrides
+   and explicit managed opt-ins.
+2. Publish the original bytes as `state.json.v<N>.bak` (N is 1 or 2; mode 0600) with a no-replace publish. If
+   the backup already exists it must match the source bytes exactly; otherwise migration refuses before
+   touching the source.
+3. Read the backup back and verify its SHA-256, then no-replace publish the digest as
+   `state.json.v<N>.bak.sha256`, using the standard `sha256  filename` checksum-file format. An existing digest
+   must match.
+4. Atomically replace `state.json` with envelope version 3.
 
-A crash before step 4 leaves the original v1 config intact. Reopening repeats the migration safely.
-Reopening a v2 config does not rewrite it or its backup. `legacyBackupPath(statePath)` names the backup.
+A crash before step 4 leaves the original config intact. Reopening repeats the migration safely.
+Reopening a v3 config does not rewrite it or its backups. `configBackupPath(statePath, version)` names the
+backup.
+
+Why v3: older v2 readers can rewrite a file while silently stripping fields they do not know.
+The actual B04 reader stripped managed `executionMode`; both that reader and the later 9cff0f5
+v2 reader refused envelope v3 before parsing its values.
 
 Ordinary malformed files retain `readParsed`'s existing `.corrupt-<timestamp>` set-aside behavior.
 A future envelope version is different: `UnsupportedFileVersionError` from `server/files.ts` keeps it in
 place and refuses every read/write, including after restart, rather than setting it aside and later
-silently initializing an empty config. Upgrade the plugin to read that configuration.
+silently initializing an empty config. Version 4 and later are refused unchanged. Upgrade the plugin to read
+that configuration.
 
-To roll back: stop the plugin/daemon so no writer is active, retain the current v2 file separately,
-verify `state.json.v1.bak.sha256` with `shasum -a 256 -c`, restore `state.json.v1.bak` as `state.json`, then
-start the older plugin. Restoring only plugin code is not a rollback: an old reader cannot understand v2.
-**Restoring the v1 backup loses every receipt, policy, binding and other config change written after that
+To roll back: stop the plugin/daemon so no writer is active, retain the current v3 file separately, verify
+`state.json.v<N>.bak.sha256` with `shasum -a 256 -c`, restore `state.json.v<N>.bak` as `state.json`, then
+start the older plugin. Restoring only plugin code is not a rollback: an old v2 reader refuses a v3 file.
+**Restoring a backup loses every receipt, policy, binding and other config change written after that
 backup.** Back up the current file before doing so; a lost receipt can also lose replay protection.

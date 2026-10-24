@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Bot, Routine } from "../../../shared/bot";
 import { byRef, findBot, ROUTINE_REF } from "../../../shared/changes/refs";
-import type { Change } from "../../../shared/changes/schema";
+import { type Change, DeadlineSeconds } from "../../../shared/changes/schema";
 import { describeSchedule, nextRun, ScheduleInput } from "../../../shared/routines";
 import { describeRun } from "../../../shared/runs";
 import { routineRunResponse } from "../../routine-responses";
@@ -41,6 +41,7 @@ function summary(bot: Bot, routine: Routine, lastRunAt: string | null) {
     enabled: routine.enabled,
     nextRun: next?.toISOString() ?? null,
     resultsChatId: routine.resultsChatId,
+    deadlineSeconds: routine.runtime?.deadlineSeconds ?? null,
   };
 }
 
@@ -119,11 +120,12 @@ const create = defineControlTool({
     instructions: z.string().min(1).max(20_000).describe("What to do on each run."),
     schedule: ScheduleInput,
     results_chat_id: ResultsChat,
+    deadline_seconds: DeadlineSeconds,
   }),
-  async run({ bot: ref, name, instructions, schedule, results_chat_id }, context) {
+  async run({ bot: ref, name, instructions, schedule, results_chat_id, deadline_seconds }, context) {
     const bot = await botByRef(context, ref);
     const done = await change(context, `Add routine ${name}`, [
-      { type: "add_routine", bot: bot.id, name, instructions, schedule },
+      { type: "add_routine", bot: bot.id, name, instructions, schedule, deadline_seconds },
     ]);
     if (done.pending) return done.pending;
     const known = new Set(bot.routines.map((entry) => entry.id));
@@ -148,6 +150,7 @@ const update = defineControlTool({
     schedule: ScheduleInput.optional(),
     enabled: z.boolean().optional().describe("false pauses it."),
     results_chat_id: ResultsChat,
+    deadline_seconds: DeadlineSeconds,
   }),
   async run({ bot: botRef, routine: ref, results_chat_id, ...fields }, context) {
     const { bot, routine } = await routineByRef(context, botRef, ref);

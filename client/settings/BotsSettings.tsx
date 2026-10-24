@@ -27,6 +27,7 @@ import { useBotHost, useProviders } from "../data";
 import { confirmDialog, errorText } from "../native";
 import { Button, SheetActions } from "../panel/controls";
 import { FormTextArea } from "../panel/fields";
+import { ModelPicker } from "../panel/ModelPicker";
 import { CardNote } from "../panel/rows";
 import { Alert } from "../panel/status";
 import type { PaseoProviderEntry } from "../paseo";
@@ -203,14 +204,13 @@ function DefaultsSection({
           onValueChange={(value) => onChange({ provider: value, model: null, thinkingOptionId: null })}
         />
         {provider ? (
-          <SettingsSelect
-            label="Model"
-            value={defaults.model ?? ""}
-            options={[
-              { label: "Default", value: "" },
-              ...models.map((entry) => ({ label: entry.label, value: entry.id })),
-            ]}
-            onValueChange={(value) => onChange({ model: value || null, thinkingOptionId: null })}
+          <ModelPicker
+            key={`${localHost.id}:${defaults.provider}`}
+            colors={colors}
+            value={defaults.model}
+            models={models}
+            disabled={!provider}
+            onChange={(value) => onChange({ model: value, thinkingOptionId: null })}
           />
         ) : null}
         <ApprovalRows

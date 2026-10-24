@@ -23,27 +23,29 @@ When the SDK is bumped, a failing fixture means a contract below changed: read t
 ## How the plugin reaches the host
 
 - Server code gets `PaseoApi` from `PluginHandlerContext["paseo"]` (`server/paseo.ts`). `PaseoApi` (`@getpaseo/client`) exposes `agents`, `workspaces`, `projects`, `providers`, `config`, `terminals`, `observeEvents`, `dispose`. It has **no** server-info or feature accessor: the feature map the daemon advertises in its `server_info` message lives on `DaemonClient.getLastServerInfoMessage()`, which a plugin cannot reach. So a plugin cannot ask "does this host support X" up front; it can only attempt the call and classify the error.
-- Chats start in `startBotChat` (`shared/chat.ts`) against the narrow `ChatApi` interface, which `PaseoApi` is assignable to. Two callers:
-  - `server/chats.ts` `startChat` (routines, `ask_bot`): always picks `agentId = newUuid()`. Refuses a bot with `hostId` set.
-  - `client/BotsSurface.tsx` `useStartChat` (UI): passes `agentId` only when `host.isLocal`. Chats on a remote host are created without a caller-selected id.
+- `shared/chat.ts` exposes a narrow, SDK-neutral `ChatApi`, assignable from `PaseoApi`. Chat creation has two stages:
+  - `prepareBotChat(api, input)` resolves the actual provider/model, available approval/thinking defaults, policy and final config, without creating a project, workspace or agent.
+  - `launchPreparedBotChat(api, prepared, options?)` creates/reuses the workspace and launches only that artifact. It never reads provider defaults, bot settings or policy again. Runtime options contain `onEvent` and an optional `AbortSignal`, never serialized authority.
+  - `startBotChat(api, input)` composes both for plain callers, passing `input.onEvent` separately.
+- Local UI creation calls `bots.chats.start`; the server selects the actual legacy/managed mode from current state. Managed starts use `bots.runs.prepare/start` and the same durable coordinator admission path as routines and colleague asks. Ordinary legacy starts retain deliberate B04 policy resolution but do not claim managed capacity or budget enforcement. Remote manual chats stay on the selected host's shared prepare/launch adapter, without local relay or managed-accounting claims.
 
 ## Create passthrough
 
 Options type for `workspace.agents.create` is `PaseoWorkspaceAgentCreateOptions` = `PaseoAgentCreateOptions` minus `cwd`. Fixtures pin the five fields below on the type and on the wire.
 
-| Field | SDK type (0.11.1) | On the wire (`agent.create.request`) | `ChatApi` / `startBotChat` today |
+| Field | SDK type (0.11.1) | On the wire (`agent.create.request`) | Shared preparation / launch |
 | --- | --- | --- | --- |
-| `agentId` | `string`, must be a UUID | `agentId` | forwarded (`StartChatInput.agentId`) |
-| `idempotencyKey` | `string` | `idempotencyKey` | **dropped**: not in `ChatApi` |
-| `env` | `Record<string, string>` | `env` | **dropped** |
-| `clientMessageId` | `string` | `clientMessageId` | forwarded |
-| `outputSchema` | `Record<string, unknown>` | `outputSchema` | **dropped** |
-| `prompt` | `string` | `initialPrompt` | forwarded |
-| `title` | `string`, in `config.title` | same | forwarded, cut to 200 characters |
-| `labels` | `Record<string, string>` | `labels` | forwarded; `BOT_LABEL` added |
-| `images`, `attachments` | SDK payload types | same | forwarded when non-empty |
-| `parent` | agent id or handle | `callerAgentId` | dropped |
-| `onEvent` | `(CreationSnapshot) => void` | not sent; local observer | dropped |
+| `agentId` | `string`, must be a UUID | `agentId` | frozen; generated if the plain caller omits it |
+| `idempotencyKey` | `string` | `idempotencyKey` | frozen; defaults to `paseo-bots:<agentId>` for a plain caller |
+| `env` | `Record<string, string>` | `env` | frozen and forwarded |
+| `clientMessageId` | `string` | `clientMessageId` | frozen and forwarded |
+| `outputSchema` | `Record<string, unknown>` | `outputSchema` | frozen and forwarded |
+| `prompt` | `string` | `initialPrompt` | frozen and forwarded |
+| `title` | `string`, in `config.title` | same | frozen, cut to 200 characters |
+| `labels` | `Record<string, string>` | `labels` | frozen; bot/purpose labels authoritative, run/execution/occurrence labels preserved |
+| `images`, `attachments` | SDK payload types | same | frozen when non-empty |
+| `parent` | agent id or handle | `callerAgentId` | not supported by this adapter |
+| `onEvent` | `(CreationSnapshot) => void` | not sent; local observer | passed separately as `CreationObserver`; never serialized |
 
 Also dropped by `ChatApi`: `requestId`, `git`, `worktree`, `autoArchive`. `workspaces.create` on the SDK accepts an `agent` but its type omits `idempotencyKey` and `requestId`; `ChatApi.workspaces.create` passes only `title` and `source`.
 
@@ -66,11 +68,49 @@ Observed, for a host whose `server_info.features` lacks `creationLifecycle`:
 
 Contract for plugin code, `shared/host-capability.ts`:
 
-- `toHostCapabilityError(error)` returns a `HostCapabilityError` (`capability: "managed-identity"`) when the error is the SDK message above, otherwise `null`. It matches the exact message because the SDK gives no code; the fixtures run the real SDK so a reworded message fails the build.
-- A feature that needs managed identity must catch the creation error, convert it with this helper, and surface it. It must not retry, drop `agentId`, or fall back to an unmanaged chat. Nothing calls the helper yet; B06 wires it in.
-- A chat that is intentionally unmanaged (remote host UI path today) is a separate, explicit decision, not a fallback.
+- `toHostCapabilityError(error)` returns a `HostCapabilityError` (`capability: "managed-identity"`) when the error is the SDK message above, preserves an existing typed error, otherwise returns `null`. It matches the exact message because the SDK gives no code; the fixtures run the real SDK so a reworded message fails the build.
+- Shared launch catches the creation error and surfaces `toHostCapabilityError(error) ?? error`. It never retries, drops `agentId`, or falls back to an unmanaged chat. This applies to remote UI launches too.
+- The typed capability error means the host refused managed identity, not that a transport failure is safe to retry. Structured unknown outcomes must still be retained from creation evidence.
+
+## Prepared execution artifact and recovery
+
+`shared/bot-agent.ts` exports the named `BotAgentConfig`; public adapter types do not depend on inferred return types or SDK internals. `shared/chat.ts` exports `PreparedBotChat`, `PreparedChatMetadata`, `PreparedContext`, `PermissionEnvelope`, `FrozenRelayPermissions`, `MemoryContextReceipt`, `CreationEvidence` and `CreationObserver`.
+
+`PreparedBotChat.version` is `1`. It carries the chosen UUID/key, bot/host identity, purpose, actual provider/model, placement, full config (including the final system prompt), user prompt, labels, optional create fields and metadata. Preparation JSON-detaches nested values from mutable bot/library/input state. Callbacks are excluded. A serialized artifact is an execution snapshot, not authority to select a different provider or broaden permissions.
+
+**The whole artifact is restricted data.** Config/MCP headers, relay URLs, prompts, environment values and optional images/attachments may contain private data. Store it with restricted permissions before publishing a run reference. Never return it from a public RPC, log it, or spread it into a run list/detail response. Only `prepared.metadata` is the explicit public snapshot projection; actual `provider`/`model` and identity can be copied separately. The policy resolution retains selector provenance, while the top-level provider/model and config identify the actual launch.
+
+`PreparedChatMetadata` contains policy resolution, the admitted permission envelope, system/user prompt hashes, memory receipt, selected playbook content hashes, input artifact references and environment version. Plain shared callers may leave hashes/receipt unknown (`null`). Server `prepareChat` always supplies SHA-256 prompt hashes and the exact same-read files-memory receipt. The receipt hashes the trimmed memory text actually rendered into the prompt and retains budget counters for the original budgeted read. Playbook hashes cover the selected playbook JSON (no version field exists yet); the final system prompt hash covers rendered clipping as well.
+
+Server exports in `server/chats.ts`:
+
+```ts
+prepareChat(host, relay, bot, input: PrepareChatInput): Promise<PreparedBotChat>
+launchPreparedChat(host, relay, prepared, options?: PreparedLaunchOptions): Promise<string>
+refreshPreparedChat(relay, prepared): Promise<PreparedBotChat>
+startChat(host, input: Omit<z.input<typeof LocalChatInputSchema>, "requestId"> & { requestId?: string }): Promise<LocalChatStartResult>
+```
+
+`PrepareChatInput` requires `agentId` and `idempotencyKey`; it accepts the shared create options, routine identity, a captured complete `BotState`, `inputArtifactRefs` and `environmentVersion`. Public local start RPCs accept raw validated user input, never a prepared configuration or relay credential. The bound `LocalChatStarts` service chooses identity and captures bot/routine/library/policy from one state snapshot. Managed prepare persists a plan before any agent create; start reuses that frozen plan. Only actual host creation evidence returns `status: created` and an agent ID. A queued or uncertain result remains `pending`; callers must not treat its planned UUID as created.
+
+Cold recovery launches the JSON artifact, never `prepareChat` again. `launchPreparedChat` calls `refreshPreparedChat` first; adoption of an existing agent calls `refreshPreparedChat` without another create. Refresh may replace only the plugin-owned relay URLs and Authorization headers for the same bot/agent. It does not read current policy, regenerate prompts, add servers/grants, or change provider/model/mode/thinking. Relay authorization captures bot contact, app membership and resolved tool/account limits at admission. Managed relay endpoints fail closed before these permissions have been restored after restart; ordinary current-bot grants are not a fallback. Bot deletion/archive still revokes relay access. Removing the app credential makes recovery fail explicitly instead of silently omitting the admitted mount.
+
+`CreationObserver` receives SDK-neutral `CreationEvidence` with exact phase/revision/key, nullable IDs/error, optional `failedStage`, `errorCode`, `outcomeUnknown` and raw agent/workspace evidence. No lifecycle status is invented and no nullable ID is replaced with a guessed ID. The adapter adds no deduplication. The SDK itself suppresses identical creation revisions; distinct revisions carrying repeated/null IDs remain visible. Its callback is synchronous and not an awaited durability boundary; the coordinator must capture evidence synchronously and flush its own writer queue before subsequent decisions. The SDK still throws a plain error after an unknown creation failure, so error-only handling loses evidence.
+
+`PreparedLaunchOptions.signal` fences asynchronous workspace/project setup and is checked immediately before calling the SDK's agent-create API. Abandoning setup throws `PreparedLaunchAbortedError`, a `PreparedLaunchNotCreatedError`, before any agent create is issued. Other failures confined to prompt/relay/workspace preparation also carry typed no-create proof, so capacity is not held as an unknown agent. Native agent-create failures remain uncertain unless separately proven otherwise. The SDK has no per-create cancellation signal: aborting after that API call cannot prove that the host stopped or that no effects occurred. The coordinator retains unknown outcomes and reservations until independent evidence permits release. Signal and observer callbacks are runtime-only and never enter the execution artifact.
+
 
 ## Agent lifecycle and turn completion
+
+The [current public before-hook ordering](https://paseo.sh/docs/plugins/reference.md#ordering-and-returned-values)
+places `agent.session_open` before provider-session opening and native configuration persistence.
+Its request contains identity, placement, reason, purpose and launch environment, not native
+labels. A missing native snapshot at that boundary is therefore not an ownership decision.
+Bots uses durable managed-agent claims for scoping and its retained registry/artifact for
+authorization. Environment overrides are not persisted and cannot be the sole cold-resume gate.
+Registered-hook regressions drive the real SDK transport before the fixture persists a native
+agent; this is not a claim of physical daemon validation across the entire SDK version matrix.
+
 
 Statuses: `PluginAgentSnapshot.status` and the daemon's `AgentSnapshotPayload.status` are both `initializing | idle | running | error | closed` (`AGENT_LIFECYCLE_STATUSES`; pinned). The snapshot also carries `activeTurn: { turnId: string; startedAt: string | null } | null` (optional), `lastError?: string`, `pendingPermissions`, and `attentionReason: "finished" | "error" | "permission" | null`.
 
@@ -122,8 +162,10 @@ Types (`AgentUsage`, pinned): `inputTokens`, `cachedInputTokens`, `outputTokens`
 
 - modern host: all five passthrough fields and `workspaceId`, `labels`, title, prompt reach the wire; UUID-only `agentId`; in-flight dedupe and conflict; key forgotten after settle;
 - legacy host: caller-selected id refused with the untyped error and nothing sent (both `agents.create` and `workspaces.create`); idempotency key stripped per the feature/prompt table; `toHostCapabilityError` classification, including not matching other "Update the host" errors;
-- `startBotChat` through the real SDK: chosen agent id, labels, title cap, prompt, config reach the daemon;
+- prepared chats through the real SDK: remote chosen UUID/options retained; preparation has no workspace/agent effects; cold JSON replay keeps the admitted model, approval, thinking and grants after defaults/policy/library edits; old hosts refuse with `HostCapabilityError`; nullable creation IDs and unknown outcomes survive the adapter;
 - types: passthrough field types, `workspaces.create` agent omits `idempotencyKey`/`requestId`, status and outcome vocabularies, nullable turn ids, all-optional usage;
 - manifest: Paseo's own `assertPluginCompatibility` agrees with `paseo-plugin.json`, and the installed client and plugin SDKs are one version inside the supported range.
+- `tests/managed-launch.test.ts`: same-read memory receipt and prompt hashes, frozen prompt replay after memory/settings change, credential-free public metadata;
+- `tests/relay.test.ts`: frozen bot-contact/app/tool/account authorization over real local HTTP, fail-closed cold restart, restored envelopes and conflicting identity refusal.
 
 Not pinned, because it needs a real daemon: how a host reacts to a repeated idempotency key after settle, what ordering and duplication hook events have, whether usage is cumulative, and anything on Windows.
