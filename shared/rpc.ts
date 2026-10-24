@@ -12,6 +12,24 @@ import {
   TeamFileTeamSchema,
 } from "./bot";
 import { ProposalSchema } from "./proposals";
+import {
+  AttemptIdSchema,
+  CycleIdSchema,
+  ExecutionIdSchema,
+  ExecutionStatusSchema,
+  fromLegacyStatus,
+  LEGACY_RUN_STATUSES,
+  OccurrenceKeySchema,
+  ProviderTurnIdSchema,
+  PurposeSchema,
+  RunIdSchema,
+  runStateIssue,
+  SessionEpochSchema,
+  SkippedSchema,
+  TaskOutcomeSchema,
+  TRIGGERS,
+  VerificationSchema,
+} from "./runs";
 
 const BotId = z.string().regex(/^[a-z0-9-]+$/);
 /** "MEMORY.md" or a topic file such as "projects.md" (stored under memory/). */
@@ -220,34 +238,75 @@ export const avatarGenerateRpc = defineRpc({
   output: z.object({ image: z.string() }),
 });
 
-const RoutineRunSchema = z.object({
-  id: z.string(),
-  trigger: z.enum(["schedule", "manual", "webhook"]),
+/**
+ * One run of a routine. `id` is its run id; the other ids are described in shared/runs.ts. What the
+ * execution did (`executionStatus`) and whether the task worked (`taskOutcome`) are separate facts:
+ * a completed turn has an unknown outcome until a pinned verifier says otherwise.
+ * The shape alone is `RoutineRunShape`; `RoutineRunSchema` also checks that the two facts can both be true.
+ */
+export const RoutineRunShape = z.object({
+  id: RunIdSchema,
+  cycleId: CycleIdSchema,
+  attemptId: AttemptIdSchema,
+  executionId: ExecutionIdSchema,
+  sessionEpoch: SessionEpochSchema,
+  occurrenceKey: OccurrenceKeySchema,
+  parentRunId: RunIdSchema.nullable(),
+  /** What the host called the turn, once it ended; evidence only. */
+  providerTurnId: ProviderTurnIdSchema.nullable(),
+  purpose: PurposeSchema,
+  trigger: z.enum(TRIGGERS),
   /** When the run was due; for manual and webhook runs, when it was asked for. */
   scheduledFor: z.string(),
   startedAt: z.string(),
   endedAt: z.string().nullable(),
-  status: z.enum(["running", "succeeded", "failed", "skipped-busy", "skipped-missed"]),
+  executionStatus: ExecutionStatusSchema,
+  taskOutcome: TaskOutcomeSchema,
+  verification: VerificationSchema.nullable(),
+  /** Admission disposition only: not proof of task outcome, host creation, or external effects. */
+  skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   /** The start of the bot's reply once the run finished. */
   output: z.string().nullable(),
   error: z.string().nullable(),
 });
+export const RoutineRunSchema = RoutineRunShape.superRefine((run, context) => {
+  const issue = runStateIssue(run);
+  if (issue) context.addIssue({ code: "custom", path: ["taskOutcome"], message: issue });
+});
 export type RoutineRun = z.infer<typeof RoutineRunSchema>;
 
+const RoutineRunCardShape = z.object({
+  routineName: z.string(),
+  trigger: z.enum(TRIGGERS),
+  scheduledFor: z.string(),
+  executionStatus: ExecutionStatusSchema,
+  taskOutcome: TaskOutcomeSchema,
+  verification: VerificationSchema.nullable().default(null),
+  skipped: SkippedSchema.nullable(),
+  agentId: z.string().nullable(),
+  output: z.string().nullable(),
+  error: z.string().nullable(),
+});
+
+/** Cards posted before the split carry one `status`, which says nothing about the outcome. */
+function upgradeCard(data: unknown): unknown {
+  if (!data || typeof data !== "object" || "executionStatus" in data || !("status" in data)) return data;
+  const { status, ...rest } = data;
+  return { ...rest, ...fromLegacyStatus(status) };
+}
+
 /** A plugin timeline item, replaced (same id) when the run finishes. */
-export const RoutineRunCardSchema = RoutineRunSchema.pick({
-  trigger: true,
-  scheduledFor: true,
-  status: true,
-  agentId: true,
-  output: true,
-  error: true,
-}).extend({ routineName: z.string() });
-export type RoutineRunCard = z.infer<typeof RoutineRunCardSchema>;
+export const RoutineRunCardSchema = z.preprocess(
+  upgradeCard,
+  RoutineRunCardShape.transform((card) =>
+    runStateIssue(card) ? { ...card, taskOutcome: "unknown" as const, verification: null } : card,
+  ),
+);
+export type RoutineRunCard = z.infer<typeof RoutineRunCardShape>;
 export const ROUTINE_RUN_CARD = { kind: "routine-run", version: 1 } as const;
 
-const RoutineRecordSchema = z.object({
+export const RoutineRecordSchema = z.object({
   /** The last time the schedule fired (runs, skips and misses), which the next due time counts from. */
   lastRunAt: z.string().nullable(),
   /** The latest runs, oldest first. */
@@ -255,16 +314,26 @@ const RoutineRecordSchema = z.object({
 });
 export type RoutineRecord = z.infer<typeof RoutineRecordSchema>;
 
+/** Outbound compatibility only. New clients must read executionStatus and taskOutcome, never status. */
+export const RoutineRunResponseSchema = RoutineRunSchema.safeExtend({
+  status: z.enum(LEGACY_RUN_STATUSES),
+});
+export type RoutineRunResponse = z.infer<typeof RoutineRunResponseSchema>;
+
+const RoutineRecordResponseSchema = RoutineRecordSchema.extend({
+  runs: z.array(RoutineRunResponseSchema),
+});
+
 export const routineStatusRpc = defineRpc({
   name: "bots.routines.status",
   input: z.object({}),
-  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordSchema) }),
+  output: z.object({ scheduler: z.boolean(), routines: z.record(z.string(), RoutineRecordResponseSchema) }),
 });
 
 export const routineRunNowRpc = defineRpc({
   name: "bots.routines.run-now",
   input: z.object({ botId: BotId, routineId: z.string() }),
-  output: z.object({ run: RoutineRunSchema }),
+  output: z.object({ run: RoutineRunResponseSchema }),
 });
 
 /** `rotate` replaces the secret so the old URL stops working. */

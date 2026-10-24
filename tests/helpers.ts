@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll } from "vitest";
 import { BotsHost } from "../server/host";
 import { type Bot, type BotState, EMPTY_LIBRARY, type Library } from "../shared/bot";
+import type { RoutineRun } from "../shared/rpc";
+import { RoutineRunSchema } from "../shared/rpc";
 
 export const NOW = "2026-09-27T00:00:00.000Z";
 
@@ -62,4 +64,32 @@ export function fakeHost(bots: Bot[], library: Library = EMPTY_LIBRARY): FakeHos
   const values: BotState = { bots, history: [], library };
   const store = { read: async () => ({ values, revision: "1" }) };
   return new BotsHost(store as never) as FakeHost;
+}
+
+/** A finished manual run: a completed turn whose outcome nobody verified. `patch` is checked like saved data. */
+export function makeRun(id: string, patch: Partial<RoutineRun> = {}): RoutineRun {
+  const at = new Date(Date.now() - 3_600_000).toISOString();
+  return RoutineRunSchema.parse({
+    id,
+    cycleId: `cyc-${id}`,
+    attemptId: `att-${id}`,
+    executionId: `exe-${id}`,
+    sessionEpoch: 0,
+    occurrenceKey: `rt#${id}`,
+    parentRunId: null,
+    providerTurnId: null,
+    purpose: "task",
+    trigger: "manual",
+    scheduledFor: at,
+    startedAt: at,
+    endedAt: at,
+    executionStatus: "completed",
+    taskOutcome: "unknown",
+    verification: null,
+    skipped: null,
+    agentId: null,
+    output: null,
+    error: null,
+    ...patch,
+  });
 }

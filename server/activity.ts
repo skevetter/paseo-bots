@@ -1,5 +1,6 @@
 import type { PluginLifecycleEvents } from "@getpaseo/plugin/server";
 import { lastTurn, logLine } from "../shared/activity";
+import { isReviewEligible, settleTurn } from "../shared/runs";
 import type { BotsHost } from "./host";
 import type { MemoryJournal } from "./journal";
 import { appendDailyLog } from "./memory";
@@ -18,7 +19,7 @@ export async function turnEnded(
   host: BotsHost,
   journal: MemoryJournal,
   scheduler: Pick<RoutineScheduler, "finished">,
-  { agent, outcome, timeline }: PluginLifecycleEvents["agent.turn_ended"],
+  { agent, turnId, outcome, timeline }: PluginLifecycleEvents["agent.turn_ended"],
 ): Promise<void> {
   const chat = await host.chatOf(agent.id);
   if (!chat) return;
@@ -26,8 +27,9 @@ export async function turnEnded(
   const title = chat.title?.trim() || agent.title?.trim() || "Untitled chat";
   await journal.end(botId, { id: agent.id, title });
   const { reply, tools } = lastTurn(timeline);
-  if (chat.routineId) await scheduler.finished(chat.routineId, agent.id, outcome, reply);
-  if (outcome.kind === "canceled") return;
+  if (chat.routineId) await scheduler.finished(chat.routineId, agent.id, { outcome, reply, turnId });
+  // The daily log is what later reviews read, so only a task turn that reached an end belongs in it.
+  if (!isReviewEligible({ purpose: chat.purpose, ...settleTurn(outcome.kind) })) return;
   const line = logLine({
     at: new Date(),
     chat: title,

@@ -3,7 +3,7 @@ import { ROUTINE_TOOLS } from "../server/control/tools/routines";
 import type { PaseoApi } from "../server/paseo";
 import { RoutineScheduler } from "../server/scheduler";
 import { startControl } from "./control-helpers";
-import { makeBot, useTempPaseoHome } from "./helpers";
+import { defined, makeBot, useTempPaseoHome } from "./helpers";
 
 const running: { stop(): Promise<void> }[] = [];
 
@@ -102,6 +102,7 @@ describe("routine control tools", () => {
     const ran = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
     expect(ran.isError).toBe(false);
     expect(launched).toEqual(["Morning"]);
+    expect(ran.text).toBe("Morning: Running.");
     const run = ran.data.run as { id: string; trigger: string };
     expect(run.trigger).toBe("manual");
 
@@ -115,5 +116,46 @@ describe("routine control tools", () => {
     const runs = history.data.runs as { id: string }[];
     expect(runs).toHaveLength(2);
     expect(runs[1]?.id).toBe(run.id);
+  });
+});
+
+describe("what routine control tools say about a finished run", () => {
+  useTempPaseoHome("paseo-bots-control-routine-outcomes-");
+
+  it("calls a completed turn not verified, whatever the bot's reply claims", async () => {
+    const { call, context } = await control();
+    await call("routines_create", { bot: "Inbox", name: "Morning", instructions: "Go.", schedule: daily });
+    const original = context.scheduler;
+    context.scheduler = new RoutineScheduler(context.host, context.relay, async () => "agent-1");
+    context.host.attach({
+      agents: { ref: () => ({ refresh: async () => ({ agent: { status: "idle", archivedAt: null } }) }) },
+    } as unknown as PaseoApi);
+    await Promise.all([original.stop(), context.scheduler.stop()]);
+    const started = await call("routines_run_now", { bot: "Inbox", routine: "Morning" });
+    expect(started.data.run).toMatchObject({
+      status: "running",
+      executionStatus: "running",
+      taskOutcome: "unknown",
+    });
+    const status = await call("routines_status");
+    const routineId = defined(Object.keys(status.data.routines as object)[0]);
+
+    await context.scheduler.finished(routineId, "agent-1", {
+      outcome: { kind: "completed" },
+      reply: "Done. Everything verified: 100% success.",
+    });
+    const history = await call("routines_history", { bot: "Inbox", routine: "Morning" });
+    expect(history.text).toMatch(/manual: Completed, not verified$/);
+    expect(history.text).not.toMatch(/succe/i);
+    expect((history.data.runs as unknown[])[0]).toMatchObject({
+      status: "succeeded",
+      executionStatus: "completed",
+      taskOutcome: "unknown",
+      verification: null,
+    });
+    const latest = await call("routines_status");
+    expect((latest.data.routines as Record<string, unknown>)[routineId]).toMatchObject({
+      lastRun: { status: "succeeded", executionStatus: "completed", taskOutcome: "unknown" },
+    });
   });
 });

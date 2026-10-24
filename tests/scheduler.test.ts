@@ -2,6 +2,7 @@ import { EventEmitter, once } from "node:events";
 import { readdir, readFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
 import { join } from "node:path";
+import type { PluginTurnOutcome } from "@getpaseo/plugin/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import type { startChat } from "../server/chats";
@@ -11,8 +12,7 @@ import { Relay } from "../server/relay";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
 import { type Bot, EMPTY_LIBRARY, type Routine } from "../shared/bot";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
-import type { RoutineRun } from "../shared/rpc";
-import { defined, fakeHost, makeBot, useTempPaseoHome } from "./helpers";
+import { defined, fakeHost, makeBot, makeRun, useTempPaseoHome } from "./helpers";
 
 const local = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute);
 
@@ -30,10 +30,19 @@ function routine(patch: Partial<Routine> = {}): Routine {
 }
 
 type Launch = typeof startChat;
+interface Facts {
+  executionStatus: string;
+  taskOutcome: string;
+  skipped: string | null;
+}
 interface Card {
   agentId: string;
-  item: { id: string; kind: string; data: { status: string; output: string | null; error: string | null } };
+  item: { id: string; kind: string; data: Facts & { output: string | null; error: string | null } };
 }
+
+/** What a run or card says happened and whether the task worked, in one comparable string. */
+const facts = (run: Facts) =>
+  `${run.executionStatus}/${run.taskOutcome}${run.skipped ? `/skipped-${run.skipped}` : ""}`;
 
 /** Cards wait for `posting.until`; cards posted to `brokenChat` throw, like a results chat that's gone. */
 function fakePaseo(brokenChat?: string) {
@@ -179,13 +188,19 @@ describe("the routine scheduler", () => {
       },
     );
     const manual = await scheduler.runNow("bot-r", "rt-1");
-    expect(manual.run).toMatchObject({ trigger: "manual", status: "running", agentId: "run-chat-1" });
+    expect(manual.run).toMatchObject({
+      trigger: "manual",
+      executionStatus: "running",
+      taskOutcome: "unknown",
+      sessionEpoch: 0,
+      agentId: "run-chat-1",
+    });
     // No results chat: nothing is posted.
     expect(appended).toHaveLength(0);
 
     // While that run's chat is working, the next run is skipped.
     status.set("run-chat-1", "running");
-    expect((await scheduler.runNow("bot-r", "rt-1")).run.status).toBe("skipped-busy");
+    expect(facts((await scheduler.runNow("bot-r", "rt-1")).run)).toBe("canceled/unknown/skipped-busy");
 
     const { url } = await scheduler.webhookUrl("rt-hook");
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/rt-hook\/[a-f0-9]{48}$/);
@@ -201,19 +216,31 @@ describe("the routine scheduler", () => {
     expect(prompts[1]).toContain("order 42 shipped");
     expect(appended.at(-1)).toMatchObject({
       agentId: "results-chat",
-      item: { kind: "routine-run", data: { status: "running", output: null } },
+      item: {
+        kind: "routine-run",
+        data: { executionStatus: "running", taskOutcome: "unknown", output: null },
+      },
     });
 
     // The run's turn ends: it's recorded and its card updated in place (same id).
-    await scheduler.finished("rt-hook", "run-chat-2", { kind: "completed" }, "Shipped order 42 to Acme.");
+    await scheduler.finished("rt-hook", "run-chat-2", {
+      outcome: { kind: "completed" },
+      reply: "Shipped order 42 to Acme.",
+      turnId: "turn-9",
+    });
     const last = defined(appended.at(-1), "updated card");
     expect(last.item.id).toBe(defined(appended.at(-2), "posted card").item.id);
-    expect(last.item.data).toMatchObject({ status: "succeeded", output: "Shipped order 42 to Acme." });
+    // The turn completed. Nothing verified the task, so the outcome stays unknown.
+    expect(last.item.data).toMatchObject({
+      executionStatus: "completed",
+      taskOutcome: "unknown",
+      output: "Shipped order 42 to Acme.",
+    });
     const { routines } = await scheduler.status();
-    expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, run.status])).toEqual([
-      ["webhook", "succeeded"],
+    expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, facts(run), run.providerTurnId])).toEqual([
+      ["webhook", "completed/unknown", "turn-9"],
     ]);
-    expect(routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running", "skipped-busy"]);
+    expect(routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown", "canceled/unknown/skipped-busy"]);
 
     // A rotated URL retires the old one.
     const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
@@ -237,12 +264,12 @@ describe("routine runs", () => {
       async () => "never-started",
     );
     await vi.waitFor(() =>
-      expect(appended.map((card) => [card.agentId, card.item.data.status])).toEqual([
-        ["digest-chat", "skipped-missed"],
+      expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
+        ["digest-chat", "canceled/unknown/skipped-missed"],
       ]),
     );
     const { routines } = await scheduler.status();
-    expect(routines["rt-missed"]?.runs.map((run) => run.status)).toEqual(["skipped-missed"]);
+    expect(routines["rt-missed"]?.runs.map(facts)).toEqual(["canceled/unknown/skipped-missed"]);
   });
 
   it("keeps running the other routines when one of them fails", async () => {
@@ -277,7 +304,7 @@ describe("routine runs", () => {
       "gone-chat",
     );
     const { run } = await scheduler.runNow("bot-l", "rt-lost");
-    expect(run).toMatchObject({ status: "running", agentId: "lost-run-chat" });
+    expect(run).toMatchObject({ executionStatus: "running", agentId: "lost-run-chat" });
     expect(errors).toHaveBeenCalledWith("paseo-bots: couldn't post a routine result", expect.any(Error));
   });
 });
@@ -306,13 +333,13 @@ describe("routine chats that take a while to start", () => {
     const slowRun = scheduler.runNow("bot-q", "rt-slow");
     // Before the fix this waits on the slow chat, which only starts below.
     expect((await scheduler.runNow("bot-q", "rt-quick")).run.agentId).toBe("quick-chat");
-    expect((await scheduler.runNow("bot-q", "rt-slow")).run.status).toBe("skipped-busy");
+    expect(facts((await scheduler.runNow("bot-q", "rt-slow")).run)).toBe("canceled/unknown/skipped-busy");
     started();
-    expect((await slowRun).run).toMatchObject({ status: "running", agentId: "slow-chat" });
+    expect((await slowRun).run).toMatchObject({ executionStatus: "running", agentId: "slow-chat" });
     const { routines } = await scheduler.status();
-    expect(routines["rt-slow"]?.runs.map((run) => [run.status, run.agentId])).toEqual([
-      ["running", "slow-chat"],
-      ["skipped-busy", null],
+    expect(routines["rt-slow"]?.runs.map((run) => [facts(run), run.agentId])).toEqual([
+      ["running/unknown", "slow-chat"],
+      ["canceled/unknown/skipped-busy", null],
     ]);
   });
 
@@ -326,22 +353,20 @@ describe("routine chats that take a while to start", () => {
     const { scheduler, appended } = await startScheduler(
       [makeBot({ id: "bot-f", routines: [fast] })],
       async () => {
-        finishing = scheduler.finished(
-          "rt-fast",
-          "fast-chat",
-          { kind: "failed", error: { message: "No credits left." } },
-          "",
-        );
+        finishing = scheduler.finished("rt-fast", "fast-chat", {
+          outcome: { kind: "failed", error: { message: "No credits left." } },
+          reply: "",
+        });
         return "fast-chat";
       },
     );
     await scheduler.runNow("bot-f", "rt-fast");
     await finishing;
     const { routines } = await scheduler.status();
-    expect(routines["rt-fast"]?.runs.map((run) => [run.status, run.error])).toEqual([
-      ["failed", "No credits left."],
+    expect(routines["rt-fast"]?.runs.map((run) => [facts(run), run.error])).toEqual([
+      ["failed/unknown", "No credits left."],
     ]);
-    expect(appended.map((card) => card.item.data.status)).toEqual(["running", "failed"]);
+    expect(appended.map((card) => facts(card.item.data))).toEqual(["running/unknown", "failed/unknown"]);
   });
 });
 
@@ -358,7 +383,7 @@ describe("the routine scheduler's saved state", () => {
     );
     await scheduler.runNow("bot-s", "rt-1");
     expect(await setAside("routines.json")).toEqual([broken]);
-    expect((await scheduler.status()).routines["rt-1"]?.runs.map((run) => run.status)).toEqual(["running"]);
+    expect((await scheduler.status()).routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown"]);
     expect(errors).toHaveBeenCalledWith(expect.stringContaining("routines.json"), expect.any(SyntaxError));
   });
 
@@ -408,22 +433,6 @@ describe("the routine scheduler's saved state", () => {
 
 const fresh = () => new Date().toISOString();
 const webhook = (patch: Partial<Routine> = {}) => routine({ schedule: { kind: "webhook" }, ...patch });
-
-function savedRun(id: string, patch: Partial<RoutineRun> = {}): RoutineRun {
-  const at = hoursAgo(1);
-  return {
-    id,
-    trigger: "manual",
-    scheduledFor: at,
-    startedAt: at,
-    endedAt: at,
-    status: "succeeded",
-    agentId: null,
-    output: null,
-    error: null,
-    ...patch,
-  };
-}
 
 async function runsOf(scheduler: RoutineScheduler, routineId: string) {
   return (await scheduler.status()).routines[routineId]?.runs ?? [];
@@ -483,18 +492,23 @@ describe("routine runs that can't start", () => {
       () => Promise.reject(failures.shift()),
     );
     const first = (await scheduler.runNow("bot-x", "rt-x")).run;
-    expect(first).toMatchObject({ status: "failed", agentId: null, error: "No model is set up." });
+    expect(first).toMatchObject({
+      executionStatus: "failed",
+      taskOutcome: "unknown",
+      agentId: null,
+      error: "No model is set up.",
+    });
     expect(first.endedAt).toBe(first.startedAt);
     expect((await scheduler.runNow("bot-x", "rt-x")).run).toMatchObject({
-      status: "failed",
+      executionStatus: "failed",
       error: "quota exhausted",
     });
     const outcomes = [
-      ["failed", "No model is set up."],
-      ["failed", "quota exhausted"],
+      ["failed/unknown", "No model is set up."],
+      ["failed/unknown", "quota exhausted"],
     ];
-    expect(appended.map((card) => [card.item.data.status, card.item.data.error])).toEqual(outcomes);
-    expect((await runsOf(scheduler, "rt-x")).map((run) => [run.status, run.error])).toEqual(outcomes);
+    expect(appended.map((card) => [facts(card.item.data), card.item.data.error])).toEqual(outcomes);
+    expect((await runsOf(scheduler, "rt-x")).map((run) => [facts(run), run.error])).toEqual(outcomes);
   });
 
   it("fails runs of bots stored on another host and leaves them and archived bots off the schedule", async () => {
@@ -516,12 +530,13 @@ describe("routine runs that can't start", () => {
     expect([routines["rt-away"], routines["rt-old"]]).toEqual([undefined, undefined]);
     const { run } = await scheduler.runNow("bot-away", "rt-away");
     expect(run).toMatchObject({
-      status: "failed",
+      executionStatus: "failed",
+      taskOutcome: "unknown",
       agentId: null,
       error: expect.stringContaining("another host"),
     });
-    expect(appended.map((card) => [card.agentId, card.item.data.status])).toEqual([
-      ["away-results", "failed"],
+    expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
+      ["away-results", "failed/unknown"],
     ]);
   });
 
@@ -548,7 +563,7 @@ describe("routine runs already in progress", () => {
     expect((await next()).agentId).toBe("busy-chat-1");
     expect((await next()).agentId).toBe("busy-chat-2");
     status.set("busy-chat-2", "initializing");
-    expect((await next()).status).toBe("skipped-busy");
+    expect(facts(await next())).toBe("canceled/unknown/skipped-busy");
     unreachable.add("busy-chat-2");
     expect((await next()).agentId).toBe("busy-chat-3");
   });
@@ -564,15 +579,17 @@ describe("routine runs already in progress", () => {
       async () => "cancel-chat",
     );
     await scheduler.runNow("bot-c", "rt-c");
-    await scheduler.finished("rt-c", "stranger-chat", { kind: "completed" }, "Not mine.");
-    await scheduler.finished("rt-unknown", "cancel-chat", { kind: "completed" }, "No such routine.");
-    await scheduler.finished("rt-c", "cancel-chat", { kind: "canceled", reason: "user" }, "  ");
-    await scheduler.finished("rt-c", "cancel-chat", { kind: "completed" }, "Too late.");
-    expect((await runsOf(scheduler, "rt-c")).map((run) => [run.status, run.output, run.error])).toEqual([
-      ["failed", null, "Stopped before it finished."],
+    const turn = (outcome: PluginTurnOutcome, reply: string) => ({ outcome, reply });
+    await scheduler.finished("rt-c", "stranger-chat", turn({ kind: "completed" }, "Not mine."));
+    await scheduler.finished("rt-unknown", "cancel-chat", turn({ kind: "completed" }, "No such routine."));
+    await scheduler.finished("rt-c", "cancel-chat", turn({ kind: "canceled", reason: "user" }, "  "));
+    await scheduler.finished("rt-c", "cancel-chat", turn({ kind: "completed" }, "Too late."));
+    // A canceled turn may have changed things before it stopped, so its outcome is unknown rather than none.
+    expect((await runsOf(scheduler, "rt-c")).map((run) => [facts(run), run.output, run.error])).toEqual([
+      ["canceled/unknown", null, "Stopped before it finished."],
     ]);
     expect((await scheduler.status()).routines["rt-unknown"]).toBeUndefined();
-    expect(appended.map((card) => card.item.data.status)).toEqual(["running", "failed"]);
+    expect(appended.map((card) => facts(card.item.data))).toEqual(["running/unknown", "canceled/unknown"]);
   });
 
   it("records a run that ends after its routine was deleted, without a card", async () => {
@@ -587,15 +604,18 @@ describe("routine runs already in progress", () => {
     );
     await scheduler.runNow("bot-d", "rt-d");
     defined(defined(await host.values(), "settings").bots[0], "bot").routines = [];
-    await scheduler.finished("rt-d", "doomed-chat", { kind: "completed" }, "Done anyway.");
-    expect((await runsOf(scheduler, "rt-d")).map((run) => [run.status, run.output])).toEqual([
-      ["succeeded", "Done anyway."],
+    await scheduler.finished("rt-d", "doomed-chat", {
+      outcome: { kind: "completed" },
+      reply: "Done anyway.",
+    });
+    expect((await runsOf(scheduler, "rt-d")).map((run) => [facts(run), run.output])).toEqual([
+      ["completed/unknown", "Done anyway."],
     ]);
-    expect(appended.map((card) => card.item.data.status)).toEqual(["running"]);
+    expect(appended.map((card) => facts(card.item.data))).toEqual(["running/unknown"]);
   });
 
   it("keeps a routine's last 30 runs", async () => {
-    const old = Array.from({ length: 30 }, (_, index) => savedRun(`old-${index}`));
+    const old = Array.from({ length: 30 }, (_, index) => makeRun(`old-${index}`));
     await writeState("routines.json", JSON.stringify({ "rt-k": { lastRunAt: null, runs: old } }));
     const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-k", routines: [routine({ id: "rt-k", createdAt: fresh() })] })],
@@ -622,41 +642,44 @@ describe("routine history saved earlier", () => {
     await writeState("routines.json", JSON.stringify(legacy));
     const { scheduler } = await startScheduler([], async () => "never-started");
     const { routines } = await scheduler.status();
-    expect(routines["rt-failed"]).toEqual({
+    expect(routines["rt-failed"]).toMatchObject({
       lastRunAt: at,
       runs: [
-        savedRun("legacy", {
+        {
+          id: "legacy",
           trigger: "schedule",
           scheduledFor: at,
           startedAt: at,
           endedAt: null,
-          status: "failed",
+          executionStatus: "failed",
+          taskOutcome: "unknown",
           agentId: "old-chat",
           error: "Timed out.",
-        }),
+        },
       ],
     });
-    const summary = (id: string) => routines[id]?.runs.map((run) => [run.status, run.agentId, run.error]);
-    expect(summary("rt-missed")).toEqual([["skipped-missed", null, null]]);
-    expect(summary("rt-odd")).toEqual([["succeeded", null, null]]);
+    const summary = (id: string) => routines[id]?.runs.map((run) => [facts(run), run.agentId, run.error]);
+    expect(summary("rt-missed")).toEqual([["canceled/unknown/skipped-missed", null, null]]);
+    // A status this version doesn't know is not read as a success.
+    expect(summary("rt-odd")).toEqual([["unknown/unknown", null, null]]);
     expect(routines["rt-never"]).toEqual({ lastRunAt: null, runs: [] });
   });
 
-  it("shows a run that never finished as failed after 12 hours", async () => {
+  it("shows a run that never finished as unknown after 12 hours", async () => {
     const runs = [
-      savedRun("lost", { status: "running", startedAt: hoursAgo(13), endedAt: null }),
-      savedRun("recent", { status: "running", startedAt: hoursAgo(11), endedAt: null }),
+      makeRun("lost", { executionStatus: "running", startedAt: hoursAgo(13), endedAt: null }),
+      makeRun("recent", { executionStatus: "running", startedAt: hoursAgo(11), endedAt: null }),
     ];
     await writeState("routines.json", JSON.stringify({ "rt-s": { lastRunAt: null, runs } }));
     const { scheduler } = await startScheduler([], async () => "never-started");
-    expect((await runsOf(scheduler, "rt-s")).map((run) => [run.id, run.status, run.error])).toEqual([
-      ["lost", "failed", "It never finished."],
-      ["recent", "running", null],
+    expect((await runsOf(scheduler, "rt-s")).map((run) => [run.id, facts(run), run.error])).toEqual([
+      ["lost", "unknown/unknown", "It never finished."],
+      ["recent", "running/unknown", null],
     ]);
   });
 
   it("reads null entries and runs as empty and records the next run over them", async () => {
-    const saved = { "rt-null": null, "rt-holes": { lastRunAt: null, runs: [null, savedRun("kept")] } };
+    const saved = { "rt-null": null, "rt-holes": { lastRunAt: null, runs: [null, makeRun("kept")] } };
     await writeState("routines.json", JSON.stringify(saved));
     const { scheduler } = await startScheduler(
       [makeBot({ id: "bot-null", routines: [routine({ id: "rt-null", createdAt: fresh() })] })],

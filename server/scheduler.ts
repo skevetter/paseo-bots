@@ -7,6 +7,7 @@ import type { Bot, Routine } from "../shared/bot";
 import { ROUTINE_LABEL } from "../shared/chat";
 import { decide } from "../shared/routines";
 import { ROUTINE_RUN_CARD, type RoutineRecord, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
+import { isTerminal, providerTurnId, SessionEpochSchema, settleTurn, type Trigger } from "../shared/runs";
 import { pluginDataPath } from "./bot-home";
 import { startChat } from "./chats";
 import { readJson, writeJson } from "./files";
@@ -14,62 +15,23 @@ import type { BotsHost } from "./host";
 import { readBody } from "./mcp-http";
 import type { PaseoApi } from "./paseo";
 import type { Relay } from "./relay";
+import { admitRun, appendRun, emptyRecord, type Records, RunStore } from "./run-store";
 
 const TICK_MS = 30_000;
-const KEEP_RUNS = 30;
 /** A run the app never saw finish (Paseo restarted mid-run) stops counting as running after this. */
 const STALE_RUN_MS = 12 * 3_600_000;
 const WEBHOOK_BODY_MAX = 256 * 1024;
 const WEBHOOK_TEXT_MAX = 48_000;
 const WEBHOOK_CALLS_PER_MINUTE = 10;
 const WEBHOOK_UNFINISHED = 3;
+// Legacy launches have no provider-session-open observation; plugin startup is not a session boundary.
+const UNOBSERVED_SESSION_EPOCH = SessionEpochSchema.parse(0);
 
-type Records = Record<string, RoutineRecord>;
-type Trigger = RoutineRun["trigger"];
-const EMPTY_RECORD: RoutineRecord = { lastRunAt: null, runs: [] };
-
-interface LegacyState {
-  lastRunAt?: string | null;
-  lastStatus?: string | null;
-  lastError?: string | null;
-  lastAgentId?: string | null;
-}
-
-type SavedRecord = RoutineRecord | LegacyState | null;
-
-const recordsPath = () => join(pluginDataPath(), "routines.json");
 const hooksPath = () => join(pluginDataPath(), "webhooks.json");
 
 const SECRET = /^[a-f0-9]{48}$/;
 /** A secret edited by hand to another length or type can't be compared, so it's replaced. */
 const isSecret = (value: unknown): value is string => typeof value === "string" && SECRET.test(value);
-
-/** Older routines.json entries kept only the last run; hand-edited ones may hold nulls. */
-function upgrade(entry: SavedRecord): RoutineRecord {
-  if (!entry || typeof entry !== "object") return { ...EMPTY_RECORD, runs: [] };
-  if ("runs" in entry && Array.isArray(entry.runs))
-    return { ...entry, runs: entry.runs.filter((run) => !!run && typeof run === "object") };
-  const legacy = entry as LegacyState;
-  if (!legacy.lastRunAt) return { ...EMPTY_RECORD, runs: [] };
-  const status =
-    legacy.lastStatus === "failed" ||
-    legacy.lastStatus === "skipped-busy" ||
-    legacy.lastStatus === "skipped-missed"
-      ? legacy.lastStatus
-      : "succeeded";
-  const run: RoutineRun = {
-    id: "legacy",
-    trigger: "schedule",
-    scheduledFor: legacy.lastRunAt,
-    startedAt: legacy.lastRunAt,
-    endedAt: null,
-    status,
-    agentId: legacy.lastAgentId ?? null,
-    output: null,
-    error: legacy.lastError ?? null,
-  };
-  return { lastRunAt: legacy.lastRunAt, runs: [run] };
-}
 
 export interface WebhookEvent {
   body: string;
@@ -116,10 +78,11 @@ function turnError(outcome: PluginTurnOutcome): string | null {
   return null;
 }
 
-function webhookStatus(status: RoutineRun["status"]): number {
-  if (status === "running") return 202;
-  if (status === "skipped-busy") return 429;
-  return 500;
+/** The call returns before the run ends, so a caller is only ever told one of these three. */
+function webhookReply(run: RoutineRun): { code: number; state: "running" | "skipped-busy" | "failed" } {
+  if (run.skipped === "busy") return { code: 429, state: "skipped-busy" };
+  if (run.executionStatus === "running") return { code: 202, state: "running" };
+  return { code: 500, state: "failed" };
 }
 
 type Queue = <T>(task: () => Promise<T>) => Promise<T>;
@@ -137,7 +100,6 @@ function serial(): Queue {
 export class RoutineScheduler {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking: Promise<void> | null = null;
-  private readonly records = serial();
   private readonly hooks = serial();
   private readonly hookCalls = new Map<string, number[]>();
   /** Runs whose chat is starting, by routine and run id. */
@@ -147,6 +109,7 @@ export class RoutineScheduler {
     private readonly host: BotsHost,
     private readonly relay: Relay,
     private readonly launch: typeof startChat = startChat,
+    private readonly store = new RunStore(),
   ) {
     host.onAttach(() => {
       if (this.timer) return;
@@ -171,28 +134,14 @@ export class RoutineScheduler {
     await this.ticking;
   }
 
-  /** One change to routines.json at a time. */
-  private update<T>(change: (records: Records) => T | Promise<T>): Promise<T> {
-    return this.records(async () => {
-      const raw = await readJson<Record<string, SavedRecord>>(recordsPath(), {});
-      const records: Records = Object.fromEntries(
-        Object.entries(raw).map(([id, entry]) => [id, upgrade(entry)]),
-      );
-      const result = await change(records);
-      await writeJson(recordsPath(), records);
-      return result;
-    });
-  }
-
   async status() {
-    const raw = await readJson<Record<string, SavedRecord>>(recordsPath(), {});
+    const { routines: saved } = await this.store.read();
     const now = Date.now();
     const routines = Object.fromEntries(
-      Object.entries(raw).map(([id, entry]) => {
-        const record = upgrade(entry);
+      Object.entries(saved).map(([id, record]) => {
         const runs = record.runs.map((run) =>
-          run.status === "running" && now - Date.parse(run.startedAt) > STALE_RUN_MS
-            ? { ...run, status: "failed" as const, error: "It never finished." }
+          !isTerminal(run.executionStatus) && now - Date.parse(run.startedAt) > STALE_RUN_MS
+            ? { ...run, executionStatus: "unknown" as const, error: "It never finished." }
             : run,
         );
         return [id, { ...record, runs }];
@@ -219,24 +168,26 @@ export class RoutineScheduler {
     return { url: `http://127.0.0.1:${port}/hooks/${routineId}/${secret}` };
   }
 
+  /** `turnId` is what the host called the turn; it is kept as evidence and never used to find the run. */
   async finished(
     routineId: string,
     agentId: string,
-    outcome: PluginTurnOutcome,
-    reply: string,
+    { outcome, reply, turnId = null }: { outcome: PluginTurnOutcome; reply: string; turnId?: string | null },
   ): Promise<void> {
     const waiting = (record: RoutineRecord | undefined) =>
       [...(record?.runs ?? [])]
         .reverse()
-        .find((entry) => entry.agentId === agentId && entry.status === "running");
+        .find((entry) => entry.agentId === agentId && !isTerminal(entry.executionStatus));
     // A run whose chat is still starting is recorded once its launch settles, so a turn that ended early still matches.
     await Promise.all(this.launches.get(routineId)?.values() ?? []);
-    const run = await this.update((records) => {
+    const run = await this.store.update((records) => {
       const found = waiting(records[routineId]);
       if (!found) return null;
+      // The reply is the bot's own account of the work. It's kept as output and never decides the outcome.
       Object.assign(found, {
+        ...settleTurn(outcome.kind),
         endedAt: new Date().toISOString(),
-        status: outcome.kind === "completed" ? "succeeded" : "failed",
+        providerTurnId: providerTurnId(turnId),
         output: reply.trim() ? foldText(reply, 400) : null,
         error: turnError(outcome),
       });
@@ -275,7 +226,7 @@ export class RoutineScheduler {
 
   /** The results chat gets a card even when the run doesn't start. */
   private async run(request: RunRequest): Promise<RoutineRun> {
-    const { run, release } = await this.update((records) => this.reserve(request, records));
+    const { run, release } = await this.store.update((records) => this.reserve(request, records));
     try {
       if (release) await this.startChat(request, run);
       await this.postCard(request.routine, run);
@@ -290,42 +241,36 @@ export class RoutineScheduler {
     records: Records,
   ): Promise<{ run: RoutineRun; release: (() => void) | null }> {
     const { routine, trigger, due } = request;
-    const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
+    const record = records[routine.id] ?? emptyRecord();
     records[routine.id] = record;
-    const now = new Date().toISOString();
-    const run: RoutineRun = {
-      id: `run-${randomBytes(4).toString("hex")}`,
-      trigger,
-      scheduledFor: due.toISOString(),
-      startedAt: now,
-      endedAt: null,
-      status: "running",
-      agentId: null,
-      output: null,
-      error: null,
-    };
-    if (trigger === "schedule") record.lastRunAt = now;
+    const now = new Date();
+    const run = admitRun({ routineId: routine.id, trigger, due, now, epoch: UNOBSERVED_SESSION_EPOCH });
+    if (trigger === "schedule") record.lastRunAt = run.startedAt;
     const blocked = await this.blocked(request, record);
-    record.runs = [...record.runs, run].slice(-KEEP_RUNS);
+    appendRun(record, run);
     if (!blocked) return { run, release: this.track(routine.id, run.id) };
-    Object.assign(run, { endedAt: now, ...blocked });
+    Object.assign(run, { endedAt: run.startedAt, ...blocked });
     return { run, release: null };
   }
 
+  /** Admission failure or skipping says nothing about whether the task required work. */
   private async blocked(
     { bot, routine, trigger }: RunRequest,
     record: RoutineRecord,
   ): Promise<Partial<RoutineRun> | null> {
     if (bot.hostId)
       return {
-        status: "failed",
+        executionStatus: "failed",
+        taskOutcome: "unknown",
         error: "Routines run on the host that stores the bot; this bot runs on another host.",
       };
     // Skip while the previous run is still working (webhooks allow a few at once).
     const limit = trigger === "webhook" ? WEBHOOK_UNFINISHED : 1;
     const starting = this.launches.get(routine.id);
     const busy = await this.busyRuns(record, limit, starting);
-    return (starting?.size ?? 0) + busy >= limit ? { status: "skipped-busy" } : null;
+    return (starting?.size ?? 0) + busy >= limit
+      ? { executionStatus: "canceled", taskOutcome: "unknown", skipped: "busy" }
+      : null;
   }
 
   private track(routineId: string, runId: string): () => void {
@@ -348,14 +293,16 @@ export class RoutineScheduler {
     try {
       patch = { agentId: await this.newChat(bot, routine, runPrompt(routine, event)) };
     } catch (error) {
+      // The host may have made the chat before the call failed, so whether anything ran is unknown.
       patch = {
-        status: "failed",
+        executionStatus: "failed",
+        taskOutcome: "unknown",
         endedAt: run.startedAt,
         error: error instanceof Error ? error.message : String(error),
       };
     }
     Object.assign(run, patch);
-    await this.update((records) => {
+    await this.store.update((records) => {
       const saved = records[routine.id]?.runs.find((entry) => entry.id === run.id);
       if (saved) Object.assign(saved, patch);
     });
@@ -368,7 +315,7 @@ export class RoutineScheduler {
     starting?: ReadonlyMap<string, unknown>,
   ): Promise<number> {
     const recent = record.runs
-      .filter((entry) => entry.agentId && entry.status === "running" && !starting?.has(entry.id))
+      .filter((entry) => entry.agentId && !isTerminal(entry.executionStatus) && !starting?.has(entry.id))
       .slice(-limit);
     let busy = 0;
     for (const entry of recent) if (await this.working(entry.agentId)) busy++;
@@ -376,12 +323,15 @@ export class RoutineScheduler {
   }
 
   private async postCard(routine: Routine, run: RoutineRun): Promise<void> {
-    if (!routine.resultsChatId || !this.paseo || run.status === "skipped-busy") return;
+    if (!routine.resultsChatId || !this.paseo || run.skipped === "busy") return;
     const data: RoutineRunCard = {
       routineName: routine.name,
       trigger: run.trigger,
       scheduledFor: run.scheduledFor,
-      status: run.status,
+      executionStatus: run.executionStatus,
+      taskOutcome: run.taskOutcome,
+      verification: run.verification,
+      skipped: run.skipped,
       agentId: run.agentId,
       output: run.output,
       error: run.error,
@@ -435,19 +385,16 @@ export class RoutineScheduler {
   private async recordMissed(routine: Routine, due: Date, now: Date): Promise<void> {
     const at = now.toISOString();
     const run: RoutineRun = {
-      id: `run-${randomBytes(4).toString("hex")}`,
-      trigger: "schedule",
-      scheduledFor: due.toISOString(),
-      startedAt: at,
+      ...admitRun({ routineId: routine.id, trigger: "schedule", due, now, epoch: UNOBSERVED_SESSION_EPOCH }),
       endedAt: at,
-      status: "skipped-missed",
-      agentId: null,
-      output: null,
-      error: null,
+      executionStatus: "canceled",
+      taskOutcome: "unknown",
+      skipped: "missed",
     };
-    await this.update((records) => {
-      const record = records[routine.id] ?? { ...EMPTY_RECORD, runs: [] };
-      records[routine.id] = { ...record, lastRunAt: at, runs: [...record.runs, run].slice(-KEEP_RUNS) };
+    await this.store.update((records) => {
+      const record = { ...(records[routine.id] ?? emptyRecord()), lastRunAt: at };
+      appendRun(record, run);
+      records[routine.id] = record;
     });
     await this.postCard(routine, run);
   }
@@ -484,10 +431,11 @@ export class RoutineScheduler {
       receivedAt: new Date(now).toISOString(),
     };
     const run = await this.run({ ...target, trigger: "webhook", due: new Date(now), event });
+    const { code, state } = webhookReply(run);
     return {
-      status: webhookStatus(run.status),
+      status: code,
       body: {
-        status: run.status,
+        status: state,
         ...(run.agentId ? { chat: run.agentId } : {}),
         ...(run.error ? { error: run.error } : {}),
       },

@@ -3,6 +3,7 @@ import { CHAT_TOOLS } from "../server/control/tools/chats";
 import { BOT_LABEL, DEFAULT_BOT_LIST_UI } from "../shared/bot";
 import { TOOLS_MCP_NAME } from "../shared/bot-tools";
 import { SETUP_PROMPT } from "../shared/chat";
+import { PURPOSE_LABEL } from "../shared/runs";
 import { startControl } from "./control-helpers";
 import { defined, makeBot, useTempPaseoHome } from "./helpers";
 
@@ -157,7 +158,7 @@ describe("starting and listing bot chats", () => {
     const created = defined(paseo.created[0]);
     expect(created.agentId).toBe(chatId);
     expect(created.prompt).toBe("Plan my week");
-    expect(created.labels).toEqual(BOT_LABEL_CHAT("bot-1"));
+    expect(created.labels).toEqual({ ...BOT_LABEL_CHAT("bot-1"), [PURPOSE_LABEL]: "task" });
     expect(created.title).toBeUndefined();
 
     const tools = defined(created.config.mcpServers?.[TOOLS_MCP_NAME]);

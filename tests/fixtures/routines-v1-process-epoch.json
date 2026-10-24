@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "routines": {
+    "rt-epoch": {
+      "lastRunAt": "2026-10-01T09:00:00.000Z",
+      "runs": [
+        {
+          "id": "run-process-marker",
+          "cycleId": "cyc-process-marker",
+          "attemptId": "att-process-marker",
+          "executionId": "exe-process-marker",
+          "sessionEpoch": "ses-8cafdb72-ef24-4e79-8d6b-61699ba91730",
+          "occurrenceKey": "rt-epoch@2026-10-01T09:00:00.000Z",
+          "parentRunId": null,
+          "providerTurnId": "turn-reused",
+          "purpose": "task",
+          "trigger": "schedule",
+          "scheduledFor": "2026-10-01T09:00:00.000Z",
+          "startedAt": "2026-10-01T09:00:01.000Z",
+          "endedAt": "2026-10-01T09:05:00.000Z",
+          "executionStatus": "completed",
+          "taskOutcome": "unknown",
+          "verification": null,
+          "skipped": null,
+          "agentId": "agent-epoch",
+          "output": "Finished the provider turn.",
+          "error": null
+        },
+        {
+          "id": "run-legacy-marker",
+          "cycleId": "cyc-legacy-marker",
+          "attemptId": "att-legacy-marker",
+          "executionId": "exe-legacy-marker",
+          "sessionEpoch": "legacy",
+          "occurrenceKey": "rt-epoch#run-legacy-marker",
+          "parentRunId": null,
+          "providerTurnId": null,
+          "purpose": "task",
+          "trigger": "manual",
+          "scheduledFor": "2026-10-01T09:06:00.000Z",
+          "startedAt": "2026-10-01T09:06:00.000Z",
+          "endedAt": "2026-10-01T09:06:30.000Z",
+          "executionStatus": "failed",
+          "taskOutcome": "unknown",
+          "verification": null,
+          "skipped": null,
+          "agentId": "agent-legacy",
+          "output": null,
+          "error": "No credits left."
+        }
+      ]
+    }
+  }
+}

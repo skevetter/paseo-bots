@@ -306,7 +306,9 @@ describe("daily log and search_chats", () => {
     const { searchChats } = await import("../server/tools/chats");
     const host = fakeHost([makeBot({ id: "bot-s", name: "Scout" })]);
     host.chatOf = async (agentId: string) =>
-      agentId === "other-agent" ? null : { botId: "bot-s", title: "Invoices", routineId: null, labels: {} };
+      agentId === "other-agent"
+        ? null
+        : { botId: "bot-s", title: "Invoices", routineId: null, purpose: "task", labels: {} };
     await endInvoiceTurns(host);
     expect((await listLogDays("bot-s")).days).toEqual([
       { day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), lines: 1 },
@@ -333,5 +335,17 @@ describe("daily log and search_chats", () => {
     expect(found).not.toContain("again");
     expect(await searchChats.run({ query: "unicorns" }, caller)).toBe("Nothing matched.");
     await expect(searchChats.run({}, caller)).rejects.toThrow("Give a few words");
+  });
+
+  it("keeps turns that aren't tasks, or whose purpose is unknown, out of the daily log", async () => {
+    const { listLogDays } = await import("../server/memory");
+    for (const purpose of ["memory_review", "evaluation", "maintenance", null] as const) {
+      const botId = `bot-${purpose ?? "unknown"}`.replace("_", "-");
+      const host = fakeHost([makeBot({ id: botId })]);
+      host.chatOf = async (agentId: string) =>
+        agentId === "other-agent" ? null : { botId, title: "Review", routineId: null, purpose, labels: {} };
+      await endInvoiceTurns(host);
+      expect((await listLogDays(botId)).days).toEqual([]);
+    }
   });
 });
