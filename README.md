@@ -114,6 +114,21 @@ unknown execution, not a verified task failure. Never use `status` for verificat
 The webhook HTTP reply is unchanged (`running`, `skipped-busy` or `failed`); it reports admission, not
 the eventual outcome. Internal and persisted run records have no `status` field.
 
+`no_change` is reserved for a successful deterministic check proving that no task work is needed.
+Like `verified_success` and `verified_failure`, it requires `executionStatus: completed` and the
+existing `verification: { verifier: { id, digest }, at }` referencing a pinned approved definition.
+B02 does not implement such a producer; deterministic monitoring belongs to B08. Failed inspection,
+failed pre-create, inability to launch, cancellation before launch, and busy/missed skips have
+`taskOutcome: unknown`. Neither task outcome nor a canceled label establishes external-effect or
+agent-creation state.
+
+Old skipped labels migrate to `canceled` / `unknown`, retaining the skip reason. Already-versioned
+B02 records containing unsupported `no_change` claims are retained: their outcome becomes `unknown`
+and no verifier is fabricated. IDs, numeric session generation, timestamps, output and other run
+metadata are preserved. Completed `no_change` with pinned verification remains unchanged. Reads do
+not rewrite history; subsequent atomic saves keep the existing one-time backup contract.
+Persisted results-chat cards use the same verification invariant when decoding older claims.
+
 Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
 verification. A read does not rewrite the file. The first save of an unversioned `routines.json` copies
 it once to `routines.json.pre-run-store`, then atomically writes `{ version: 1, routines }`.

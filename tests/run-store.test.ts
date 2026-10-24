@@ -39,8 +39,8 @@ describe("run history saved before outcomes existed", () => {
     expect(runs.map((run) => [run.id, run.executionStatus, run.taskOutcome, run.skipped])).toEqual([
       ["run-aaaa1111", "completed", "unknown", null],
       ["run-bbbb2222", "failed", "unknown", null],
-      ["run-cccc3333", "canceled", "no_change", "busy"],
-      ["run-dddd4444", "canceled", "no_change", "missed"],
+      ["run-cccc3333", "canceled", "unknown", "busy"],
+      ["run-dddd4444", "canceled", "unknown", "missed"],
       ["run-eeee5555", "running", "unknown", null],
     ]);
     expect(runs[0]).toMatchObject({

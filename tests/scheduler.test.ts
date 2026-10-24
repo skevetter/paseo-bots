@@ -200,7 +200,7 @@ describe("the routine scheduler", () => {
 
     // While that run's chat is working, the next run is skipped.
     status.set("run-chat-1", "running");
-    expect(facts((await scheduler.runNow("bot-r", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-r", "rt-1")).run)).toBe("canceled/unknown/skipped-busy");
 
     const { url } = await scheduler.webhookUrl("rt-hook");
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/rt-hook\/[a-f0-9]{48}$/);
@@ -240,7 +240,7 @@ describe("the routine scheduler", () => {
     expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, facts(run), run.providerTurnId])).toEqual([
       ["webhook", "completed/unknown", "turn-9"],
     ]);
-    expect(routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown", "canceled/no_change/skipped-busy"]);
+    expect(routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown", "canceled/unknown/skipped-busy"]);
 
     // A rotated URL retires the old one.
     const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
@@ -265,11 +265,11 @@ describe("routine runs", () => {
     );
     await vi.waitFor(() =>
       expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
-        ["digest-chat", "canceled/no_change/skipped-missed"],
+        ["digest-chat", "canceled/unknown/skipped-missed"],
       ]),
     );
     const { routines } = await scheduler.status();
-    expect(routines["rt-missed"]?.runs.map(facts)).toEqual(["canceled/no_change/skipped-missed"]);
+    expect(routines["rt-missed"]?.runs.map(facts)).toEqual(["canceled/unknown/skipped-missed"]);
   });
 
   it("keeps running the other routines when one of them fails", async () => {
@@ -333,13 +333,13 @@ describe("routine chats that take a while to start", () => {
     const slowRun = scheduler.runNow("bot-q", "rt-slow");
     // Before the fix this waits on the slow chat, which only starts below.
     expect((await scheduler.runNow("bot-q", "rt-quick")).run.agentId).toBe("quick-chat");
-    expect(facts((await scheduler.runNow("bot-q", "rt-slow")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-q", "rt-slow")).run)).toBe("canceled/unknown/skipped-busy");
     started();
     expect((await slowRun).run).toMatchObject({ executionStatus: "running", agentId: "slow-chat" });
     const { routines } = await scheduler.status();
     expect(routines["rt-slow"]?.runs.map((run) => [facts(run), run.agentId])).toEqual([
       ["running/unknown", "slow-chat"],
-      ["canceled/no_change/skipped-busy", null],
+      ["canceled/unknown/skipped-busy", null],
     ]);
   });
 
@@ -531,12 +531,12 @@ describe("routine runs that can't start", () => {
     const { run } = await scheduler.runNow("bot-away", "rt-away");
     expect(run).toMatchObject({
       executionStatus: "failed",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
       agentId: null,
       error: expect.stringContaining("another host"),
     });
     expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
-      ["away-results", "failed/no_change"],
+      ["away-results", "failed/unknown"],
     ]);
   });
 
@@ -563,7 +563,7 @@ describe("routine runs already in progress", () => {
     expect((await next()).agentId).toBe("busy-chat-1");
     expect((await next()).agentId).toBe("busy-chat-2");
     status.set("busy-chat-2", "initializing");
-    expect(facts(await next())).toBe("canceled/no_change/skipped-busy");
+    expect(facts(await next())).toBe("canceled/unknown/skipped-busy");
     unreachable.add("busy-chat-2");
     expect((await next()).agentId).toBe("busy-chat-3");
   });
@@ -659,7 +659,7 @@ describe("routine history saved earlier", () => {
       ],
     });
     const summary = (id: string) => routines[id]?.runs.map((run) => [facts(run), run.agentId, run.error]);
-    expect(summary("rt-missed")).toEqual([["canceled/no_change/skipped-missed", null, null]]);
+    expect(summary("rt-missed")).toEqual([["canceled/unknown/skipped-missed", null, null]]);
     // A status this version doesn't know is not read as a success.
     expect(summary("rt-odd")).toEqual([["unknown/unknown", null, null]]);
     expect(routines["rt-never"]).toEqual({ lastRunAt: null, runs: [] });

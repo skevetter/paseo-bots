@@ -111,6 +111,45 @@ describe("routine responses read by an old client", () => {
   });
 });
 
+describe("unverified no-change history at the RPC boundary", () => {
+  useTempPaseoHome("paseo-bots-no-change-rpc-");
+
+  it("retains old status types while exposing only supported deterministic outcomes", async () => {
+    await mkdir(pluginDataPath(), { recursive: true });
+    const original = await readFile(
+      new URL("./fixtures/routines-v1-unverified-no-change.json", import.meta.url).pathname,
+      "utf8",
+    );
+    await writeFile(join(pluginDataPath(), "routines.json"), original);
+    const server = rpcServer();
+    try {
+      const response = await server.call("bots.routines.status");
+      const old = OldStatus.parse(response);
+      expect(defined(old.routines["rt-no-change"]).runs.map((run) => run.status)).toEqual([
+        "skipped-busy",
+        "skipped-missed",
+        "failed",
+        "failed",
+        "succeeded",
+        "succeeded",
+      ]);
+      const current = routineStatusRpc.output.parse(response);
+      const runs = defined(current.routines["rt-no-change"]).runs;
+      expect(runs.map((run) => [run.id, run.taskOutcome, run.verification?.verifier.id ?? null])).toEqual([
+        ["run-busy", "unknown", null],
+        ["run-missed", "unknown", null],
+        ["run-failed", "unknown", null],
+        ["run-canceled", "unknown", null],
+        ["run-bare-completion", "unknown", null],
+        ["run-verified-completion", "no_change", "source-revision"],
+      ]);
+      expect(await readFile(join(pluginDataPath(), "routines.json"), "utf8")).toBe(original);
+    } finally {
+      await server.stop();
+    }
+  });
+});
+
 describe("new execution statuses read by an old client", () => {
   useTempPaseoHome("paseo-bots-routine-rpc-states-");
 
@@ -184,7 +223,7 @@ describe("run-now responses read by an old client", () => {
       expect(old.run.error).toContain("another host");
       expect(routineRunNowRpc.output.parse(response).run).toMatchObject({
         executionStatus: "failed",
-        taskOutcome: "no_change",
+        taskOutcome: "unknown",
         status: "failed",
       });
       expect(defined((await new RunStore().read()).routines["rt-away"]).runs[0]).not.toHaveProperty("status");

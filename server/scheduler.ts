@@ -253,7 +253,7 @@ export class RoutineScheduler {
     return { run, release: null };
   }
 
-  /** A run that never launched changed nothing, so its outcome is no_change. */
+  /** Admission failure or skipping says nothing about whether the task required work. */
   private async blocked(
     { bot, routine, trigger }: RunRequest,
     record: RoutineRecord,
@@ -261,7 +261,7 @@ export class RoutineScheduler {
     if (bot.hostId)
       return {
         executionStatus: "failed",
-        taskOutcome: "no_change",
+        taskOutcome: "unknown",
         error: "Routines run on the host that stores the bot; this bot runs on another host.",
       };
     // Skip while the previous run is still working (webhooks allow a few at once).
@@ -269,7 +269,7 @@ export class RoutineScheduler {
     const starting = this.launches.get(routine.id);
     const busy = await this.busyRuns(record, limit, starting);
     return (starting?.size ?? 0) + busy >= limit
-      ? { executionStatus: "canceled", taskOutcome: "no_change", skipped: "busy" }
+      ? { executionStatus: "canceled", taskOutcome: "unknown", skipped: "busy" }
       : null;
   }
 
@@ -330,6 +330,7 @@ export class RoutineScheduler {
       scheduledFor: run.scheduledFor,
       executionStatus: run.executionStatus,
       taskOutcome: run.taskOutcome,
+      verification: run.verification,
       skipped: run.skipped,
       agentId: run.agentId,
       output: run.output,
@@ -387,7 +388,7 @@ export class RoutineScheduler {
       ...admitRun({ routineId: routine.id, trigger: "schedule", due, now, epoch: UNOBSERVED_SESSION_EPOCH }),
       endedAt: at,
       executionStatus: "canceled",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
       skipped: "missed",
     };
     await this.store.update((records) => {

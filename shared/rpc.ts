@@ -263,7 +263,7 @@ export const RoutineRunShape = z.object({
   executionStatus: ExecutionStatusSchema,
   taskOutcome: TaskOutcomeSchema,
   verification: VerificationSchema.nullable(),
-  /** Set when the run never launched, because the routine was still working or the time was missed. */
+  /** Admission disposition only: not proof of task outcome, host creation, or external effects. */
   skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   /** The start of the bot's reply once the run finished. */
@@ -282,6 +282,7 @@ const RoutineRunCardShape = z.object({
   scheduledFor: z.string(),
   executionStatus: ExecutionStatusSchema,
   taskOutcome: TaskOutcomeSchema,
+  verification: VerificationSchema.nullable().default(null),
   skipped: SkippedSchema.nullable(),
   agentId: z.string().nullable(),
   output: z.string().nullable(),
@@ -296,7 +297,12 @@ function upgradeCard(data: unknown): unknown {
 }
 
 /** A plugin timeline item, replaced (same id) when the run finishes. */
-export const RoutineRunCardSchema = z.preprocess(upgradeCard, RoutineRunCardShape);
+export const RoutineRunCardSchema = z.preprocess(
+  upgradeCard,
+  RoutineRunCardShape.transform((card) =>
+    runStateIssue(card) ? { ...card, taskOutcome: "unknown" as const, verification: null } : card,
+  ),
+);
 export type RoutineRunCard = z.infer<typeof RoutineRunCardShape>;
 export const ROUTINE_RUN_CARD = { kind: "routine-run", version: 1 } as const;
 
