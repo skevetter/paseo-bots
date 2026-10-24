@@ -96,6 +96,8 @@ events cannot establish it. Initial responses and replay use retained authoritat
 including a native lifecycle acknowledgement already saved before the SDK rejected. `finishLegacy`
 preserves terminal execution and `endedAt`; existence never proves task success.
 
+A legacy routine stopped during preparation records canceled/unknown/not_created and an end time without clearing its claimed UUID. That terminal receipt permits a later occurrence after reopening; the original request remains idempotent.
+
 Same UUID plus the actual host snapshot's bot label also proves creation; a retained typed
 no-create result returns `not_created`; absent, mismatching or unavailable proof returns pending.
 `runs.prepare` refuses an existing legacy request instead of converting it into a managed plan.

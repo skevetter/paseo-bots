@@ -8,7 +8,7 @@ import { Relay } from "../server/relay";
 import { RoutineScheduler } from "../server/scheduler";
 import type { Routine } from "../shared/bot";
 import { makePrepared } from "./coordinator-fixture";
-import { fakeHost, makeBot } from "./helpers";
+import { type FakeHost, fakeHost, makeBot } from "./helpers";
 
 const running: { stop(): Promise<void> }[] = [];
 afterEach(async () => {
@@ -123,6 +123,17 @@ describe("scheduler launch progress through the real clock tick", () => {
   );
 });
 
+async function restartLegacy(host: FakeHost, routineId: string) {
+  const relay = new Relay(host, []);
+  const scheduler = new RoutineScheduler(host, relay, {
+    prepare: async (_host, _relay, bot, input) =>
+      makePrepared({ botId: bot.id, agentId: input.agentId, idempotencyKey: input.idempotencyKey }),
+    launch: async (_host, _relay, prepared) => prepared.agentId,
+  });
+  running.push(scheduler, relay);
+  return (await scheduler.runNow("legacy", routineId, "after-canceled-preparation")).run;
+}
+
 describe("legacy shutdown before and during creation", () => {
   useClockHome("paseo-bots-scheduler-launch-stop-");
 
@@ -173,6 +184,8 @@ describe("legacy shutdown before and during creation", () => {
           if (admissionError) throw admissionError;
           expect(entered).toBe(true);
         });
+        const planned = (await scheduler.coordinator.store.read()).routines[routine.id]?.runs[0]?.agentId;
+        expect(planned).toBeTypeOf("string");
         stop = scheduler.stop().then(() => {
           stopped = true;
         });
@@ -181,6 +194,7 @@ describe("legacy shutdown before and during creation", () => {
         expect(run.executionStatus).toBe(phase === "preparation" ? "canceled" : "starting");
         expect(run.taskOutcome).toBe("unknown");
         expect(run.agentCreationStatus).toBe(phase === "preparation" ? "not_created" : "unknown");
+        expect(run.agentId).toBe(planned);
         const before = await readFile(join(pluginDataPath(), "routines.json"), "utf8");
         held.resolve();
         await vi.waitFor(() => expect(released).toBe(true));
@@ -191,6 +205,13 @@ describe("legacy shutdown before and during creation", () => {
         });
         expect(launches).toHaveLength(phase === "preparation" ? 0 : 1);
         expect(await readFile(join(pluginDataPath(), "routines.json"), "utf8")).toBe(before);
+        if (phase === "preparation") {
+          expect(run.endedAt).toBeTypeOf("string");
+          expect(await restartLegacy(host, routine.id)).toMatchObject({
+            executionStatus: "running",
+            skipped: null,
+          });
+        }
       } finally {
         held.resolve();
         await pending.catch(() => {});

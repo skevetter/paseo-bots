@@ -250,7 +250,6 @@ export class LegacyRoutineRunner {
       taskOutcome: "unknown",
       agentCreationStatus: "not_created",
       endedAt: this.timestamp(),
-      agentId: null,
     });
   }
 
