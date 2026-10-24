@@ -5,6 +5,9 @@ import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import type { PluginHandlerContext, PluginServerContext } from "@getpaseo/plugin/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { getDraft, setDraft } from "../client/chat/composer/drafts";
+import { restoreFailedSend } from "../client/chat/composer/logic";
+import { editDraft, submitDraft } from "../client/chat/composer/submission";
 import { launchPreparedChat, startChat } from "../server/chats";
 import { BotsHost } from "../server/host";
 import { LocalChatStarts, type LocalChatStartsOptions, registerLocalStarts } from "../server/local-starts";
@@ -27,6 +30,8 @@ import { PolicySchema, unsetOverrides } from "../shared/policies";
 import { newUuid } from "../shared/uuid";
 import { connectFakeDaemon, type FakeDaemon } from "./fake-daemon";
 import { defined, makeBot, NOW } from "./helpers";
+
+vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 
 interface LocalHarness {
   daemon: FakeDaemon;
@@ -240,6 +245,40 @@ describe("local managed admission", () => {
     expect(await h.starts.prepare(original)).toEqual(saved);
     expect(creates(h.daemon)).toEqual([]);
   });
+});
+it("reuses one durable task after a lost HTTP reply and real stored draft restoration", async () => {
+  const h = await harness();
+  const call = await registered(h);
+  const first = submitDraft({ text: "Publish the report", attachments: [] });
+  const raw = (message: { text: string; messageId: string }) => ({
+    botId: h.bot.id,
+    requestId: message.messageId,
+    clientMessageId: message.messageId,
+    prompt: message.text,
+  });
+  const admitted = LocalChatStartResultSchema.parse(await call(chatsStartRpc.name, raw(first)));
+  expect(admitted.status).toBe("created");
+  // The admission reached disk, but its response never reached the composer.
+  setDraft("lost-http-reply", restoreFailedSend(first, { text: "", attachments: [] }));
+  const restored = defined(getDraft("lost-http-reply"));
+  const retry = submitDraft(restored);
+  const replay = LocalChatStartResultSchema.parse(await call(chatsStartRpc.name, raw(retry)));
+  expect(replay.agentId).toBe(admitted.agentId);
+  const readRuns = async () =>
+    Object.values((await new RunStore(join(home, "routines.json")).read()).routines).flatMap(
+      (record) => record.runs,
+    );
+  expect((await readRuns()).map((run) => run.id)).toEqual([defined(admitted.run).id]);
+  expect(creates(h.daemon)).toHaveLength(1);
+  const edited = submitDraft(editDraft(restored, { text: "Publish the corrected report" }));
+  const deliberate = submitDraft({ text: first.text, attachments: [] });
+  const second = LocalChatStartResultSchema.parse(await call(chatsStartRpc.name, raw(edited)));
+  const third = LocalChatStartResultSchema.parse(await call(chatsStartRpc.name, raw(deliberate)));
+  expect((await readRuns()).map((run) => run.id).sort()).toEqual(
+    [defined(admitted.run).id, defined(second.run).id, defined(third.run).id].sort(),
+  );
+  expect(new Set([admitted.planId, second.planId, third.planId]).size).toBe(3);
+  setDraft("lost-http-reply", null);
 });
 it("releases capacity after a workspace failure proven to precede agent creation", async () => {
   const h = await harness();

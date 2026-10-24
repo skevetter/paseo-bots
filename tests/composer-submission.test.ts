@@ -44,19 +44,6 @@ const image: ComposerAttachment = {
 };
 
 describe("submission replay identity", () => {
-  it("does not create another task when an unchanged restored draft retries a lost reply after remount", async () => {
-    const host = lostReply();
-    const first = submitDraft({ text: "Publish the report", attachments: [] });
-    await expect(deliverMessage(first, host.target)).rejects.toThrow("after task creation");
-    const restored = restoreFailedSend(first, empty);
-    const persisted = parseDrafts(serializeDrafts({ draft: { ...restored, updatedAt: 1 } })).draft;
-    if (!persisted) throw new Error("Missing restored draft");
-    const retry = submitDraft(editDraft(persisted, { text: persisted.text }));
-    await deliverMessage(retry, host.target);
-    expect([...host.effects.keys()]).toEqual([first.messageId]);
-    expect(host.effects.get(first.messageId)).toBe(JSON.stringify(["Publish the report", [], []]));
-  });
-
   it("replays a failed queued submission using its retained queue identity", async () => {
     const host = lostReply();
     const first = submitDraft({ text: "Queued task", attachments: [] });

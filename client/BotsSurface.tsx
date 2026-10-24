@@ -2,16 +2,13 @@ import type { PluginTheme } from "@getpaseo/plugin";
 import type { PluginScreenProps, PluginSurfaceProps } from "@getpaseo/plugin/client";
 import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, type LayoutRectangle, ScrollView, Text, View } from "react-native";
+import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
-import { launchPreparedBotChat, prepareBotChat, SETUP_PROMPT, syncBotWorkspaceTitle } from "../shared/chat";
+import { SETUP_PROMPT, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
-import { chatsStartRpc, LocalChatInputSchema, LocalChatStartResultSchema } from "../shared/local-start";
 import type { PolicyState } from "../shared/policies";
-import { ensureBotHomeRpc, systemPromptRpc } from "../shared/rpc";
-import type { Purpose } from "../shared/runs";
+import { ensureBotHomeRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
 import { autoStarter, withoutStart } from "./autoStart";
@@ -34,9 +31,9 @@ import {
   select,
   surfaceContext,
 } from "./botsSurfaceActions";
-import { ChatPane, type OutgoingMessage } from "./ChatPane";
-import { useMountedRef } from "./chat/composer/mounted";
-import { type ChatStartFeedback, LocalStartNotice, useChatStartFeedback } from "./chat/LocalStartNotice";
+import { ChatPane } from "./ChatPane";
+import { type ChatStartFeedback, ChatStartNotices, useChatStartFeedback } from "./chat/LocalStartNotice";
+import { type StartChat, useStartChat } from "./chat/useStartChat";
 import { type BotHost, type LocalHost, useBotHost } from "./data";
 import { FleetPage } from "./fleet/FleetPage";
 import { LibraryView } from "./library/LibraryView";
@@ -240,6 +237,8 @@ function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElem
       onTogglePanel={() => ctx.setPanel({ open: !panel.open, section: panel.section })}
       onStarted={(chatId) => ctx.setSelection({ botId: selectedBot.id, chatId })}
       feedback={feedback}
+      flush={ctx.flush}
+      hasDraft={ctx.hasDraft}
       onStartHandled={(id) => ctx.setSelection((current) => withoutStart(current, id))}
     />
   );
@@ -263,7 +262,9 @@ function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
       onSection={(section) => ctx.setPanel({ open: true, section })}
       onClose={() => ctx.setPanel({ open: false, section: panel.section })}
       onPatch={(patch) => ctx.patchBot(selectedBot.id, patch)}
-      flush={ctx.flush}
+      flush={async () => {
+        await ctx.flush();
+      }}
       onRestore={(snapshot) => {
         ctx.patchBot(selectedBot.id, snapshot);
         ctx.setPanelVersion((version) => version + 1);
@@ -480,97 +481,9 @@ interface SelectedChatProps {
   onStarted(chatId: string): void;
   onStartHandled(id: string): void;
   feedback: ChatStartFeedback;
+  flush(): Promise<boolean>;
+  hasDraft(botId: string): boolean;
 }
-
-interface StartChatOptions {
-  bot: Bot;
-  library: Library;
-  policy: PolicyState;
-  host: BotHost;
-  onStarted(chatId: string): void;
-  feedback: ChatStartFeedback;
-}
-
-type StartChat = (message: OutgoingMessage, purpose?: Purpose) => Promise<void>;
-
-function useRemoteStart({ bot, library, policy, host }: StartChatOptions) {
-  const ensureHome = useRpc(ensureBotHomeRpc);
-  const compose = useRpc(systemPromptRpc);
-  return async (message: OutgoingMessage, purpose: Purpose): Promise<string> => {
-    if (!host.api) throw new Error(`${host.label} is offline.`);
-    const home = await ensureHome({ botId: bot.id });
-    const placement = bot.cwd
-      ? { path: bot.cwd, projectRoot: null }
-      : { path: home.path, projectRoot: home.root };
-    const { systemPrompt } = await compose({ bot, local: false, message: message.text });
-    const prepared = await prepareBotChat(host.api, {
-      bot,
-      library,
-      policy,
-      agentId: newUuid(),
-      idempotencyKey: `paseo-bots:${message.messageId}`,
-      plugin: {},
-      placement,
-      purpose,
-      prompt: message.text,
-      systemPrompt,
-      images: message.images,
-      attachments: message.attachments,
-      clientMessageId: message.messageId,
-    });
-    return launchPreparedBotChat(host.api, prepared);
-  };
-}
-
-function useLocalStart({ bot, onStarted, feedback }: StartChatOptions) {
-  const create = useRpc(chatsStartRpc);
-  const mounted = useMountedRef();
-  const openCreated = (agentId: string) => {
-    if (mounted.current) onStarted(agentId);
-  };
-  return async (message: OutgoingMessage, purpose: Purpose): Promise<void> => {
-    const input = LocalChatInputSchema.parse({
-      botId: bot.id,
-      requestId: message.messageId,
-      clientMessageId: message.messageId,
-      prompt: message.text,
-      purpose,
-      images: message.images,
-      attachments: message.attachments,
-    });
-    const result = LocalChatStartResultSchema.parse(await create(input));
-    if (result.status === "created" && result.agentId) {
-      openCreated(result.agentId);
-      return;
-    }
-    feedback.report(input, result);
-    if (result.status === "not_created" || result.mode === "legacy")
-      throw new Error(
-        result.message ?? "Creation is unconfirmed. Check the existing request before retrying.",
-      );
-  };
-}
-
-function useStartChat(options: StartChatOptions): StartChat {
-  const { bot, host, onStarted } = options;
-  const local = useLocalStart(options);
-  const remote = useRemoteStart(options);
-  const queryClient = useQueryClient();
-  const mounted = useMountedRef();
-  return async (message, purpose = "task") => {
-    if (!host.api) throw new Error(`${host.label} is offline.`);
-    if (host.isLocal) await local(message, purpose);
-    else {
-      const id = await remote(message, purpose);
-      if (mounted.current) onStarted(id);
-    }
-    void queryClient.invalidateQueries(
-      { queryKey: ["paseo-bots", "chats", host.key, bot.id] },
-      { throwOnError: false },
-    );
-  };
-}
-
 function useWorkspaceTitle(bot: Bot, host: BotHost) {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const latest = useRef({ bot, ensureHome });
@@ -626,32 +539,27 @@ function SelectedChat({
   onStarted,
   onStartHandled,
   feedback,
+  flush,
+  hasDraft,
 }: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
-  const start = useStartChat({ bot, library, policy, host, onStarted, feedback });
+  const start = useStartChat({ bot, library, policy, host, onStarted, feedback, flush, hasDraft });
   useWorkspaceTitle(bot, host);
   useAutoStart(selection, host, start, onStartHandled);
 
   return (
     <View style={{ flex: 1, minHeight: 0 }}>
-      <ScrollView style={{ maxHeight: layout.compact ? 220 : 280, flexGrow: 0 }}>
-        {feedback.pending
-          .filter((entry) => entry.input.botId === bot.id)
-          .map((entry) => (
-            <LocalStartNotice
-              key={entry.input.requestId}
-              colors={colors}
-              value={entry}
-              onResult={(result) => feedback.report(entry.input, result)}
-              onCreated={(id) => {
-                feedback.dismiss(entry.input);
-                onStarted(id);
-              }}
-              onClose={() => feedback.dismiss(entry.input)}
-            />
-          ))}
-      </ScrollView>
+      <ChatStartNotices
+        colors={colors}
+        botId={bot.id}
+        host={host}
+        compact={layout.compact}
+        feedback={feedback}
+        onStarted={onStarted}
+        flush={flush}
+        hasDraft={hasDraft}
+      />
       <ChatPane
         colors={colors}
         bot={bot}

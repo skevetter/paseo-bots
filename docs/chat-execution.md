@@ -18,6 +18,19 @@ Sending, keyboard submission and queue delivery stay disabled until the selected
 
 Remote manual chats keep the selected remote host API. The composer and settings show that local managed accounting, budgets and Memory Bridge are unavailable; no remote admission protocol is implied.
 
+## Settings before admission
+
+New local tasks wait for the existing bot-settings flush to succeed, then check the selected bot's live remaining drafts. An in-flight save, failed save or a newer edit during that save cannot silently launch with the older persisted configuration. The failed submission keeps its request identity and restores its input so it can be retried after saving. A host change during the wait prevents admission on the old host.
+
+An exact request with an acknowledged managed admission, or a pending/created legacy result, replays its existing admission even when later settings have changed or remain unsaved. A transport failure alone is not proof of admission: retry/check first flushes settings because it could still be a new server admission. The canonical raw `bots.chats.start` RPC remains authoritative; the client does not prepare configuration or grants.
+
+## Origin-host recovery
+
+Local start results and remote created-chat results retain the origin host ID/label, request ID and known agent or planned ID. Completion and notice checks never navigate an old-host identity through the bot's newly selected host. A result arriving after a host change stays visible with exact origin details; opening/checking/canceling is unavailable on a mismatched host. Select the bot's origin host and explicitly open or check the retained result. A planned ID alone is not creation evidence.
+
+Notices live at the screen level so changing or remounting the selected chat does not discard an outstanding result. They are not a persistent run ledger and do not cancel work when dismissed or when the screen closes. Failed composer drafts use the production web/AsyncStorage persistence path, including their stable request identity; the server's durable run records remain authoritative.
+
+
 ## Retry identity
 
 Each submitted intent gets one client message/request ID before delivery. If the response is lost after admission, an unchanged restored draft keeps that ID through retry and draft persistence/remount. Queued retries use the queue entry's stable ID. Editing queued content into the composer preserves the ID until text or attachments actually change.
