@@ -147,7 +147,8 @@ export interface RunState {
 
 /** Null when the pair can be true. A model saying it succeeded is not a verification. */
 export function runStateIssue({ executionStatus, taskOutcome, verification }: RunState): string | null {
-  const verified = taskOutcome === "verified_success" || taskOutcome === "verified_failure";
+  const verified =
+    taskOutcome === "verified_success" || taskOutcome === "verified_failure" || taskOutcome === "no_change";
   if (verified && !verification) return `${taskOutcome} needs a verification`;
   if (!verified && verification) return `${taskOutcome} can't carry a verification`;
   if (verified && executionStatus !== "completed") return `${taskOutcome} needs a completed execution`;
