@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -602,6 +602,149 @@ describe("legacy acknowledgement and lifecycle race", () => {
   });
 });
 
+describe("monotonic legacy creation proof", () => {
+  it.each(["transport lost after prompt", "Update the host to use caller-selected creation IDs."])(
+    "retains a matching SDK acknowledgement before later rejection: %s",
+    async (error) => {
+      const h = await harness({ legacy: true });
+      const agentId = newUuid();
+      const request = input({ agentId });
+      h.daemon.creation(
+        [
+          { kind: "agent", revision: 1, phase: "agent_ready", agentId, workspaceId: "ws-1", error: null },
+          {
+            kind: "agent",
+            revision: 2,
+            phase: "failed",
+            agentId: null,
+            workspaceId: "ws-1",
+            failedStage: "prompt",
+            outcomeUnknown: error === "transport lost after prompt",
+            error,
+          },
+        ],
+        error,
+      );
+      expect(await h.starts.create(request)).toMatchObject({ status: "created", agentId });
+      expect(creates(h.daemon)).toEqual([expect.objectContaining({ agentId })]);
+      expect(await h.daemon.api.agents.ref(agentId).refresh()).toBeNull();
+      const run = defined((await h.coordinator.list()).runs[0]);
+      expect(run).toMatchObject({
+        agentId,
+        agentCreationStatus: "created",
+        taskOutcome: "unknown",
+        executionStatus: "unknown",
+      });
+      h.starts.stop();
+      await h.coordinator.stop();
+      const coordinator = new RunCoordinator(h.host, h.relay, {
+        store: new RunStore(join(home, "routines.json")),
+      });
+      const starts = new LocalChatStarts(h.host, h.relay, coordinator);
+      cleanups.push(async () => {
+        starts.stop();
+        await coordinator.stop();
+      });
+      await h.config.update((values) => ({ ...values, bots: [] }));
+      expect(await starts.create(request)).toMatchObject({ status: "created", agentId });
+      expect(await coordinator.get(run.id)).toMatchObject({
+        agentCreationStatus: "created",
+        taskOutcome: "unknown",
+      });
+      expect(creates(h.daemon)).toHaveLength(1);
+    },
+  );
+});
+
+describe("legacy native proof boundaries", () => {
+  it("does not promote a wrong-ID SDK acknowledgement", async () => {
+    const h = await harness({ legacy: true });
+    h.daemon.creation(
+      [
+        {
+          kind: "agent",
+          revision: 1,
+          phase: "agent_ready",
+          agentId: newUuid(),
+          workspaceId: null,
+          error: null,
+        },
+      ],
+      "transport lost",
+    );
+    expect(await h.starts.create(input())).toMatchObject({ status: "pending", agentId: null });
+    expect((await h.coordinator.list()).runs[0]).toMatchObject({ agentCreationStatus: "unknown" });
+  });
+
+  it("uses durable native creation proof when SDK rejection arrives after terminal completion", async () => {
+    const h = await harness({ legacy: true });
+    h.daemon.creation([], "Update the host to use caller-selected creation IDs.");
+    h.daemon.hold();
+    const creating = h.starts.create(input());
+    await vi.waitFor(() => expect(creates(h.daemon)).toHaveLength(1));
+    const run = defined((await h.coordinator.list()).runs[0]);
+    await h.coordinator.finishLegacy(run.id, {
+      executionStatus: "completed",
+      agentCreationStatus: "created",
+      taskOutcome: "unknown",
+      endedAt: NOW,
+    });
+    h.daemon.release();
+    expect(await creating).toMatchObject({ status: "created", agentId: run.agentId });
+    expect(await h.coordinator.get(run.id)).toMatchObject({
+      executionStatus: "completed",
+      agentCreationStatus: "created",
+      taskOutcome: "unknown",
+      endedAt: NOW,
+    });
+  });
+});
+
+describe("legacy acknowledgement lifetime", () => {
+  it.each(["timeout", "stop"] as const)(
+    "persists proof before the SDK settles and fences evidence after %s",
+    async (ending) => {
+      const h = await harness({ legacy: true, starts: { legacyTimeoutMs: 5_000 } });
+      const agentId = newUuid();
+      h.daemon.creation([
+        { kind: "agent", revision: 1, phase: "agent_ready", agentId, workspaceId: null, error: null },
+      ]);
+      const release = Promise.withResolvers<void>();
+      const create = h.daemon.api.agents.create.bind(h.daemon.api.agents);
+      let observer: Parameters<typeof create>[0]["onEvent"];
+      vi.spyOn(h.daemon.api.agents, "create").mockImplementation(async (options) => {
+        observer = options.onEvent;
+        const agent = await create(options);
+        await release.promise;
+        return agent;
+      });
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const creating = h.starts.create(input({ agentId }));
+      await vi.waitFor(async () =>
+        expect((await h.coordinator.list()).runs[0]?.agentCreationStatus).toBe("created"),
+      );
+      if (ending === "timeout") await vi.advanceTimersByTimeAsync(5_000);
+      else h.starts.stop();
+      expect(await creating).toMatchObject({ status: "created", agentId });
+      h.starts.stop();
+      await h.coordinator.stop();
+      const before = await readFile(h.store.path, "utf8");
+      observer?.({
+        kind: "agent",
+        idempotencyKey: `paseo-bots:${agentId}`,
+        revision: 2,
+        phase: "failed",
+        agentId,
+        workspaceId: null,
+        error: "late SDK failure",
+      });
+      release.resolve();
+      await setImmediate();
+      expect(await readFile(h.store.path, "utf8")).toBe(before);
+    },
+  );
+});
+
 describe("independent colleague requests", () => {
   it("asks an independent colleague with its own grant envelope and replays a canonical ID after deletion", async () => {
     const colleague = makeBot({
@@ -656,15 +799,18 @@ describe("independent colleague requests", () => {
   });
 });
 
-describe("caller-selected legacy identity", () => {
-  it("refuses a pre-existing native bot chat instead of adopting it after duplicate-ID creation", async () => {
-    const h = await harness({ legacy: true });
-    const agentId = newUuid();
-    h.daemon.setAgent(agentId, { labels: { "paseo-bots.bot": "bot-1" } });
-    await expect(h.starts.create(input({ agentId }))).rejects.toThrow("already exists");
-    expect(creates(h.daemon)).toEqual([]);
-    expect((await h.coordinator.list()).runs).toEqual([]);
-  });
+describe("caller-selected identity", () => {
+  it.each([true, false])(
+    "refuses a pre-existing native bot chat before admission (legacy=%s)",
+    async (legacy) => {
+      const h = await harness({ legacy });
+      const agentId = newUuid();
+      h.daemon.setAgent(agentId, { labels: { "paseo-bots.bot": "bot-1" } });
+      await expect(h.starts.create(input({ agentId }))).rejects.toThrow("already exists");
+      expect(creates(h.daemon)).toEqual([]);
+      expect((await h.coordinator.list()).runs).toEqual([]);
+    },
+  );
 
   it("never treats an uncertain native identity inspection as proof that the ID is unused", async () => {
     const h = await harness({ legacy: true, starts: { legacyTimeoutMs: 5_000 } });
@@ -680,5 +826,85 @@ describe("caller-selected legacy identity", () => {
     await setImmediate();
     expect(creates(h.daemon)).toEqual([]);
     expect((await h.coordinator.list()).runs).toEqual([]);
+  });
+});
+
+describe("authoritative UUID ownership", () => {
+  it("refuses a second request while the first SDK create is held and native refresh is absent", async () => {
+    const h = await harness({ legacy: true });
+    const agentId = newUuid();
+    const first = input({ agentId, requestId: "owner-a", idempotencyKey: "host-a" });
+    const other = input({
+      agentId,
+      requestId: "owner-b",
+      idempotencyKey: "host-b",
+      prompt: "Different workload",
+    });
+    h.daemon.hold();
+    const creating = h.starts.create(first);
+    await vi.waitFor(() => expect(creates(h.daemon)).toHaveLength(1));
+    expect(await h.daemon.api.agents.ref(agentId).refresh()).toBeNull();
+    let refused: unknown;
+    const competing = h.starts.create(other).catch((error: unknown) => {
+      refused = error;
+      return error;
+    });
+    await vi.waitFor(async () =>
+      expect(refused instanceof Error || (await h.coordinator.list()).runs.length === 2).toBe(true),
+    );
+    h.daemon.release();
+    await creating;
+    await competing;
+    expect(refused).toBeInstanceOf(Error);
+    expect(creates(h.daemon)).toHaveLength(1);
+    expect((await h.coordinator.list()).runs.map((run) => run.agentId)).toEqual([agentId]);
+    h.starts.stop();
+    await h.coordinator.stop();
+    h.daemon.setAgent(agentId, null);
+    const coordinator = new RunCoordinator(h.host, h.relay, {
+      store: new RunStore(join(home, "routines.json")),
+    });
+    const starts = new LocalChatStarts(h.host, h.relay, coordinator);
+    cleanups.push(async () => {
+      starts.stop();
+      await coordinator.stop();
+    });
+    await expect(starts.create(other)).rejects.toThrow("already admitted");
+    await h.config.update((values) => ({ ...values, bots: [] }));
+    expect(await starts.create(first)).toMatchObject({ status: "created", agentId });
+    await expect(starts.create({ ...first, prompt: "changed" })).rejects.toMatchObject({
+      code: "request_conflict",
+    });
+    expect(creates(h.daemon)).toHaveLength(1);
+  });
+
+  it("retains an unknown request's UUID across timeout and reopening", async () => {
+    const h = await harness({ legacy: true, starts: { legacyTimeoutMs: 5_000 } });
+    const agentId = newUuid();
+    const first = input({ agentId });
+    h.daemon.hold();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const creating = h.starts.create(first);
+    await vi.waitFor(() => expect(creates(h.daemon)).toHaveLength(1));
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(await creating).toMatchObject({ status: "pending", plannedAgentId: agentId });
+    h.starts.stop();
+    await h.coordinator.stop();
+    const coordinator = new RunCoordinator(h.host, h.relay, {
+      store: new RunStore(join(home, "routines.json")),
+    });
+    const starts = new LocalChatStarts(h.host, h.relay, coordinator);
+    cleanups.push(async () => {
+      starts.stop();
+      await coordinator.stop();
+    });
+    await expect(starts.create(input({ agentId, requestId: "another" }))).rejects.toThrow("already admitted");
+    expect(await starts.create(first)).toMatchObject({ status: "pending", plannedAgentId: agentId });
+    expect(creates(h.daemon)).toHaveLength(1);
+    expect((await coordinator.list()).runs).toEqual([
+      expect.objectContaining({ agentId, agentCreationStatus: "unknown", executionStatus: "unknown" }),
+    ]);
+    h.daemon.release();
+    await setImmediate();
   });
 });

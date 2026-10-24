@@ -27,6 +27,13 @@ Artifacts live at `run-artifacts/<sha256>.json` (directory 0700, file 0600), use
 
 Safe retries create new attempt/execution/agent identities while retaining the frozen launch configuration and occurrence. Plugin-owned relay addresses and credentials may be rebound for the same frozen grant envelope. Recovery never broadens grants using current bot settings.
 
+Every new UUID claim is checked by the authoritative writer against all retained current agent IDs
+and managed attempt IDs, across bots and requests. The check applies to managed admission, legacy
+admission, first legacy identity assignment and managed retry allocation. A claimed legacy identity
+cannot be replaced or cleared. Terminal history, timeout and reopening do not free an identity;
+only the same original request/body replays its retained claim. Native snapshot absence is not
+proof that another request has not already reserved that UUID.
+
 ### Deferred start and creation receipts
 
 `deferLaunch: true` persists a frozen plan with `launchIntent: false`; neither attachment nor restart launches it. `startPrepared(runId)` durably sets intent before pumping, is idempotent, and never revives canceled or uncertain work. A queued/reserved cancellation permanently clears intent.
@@ -82,13 +89,20 @@ SDK call, the existing `recordLegacy` writer durably retains request/body identi
 UUID and purpose under the ordinary chat record. This is not a managed snapshot, reservation or
 managed accounting. No prepared configuration, prompt, environment or relay credential is saved
 as a legacy launch artifact. A repeated request never launches again, even after a bot mode change
-or deletion. Same UUID plus the actual host snapshot's bot label proves creation; a retained typed
+or deletion. Matching SDK `agent_ready`, `prompt_started` or `completed` evidence monotonically
+establishes creation and is persisted through `finishLegacy` while the SDK call is outstanding.
+A later generic rejection, ambiguous event or typed refusal cannot undo that proof. Wrong-ID
+events cannot establish it. Initial responses and replay use retained authoritative creation evidence,
+including a native lifecycle acknowledgement already saved before the SDK rejected. `finishLegacy`
+preserves terminal execution and `endedAt`; existence never proves task success.
+
+Same UUID plus the actual host snapshot's bot label also proves creation; a retained typed
 no-create result returns `not_created`; absent, mismatching or unavailable proof returns pending.
 `runs.prepare` refuses an existing legacy request instead of converting it into a managed plan.
-New legacy admissions with a caller-selected `agentId` first inspect that exact native identity:
+New local admissions with a caller-selected `agentId` first inspect that exact native identity:
 an existing agent refuses the admission, and unavailable/uncertain inspection refuses rather than
-treating the ID as unused. This avoids adopting a pre-existing bot chat after a duplicate-ID create
-failure. Server-minted IDs skip this preflight. Replay always precedes this inspection.
+treating the ID as unused. This preflight complements, but cannot replace, atomic UUID ownership.
+Server-minted IDs skip the native preflight. Replay always precedes inspection and configuration lookup.
 
 A lazy bounded host call passes an abort signal through workspace setup. Timeout or shutdown
 prevents a later setup continuation from issuing creation; it cannot cancel an SDK create already
@@ -220,6 +234,16 @@ Tests inject filesystem failures and check actual old/new bytes, backup integrit
 ## Verification
 
 The coordinator regression suite injects interruption before/after artifact publication and queued/reserved/starting/running metadata commits, reopens real stores, and checks duplicate identity, frozen replay, capacity dimensions, overlap modes, retries/circuits, cold adoption and unknown effects.
+
+Focused identity regressions drive the installed SDK with an inert transport: a matching ready
+acknowledgement followed by generic or typed rejection retains `created`, even with no native
+snapshot available. Wrong-ID proof stays uncertain; timeout/shutdown fences late evidence; terminal
+completion survives later rejection. Concurrent UUID claim tests hold the first create while native
+refresh returns null and reject the second request before another claim or SDK create. Cold reopen
+retains ownership, including terminal managed attempts no longer referenced by the current run UUID.
+Standalone file-backed SDK smoke independently exercised both post-ready rejection forms, concurrent
+claim refusal and replay after reopening and bot deletion. No paid agents or real daemon mutations
+were used.
 
 Standalone cold-process smoke used the real server preparation/launch adapter with a local inert host stand-in, no paid model agents. An unstarted plan survived a cold reopen; explicit start used its frozen model despite edited configuration. The process was SIGKILLed after persisted `starting` and host acceptance. A second process refused the stale lock; after confirmed process exit and manual lock removal, a fresh process adopted the same UUID without another create, persisted session generations 1 then 2, preserved exact history-read bytes, and retained a full lifecycle reply beyond the display excerpt. Separate actual-process smoke exercised hung creation, unrelated progress, late ACK refusal and unsupported active cancellation. Real loopback HTTP exercised identical replay, changed-body HTTP 409 beyond prompt truncation, distinct keys and replay after bot deletion. No live installed-plugin or Windows validation is claimed.
 
