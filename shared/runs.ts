@@ -125,6 +125,7 @@ const TERMINAL: Record<ExecutionStatus, boolean> = {
 /** `unknown` is terminal in the sense that nothing here will change it; a later reconcile may. */
 export const isTerminal = (status: ExecutionStatus): boolean => TERMINAL[status];
 
+/** no_change is a successfully verified deterministic no-work result, not a skip or failed inspection. */
 export const TASK_OUTCOMES = [
   "verified_success",
   "verified_failure",
@@ -135,7 +136,7 @@ export const TASK_OUTCOMES = [
 export const TaskOutcomeSchema = z.enum(TASK_OUTCOMES);
 export type TaskOutcome = z.infer<typeof TaskOutcomeSchema>;
 
-/** Which pinned verifier judged the result, and when. Only a verification can make an outcome verified. */
+/** The pinned verifier and time establishing a completed outcome, including deterministic no_change. */
 export const VerificationSchema = z.object({ verifier: VerifierRefSchema, at: z.string() });
 export type Verification = z.infer<typeof VerificationSchema>;
 
@@ -147,11 +148,12 @@ export interface RunState {
 
 /** Null when the pair can be true. A model saying it succeeded is not a verification. */
 export function runStateIssue({ executionStatus, taskOutcome, verification }: RunState): string | null {
-  const verified =
+  const requiresVerification =
     taskOutcome === "verified_success" || taskOutcome === "verified_failure" || taskOutcome === "no_change";
-  if (verified && !verification) return `${taskOutcome} needs a verification`;
-  if (!verified && verification) return `${taskOutcome} can't carry a verification`;
-  if (verified && executionStatus !== "completed") return `${taskOutcome} needs a completed execution`;
+  if (requiresVerification && !verification) return `${taskOutcome} needs a verification`;
+  if (!requiresVerification && verification) return `${taskOutcome} can't carry a verification`;
+  if (requiresVerification && executionStatus !== "completed")
+    return `${taskOutcome} needs a completed execution`;
   if (!isTerminal(executionStatus) && taskOutcome !== "unknown")
     return `${executionStatus} runs have no outcome yet`;
   return null;
@@ -183,8 +185,8 @@ export interface RunDisposition extends Pick<RunState, "executionStatus" | "task
 }
 
 /**
- * The old label never says the task worked, so a completed turn keeps an unknown outcome. A skipped run
- * never launched, so it changed nothing. Anything this version doesn't know is an unknown execution.
+ * The old label never says the task worked. Completion and skips carry no pinned verification,
+ * so their task outcomes remain unknown. Anything this version doesn't know is an unknown execution.
  */
 export function fromLegacyStatus(status: unknown): RunDisposition {
   switch (status) {
@@ -195,9 +197,9 @@ export function fromLegacyStatus(status: unknown): RunDisposition {
     case "failed":
       return { executionStatus: "failed", taskOutcome: "unknown", skipped: null };
     case "skipped-busy":
-      return { executionStatus: "canceled", taskOutcome: "no_change", skipped: "busy" };
+      return { executionStatus: "canceled", taskOutcome: "unknown", skipped: "busy" };
     case "skipped-missed":
-      return { executionStatus: "canceled", taskOutcome: "no_change", skipped: "missed" };
+      return { executionStatus: "canceled", taskOutcome: "unknown", skipped: "missed" };
     default:
       return { executionStatus: "unknown", taskOutcome: "unknown", skipped: null };
   }
@@ -227,9 +229,7 @@ export function describeRun(run: RunDisposition): { label: string; tone: RunTone
     case "failed":
       return { label: "Failed", tone: "error" };
     case "canceled":
-      return run.taskOutcome === "unknown"
-        ? { label: "Stopped, effects unknown", tone: "warning" }
-        : { label: "Stopped", tone: "muted" };
+      return { label: "Canceled", tone: "muted" };
     case "unknown":
       return { label: "Outcome unknown", tone: "warning" };
     case "completed":

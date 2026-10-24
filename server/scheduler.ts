@@ -322,6 +322,7 @@ export class RoutineScheduler {
       scheduledFor: run.scheduledFor,
       executionStatus: run.executionStatus,
       taskOutcome: run.taskOutcome,
+      verification: run.verification,
       skipped: run.skipped,
       agentId: run.agentId,
       output: run.output,

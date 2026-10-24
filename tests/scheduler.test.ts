@@ -294,7 +294,7 @@ describe("the routine scheduler", () => {
 
     // While that run's chat is working, the next run is skipped.
     expect(manual.run.agentId).toMatch(/^[0-9a-f-]{36}$/);
-    expect(facts((await scheduler.runNow("bot-r", "rt-1")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-r", "rt-1")).run)).toBe("canceled/unknown/skipped-busy");
 
     const { url } = await scheduler.webhookUrl("rt-hook");
     expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/hooks\/rt-hook\/[a-f0-9]{48}$/);
@@ -336,7 +336,7 @@ describe("the routine scheduler", () => {
     expect(routines["rt-hook"]?.runs.map((run) => [run.trigger, facts(run), run.providerTurnId])).toEqual([
       ["webhook", "completed/unknown", "turn-9"],
     ]);
-    expect(routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown", "canceled/no_change/skipped-busy"]);
+    expect(routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown", "canceled/unknown/skipped-busy"]);
 
     // A rotated URL retires the old one.
     const { url: fresh } = await scheduler.webhookUrl("rt-hook", true);
@@ -361,11 +361,11 @@ describe("routine runs", () => {
     );
     await vi.waitFor(() =>
       expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
-        ["digest-chat", "canceled/no_change/skipped-missed"],
+        ["digest-chat", "canceled/unknown/skipped-missed"],
       ]),
     );
     const { routines } = await scheduler.status();
-    expect(routines["rt-missed"]?.runs.map(facts)).toEqual(["canceled/no_change/skipped-missed"]);
+    expect(routines["rt-missed"]?.runs.map(facts)).toEqual(["canceled/unknown/skipped-missed"]);
   });
 
   it("keeps running the other routines when one of them fails", async () => {
@@ -447,13 +447,13 @@ describe("routine chats that take a while to start", () => {
     const quickRun = (await scheduler.runNow("bot-q", "rt-quick")).run;
     expect(quickRun.executionStatus).toBe("running");
     expect(quickRun.agentId).not.toBe(slowChat.agentId);
-    expect(facts((await scheduler.runNow("bot-q", "rt-slow")).run)).toBe("canceled/no_change/skipped-busy");
+    expect(facts((await scheduler.runNow("bot-q", "rt-slow")).run)).toBe("canceled/unknown/skipped-busy");
     started();
     expect((await slowRun).run).toMatchObject({ executionStatus: "running", agentId: slowChat.agentId });
     const { routines } = await scheduler.status();
     expect(routines["rt-slow"]?.runs.map(facts)).toEqual([
       "running/unknown",
-      "canceled/no_change/skipped-busy",
+      "canceled/unknown/skipped-busy",
     ]);
   });
 
@@ -658,12 +658,12 @@ describe("routine runs that can't start", () => {
     const { run } = await scheduler.runNow("bot-away", "rt-away");
     expect(run).toMatchObject({
       executionStatus: "failed",
-      taskOutcome: "no_change",
+      taskOutcome: "unknown",
       agentId: null,
       error: expect.stringContaining("another host"),
     });
     expect(appended.map((card) => [card.agentId, facts(card.item.data)])).toEqual([
-      ["away-results", "failed/no_change"],
+      ["away-results", "failed/unknown"],
     ]);
   });
 
@@ -699,7 +699,7 @@ describe("routine runs already in progress", () => {
         endedAt: null,
         managed: { reservation: true },
       });
-      expect(facts((await scheduler.runNow("bot-b", "rt-b")).run)).toBe("canceled/no_change/skipped-busy");
+      expect(facts((await scheduler.runNow("bot-b", "rt-b")).run)).toBe("canceled/unknown/skipped-busy");
       await scheduler.coordinator.pump();
       expect(launch).toHaveBeenCalledTimes(1);
     },
@@ -813,7 +813,7 @@ describe("routine history saved earlier", () => {
       ],
     });
     const summary = (id: string) => routines[id]?.runs.map((run) => [facts(run), run.agentId, run.error]);
-    expect(summary("rt-missed")).toEqual([["canceled/no_change/skipped-missed", null, null]]);
+    expect(summary("rt-missed")).toEqual([["canceled/unknown/skipped-missed", null, null]]);
     // A status this version doesn't know is not read as a success.
     expect(summary("rt-odd")).toEqual([["unknown/unknown", null, null]]);
     expect(routines["rt-never"]).toEqual({ lastRunAt: null, runs: [] });

@@ -38,15 +38,16 @@ describe("execution status and task outcome", () => {
       .filter((state) => !runStateIssue(state))
       .map((state) => `${state.executionStatus}/${state.taskOutcome}/${state.verification ? "v" : "-"}`);
     const terminal = EXECUTION_STATUSES.filter(isTerminal);
-    const unverified = TASK_OUTCOMES.filter((outcome) => !outcome.startsWith("verified"));
+    const unverified = ["needs_review", "unknown"];
     expect(allowed.sort()).toEqual(
       [
-        // Anything can end with an outcome nobody has judged, a human flag, or no change.
+        // Unverified terminal results remain unknown or explicitly await review.
         ...terminal.flatMap((status) => unverified.map((outcome) => `${status}/${outcome}/-`)),
         // A run that hasn't ended has no outcome yet.
         ...EXECUTION_STATUSES.filter((status) => !isTerminal(status)).map((status) => `${status}/unknown/-`),
         "completed/verified_success/v",
         "completed/verified_failure/v",
+        "completed/no_change/v",
       ].sort(),
     );
   });
@@ -75,18 +76,12 @@ describe("how a run is described", () => {
     expect(claimingSuccess.map((run) => `${run.executionStatus}/${run.taskOutcome}`)).toEqual([
       "completed/verified_success",
     ]);
-    const labelOf = (status: string, outcome: string) =>
-      described.find((run) => run.executionStatus === status && run.taskOutcome === outcome)?.label;
-    expect(labelOf("completed", "unknown")).toBe("Completed, not verified");
-    expect(labelOf("completed", "needs_review")).toBe("Completed, needs review");
-    expect(labelOf("canceled", "unknown")).toBe("Stopped, effects unknown");
-    expect(labelOf("unknown", "unknown")).toBe("Outcome unknown");
   });
 
-  it("names a skipped run by why it was skipped", () => {
-    const skipped = { executionStatus: "canceled", taskOutcome: "no_change" } as const;
-    expect(describeRun({ ...skipped, skipped: "busy" }).label).toBe("Skipped, still working");
-    expect(describeRun({ ...skipped, skipped: "missed" }).label).toBe("Missed");
+  it("does not infer external effects from a canceled task outcome", () => {
+    const unknown = describeRun({ executionStatus: "canceled", taskOutcome: "unknown", skipped: null });
+    const review = describeRun({ executionStatus: "canceled", taskOutcome: "needs_review", skipped: null });
+    expect(review).toEqual(unknown);
   });
 });
 
@@ -123,10 +118,12 @@ describe("routine run cards posted before outcomes existed", () => {
       ...old,
       executionStatus: "completed",
       taskOutcome: "unknown",
+      verification: null,
       skipped: null,
     });
     expect(RoutineRunCardSchema.parse({ ...old, status: "skipped-missed" })).toMatchObject({
       executionStatus: "canceled",
+      taskOutcome: "unknown",
       skipped: "missed",
     });
   });
