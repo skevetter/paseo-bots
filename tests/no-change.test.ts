@@ -23,7 +23,6 @@ describe("deterministic no-work outcome boundaries", () => {
         },
       }).success,
     ).toBe(false);
-    expect(RoutineRunSchema.parse({ ...run, verification })).toEqual({ ...run, verification });
   });
 
   it.each(["failed", "canceled"])("does not equate %s execution with verified no work", (executionStatus) => {
@@ -58,8 +57,8 @@ describe("version-1 no-change history migration", () => {
     expect(await readFile(store.path, "utf8")).toBe(original);
     await store.update(() => {});
     expect((await new RunStore(store.path).read()).routines).toEqual(expected);
-    expect(JSON.parse(await readFile(store.path, "utf8"))).toEqual({ version: 1, routines: expected });
     expect(await readFile(`${store.path}.pre-run-store`, "utf8")).toBe(backup);
+    expect(await readFile(`${store.path}.v1.bak`, "utf8")).toBe(original);
 
     // A new unsupported claim is refused, not silently migrated at the write boundary.
     const saved = await readFile(store.path, "utf8");

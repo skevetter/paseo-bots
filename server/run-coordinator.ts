@@ -122,6 +122,11 @@ export interface ExecutionEnd {
   sessionEpoch?: number;
   routineId?: string;
 }
+interface LaunchFailure {
+  error: unknown;
+  evidence: CreationEvidence | null;
+  created: boolean;
+}
 const allRuns = (state: RunSnapshot) => Object.values(state.routines).flatMap((record) => record.runs);
 const lookup = (state: RunSnapshot, id: string) => allRuns(state).find((run) => run.id === id);
 const copy = <T>(value: T): T => structuredClone(value);
@@ -853,7 +858,7 @@ export class RunCoordinator {
         throw new Error("Host did not preserve the admitted agent identity; reconcile required.");
       await this.launched(id, evidence, prepared.labels[EXECUTION_LABEL]);
     } catch (error) {
-      await this.launchFailed(id, error, evidence, prepared.labels[EXECUTION_LABEL], created);
+      await this.launchFailed(id, prepared.labels[EXECUTION_LABEL], { error, evidence, created });
     }
   }
 
@@ -934,35 +939,39 @@ export class RunCoordinator {
 
   private async launchFailed(
     id: string,
-    error: unknown,
-    evidence: CreationEvidence | null,
     executionId: string | undefined,
-    created: boolean,
+    failure: LaunchFailure,
   ): Promise<void> {
     await this.serial(
-      () =>
-        this.store.updateState(async (state) => {
-          const run = lookup(state, id);
-          if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
-          if (created) {
-            run.agentCreationStatus = "created";
-            run.managed.hostCreatedAt ??= this.now();
-          }
-          this.creation(run, evidence);
-          run.error = errorText(error);
-          if (run.agentCreationStatus !== "created" && this.provenNoCreate(error, evidence)) {
-            this.noCreateFailure(run);
-            return;
-          }
-          if (!this.retryable(run, error, evidence)) {
-            run.executionStatus = "unknown";
-            this.setAttempt(run, "unknown");
-            return;
-          }
-          await this.safeFailure(state, run, error);
-        }),
+      () => this.store.updateState((state) => this.applyLaunchFailure(state, id, executionId, failure)),
       true,
     );
+  }
+
+  private async applyLaunchFailure(
+    state: RunSnapshot,
+    id: string,
+    executionId: string | undefined,
+    { error, evidence, created }: LaunchFailure,
+  ): Promise<void> {
+    const run = lookup(state, id);
+    if (!run?.managed || run.executionStatus !== "starting" || run.executionId !== executionId) return;
+    if (created) {
+      run.agentCreationStatus = "created";
+      run.managed.hostCreatedAt ??= this.now();
+    }
+    this.creation(run, evidence);
+    run.error = errorText(error);
+    if (run.agentCreationStatus !== "created" && this.provenNoCreate(error, evidence)) {
+      this.noCreateFailure(run);
+      return;
+    }
+    if (!this.retryable(run, error, evidence)) {
+      run.executionStatus = "unknown";
+      this.setAttempt(run, "unknown");
+      return;
+    }
+    await this.safeFailure(state, run, error);
   }
 
   private provenNoCreate(error: unknown, evidence: CreationEvidence | null): boolean {
@@ -1137,6 +1146,18 @@ export class RunCoordinator {
     this.setAttempt(run, input.kind);
   }
 
+  private cancelBeforeLaunch(run: RoutineRun): void {
+    if (!run.managed) throw new Error("Missing managed cancellation.");
+    run.executionStatus = "canceled";
+    run.taskOutcome = "unknown";
+    if (run.agentCreationStatus !== "created" && run.managed.hostCreatedAt === undefined)
+      run.agentCreationStatus = "not_created";
+    run.endedAt = new Date(this.now()).toISOString();
+    run.managed.reservation = false;
+    run.managed.launchIntent = false;
+    this.setAttempt(run, "canceled");
+  }
+
   async cancel(id: string): Promise<{ run: RoutineRun; error: string | null }> {
     const result = await this.serial(() =>
       this.store.updateState((state) => {
@@ -1146,16 +1167,7 @@ export class RunCoordinator {
         const alreadyRequested = run.managed.cancelRequested;
         run.managed.cancelRequested = true;
         const beforeLaunch = run.executionStatus === "queued" || run.executionStatus === "reserved";
-        if (beforeLaunch) {
-          run.executionStatus = "canceled";
-          run.taskOutcome = "unknown";
-          if (run.agentCreationStatus !== "created" && run.managed.hostCreatedAt === undefined)
-            run.agentCreationStatus = "not_created";
-          run.endedAt = new Date(this.now()).toISOString();
-          run.managed.reservation = false;
-          run.managed.launchIntent = false;
-          this.setAttempt(run, "canceled");
-        }
+        if (beforeLaunch) this.cancelBeforeLaunch(run);
         return { run: copy(run), beforeLaunch, alreadyRequested };
       }),
     );

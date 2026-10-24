@@ -20,6 +20,7 @@ import {
 } from "../shared/chat";
 import { PolicySchema } from "../shared/policies";
 import { scheduleFrom, upcomingRuns } from "../shared/routines";
+import { RoutineRunCardSchema } from "../shared/rpc";
 import { makePrepared } from "./coordinator-fixture";
 import { defined, fakeHost, makeBot as makeBotFixture, makeRun } from "./helpers";
 import { LIVE_PROVIDERS } from "./provider-modes";
@@ -1192,6 +1193,48 @@ describe("legacy routine execution without managed accounting", () => {
   );
 });
 
+describe("legacy webhook creation evidence", () => {
+  useSchedulerHome("paseo-bots-scheduler-legacy-webhook-evidence-");
+
+  it.each([
+    {
+      failure: new PreparedLaunchNotCreatedError("Workspace refused before SDK entry"),
+      creation: "not_created",
+    },
+    { failure: new Error("Creation acknowledgement lost"), creation: "unknown" },
+  ])(
+    "does not publish a $creation identity as a webhook chat or result link",
+    async ({ failure, creation }) => {
+      const { scheduler, appended } = await startScheduler(
+        [
+          makeBot({
+            id: "legacy",
+            executionMode: "legacy",
+            routines: [webhook({ resultsChatId: "legacy-results" })],
+          }),
+        ],
+        async () => {
+          throw failure;
+        },
+      );
+      const { url } = await scheduler.webhookUrl("rt-1");
+      const [status, body] = await hook(url, "event", { "idempotency-key": "retained-failure" });
+      const run = defined((await runsOf(scheduler, "rt-1")).at(-1), "retained legacy failure");
+      expect(run).toMatchObject({
+        executionStatus: "failed",
+        taskOutcome: "unknown",
+        agentCreationStatus: creation,
+        agentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      });
+      expect(status).toBe(500);
+      expect.soft(body).not.toHaveProperty("chat");
+      const card = RoutineRunCardSchema.parse(defined(appended[0], "failure card").item.data);
+      expect.soft(card.agentId).toBeNull();
+      expect(card.taskOutcome).toBe("unknown");
+    },
+  );
+});
+
 describe("legacy webhook overlap and execution mode changes", () => {
   useSchedulerHome("paseo-bots-scheduler-legacy-overlap-");
 
@@ -1422,7 +1465,12 @@ describe("legacy terminal evidence during launch", () => {
           return prepared.agentId;
         },
       );
-      const { run } = await scheduler.runNow("legacy", "rt-1");
+      const { url } = await scheduler.webhookUrl("rt-1");
+      expect(await hook(url, "event", { "idempotency-key": "fast-completion" })).toEqual([
+        202,
+        { status: "running", chat: agentId },
+      ]);
+      const run = defined((await runsOf(scheduler, "rt-1")).at(-1), "completed legacy webhook");
       expect(run).toMatchObject({
         executionStatus: "completed",
         taskOutcome: "unknown",

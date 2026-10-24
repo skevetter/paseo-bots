@@ -18,7 +18,7 @@ function RecentRunRow({
   onOpenChat(agentId: string): void;
 }) {
   const hint = runHint(entry, now);
-  const agentId = entry.agentId;
+  const agentId = entry.agentCreationStatus === "created" ? entry.agentId : null;
   return agentId ? (
     <DrillRow
       colors={colors}

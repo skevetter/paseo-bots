@@ -106,8 +106,22 @@ function recognizableLegacy(saved: Record<string, unknown>): boolean {
   return saved.version === undefined && entries.length > 0 && entries.every(legacyRecord);
 }
 
+function referencesManagedRun(value: unknown): boolean {
+  if (!object(value) || !Array.isArray(value.runs)) return false;
+  return value.runs.some((run) => object(run) && object(run.managed));
+}
+
+function recognizableManagedLegacy(saved: Record<string, unknown>): boolean {
+  return (
+    saved.version === 1 &&
+    object(saved.coordinator) &&
+    object(saved.routines) &&
+    Object.values(saved.routines).some(referencesManagedRun)
+  );
+}
+
 /** An initialized store must never reinterpret lost managed bytes as a fresh legacy store. */
-export function requireRecognizableHistory(raw: string | null, sealed: boolean): void {
+export function requireRecognizableHistory(raw: string | null, sealed: boolean, managed: boolean): void {
   if (raw === null)
     throw new RunHistoryIntegrityError(
       "known history is missing; automatic empty initialization is forbidden",
@@ -123,6 +137,10 @@ export function requireRecognizableHistory(raw: string | null, sealed: boolean):
   if (sealed)
     throw new RunHistoryIntegrityError(
       "initialized managed history was replaced with a legacy or unrecognizable document",
+    );
+  if (managed && !recognizableManagedLegacy(saved))
+    throw new RunHistoryIntegrityError(
+      "managed evidence has no recognizable supported migration envelope; file left unchanged",
     );
   if (recognizableLegacy(saved)) return;
   throw new RunHistoryIntegrityError(

@@ -85,19 +85,17 @@ function turnError(outcome: PluginTurnOutcome): string | null {
   return null;
 }
 
-/** The call returns before the run ends, so a caller is only ever told one of these three. */
+/** HTTP reports admission, even when a fast execution ended before its creation acknowledgement. */
 function webhookReply(run: RoutineRun): { code: number; state: "running" | "skipped-busy" | "failed" } {
   if (run.skipped === "busy") return { code: 429, state: "skipped-busy" };
-  if (["queued", "reserved", "starting", "running"].includes(run.executionStatus))
+  if (["queued", "reserved", "starting", "running", "completed"].includes(run.executionStatus))
     return { code: 202, state: "running" };
   return { code: 500, state: "failed" };
 }
 
 function hookRunReply(run: RoutineRun): HookReply {
   const { code, state } = webhookReply(run);
-  const created = run.managed
-    ? run.managed.hostCreatedAt !== undefined
-    : run.agentId !== null && run.executionStatus !== "starting";
+  const created = run.agentCreationStatus === "created";
   return {
     status: code,
     body: {
@@ -324,7 +322,7 @@ export class RoutineScheduler {
       taskOutcome: run.taskOutcome,
       verification: run.verification,
       skipped: run.skipped,
-      agentId: run.agentId,
+      agentId: run.agentCreationStatus === "created" ? run.agentId : null,
       output: run.output,
       error: run.error,
     };

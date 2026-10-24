@@ -72,7 +72,8 @@ describe("original durable coordinator boundaries", () => {
     expect(receipt.status).toBe("not_created");
     const run = defined(await coordinator.get(admitted.id));
     expect(run.executionStatus).toBe("failed");
-    expect(run.taskOutcome).toBe("no_change");
+    expect(run.taskOutcome).toBe("unknown");
+    expect(run.agentCreationStatus).toBe("not_created");
     expect(run.managed?.reservation).toBe(false);
     expect(run.managed?.attempts).toHaveLength(1);
   });

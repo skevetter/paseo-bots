@@ -432,7 +432,7 @@ describe("resource capacity admission", () => {
   });
 });
 
-describe("bounded infrastructure retry", () => {
+describe("infrastructure retry identity evidence", () => {
   it("does not transfer positive creation evidence to a safe retry's new UUID", async () => {
     const h = await harness({
       launch: async (_host, _relay, plan, observer) => {
@@ -461,7 +461,9 @@ describe("bounded infrastructure retry", () => {
     expect(receipt.status).toBe("not_created");
     expect(receipt.run.taskOutcome).toBe("unknown");
   });
+});
 
+describe("bounded infrastructure retry", () => {
   it("persists three distinct attempts at 2s and 8s plus jitter without re-resolving config", async () => {
     const h = await harness({
       launch: async () => {

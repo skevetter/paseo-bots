@@ -257,6 +257,15 @@ export class LocalChatStarts {
           );
         });
         if (this.stopped || signal.aborted) throw new PreparedLaunchAbortedError();
+        await this.coordinator
+          .finishLegacy(run.id, { agentCreationStatus: "unknown" })
+          .catch((error: unknown) => {
+            throw new PreparedLaunchNotCreatedError(
+              "Creation intent could not be persisted before requesting agent creation.",
+              error,
+            );
+          });
+        if (this.stopped || signal.aborted) throw new PreparedLaunchAbortedError();
         return launchPreparedChat(this.host, this.relay, prepared, {
           signal,
           onEvent: (event) => {
@@ -301,6 +310,7 @@ export class LocalChatStarts {
 
   private async replayLegacy(run: RoutineRun, botId: string): Promise<LocalChatStartResult> {
     this.active();
+    if (run.agentCreationStatus === "created" && run.agentId) return this.legacyResult(run, "created");
     if (isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created")
       return this.legacyResult(run, "not_created");
     const paseo = this.host.paseo;

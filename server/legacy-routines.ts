@@ -2,7 +2,7 @@ import type { Bot, BotState, Routine } from "../shared/bot";
 import { type CreationEvidence, PreparedLaunchNotCreatedError, ROUTINE_LABEL } from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import type { RoutineRecord, RoutineRun } from "../shared/rpc";
-import { isTerminal, type Trigger } from "../shared/runs";
+import { type AgentCreationStatus, isTerminal, type Trigger } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
 import { launchPreparedChat, prepareChat } from "./chats";
 import type { BotsHost } from "./host";
@@ -25,6 +25,22 @@ const unfinished = (run: RoutineRun) =>
   run.managed
     ? run.managed.reservation || !isTerminal(run.executionStatus)
     : !isTerminal(run.executionStatus);
+
+function creationAfterFailure(
+  creating: boolean,
+  created: boolean,
+  outcomeUnknown: boolean,
+  error: unknown,
+): AgentCreationStatus {
+  if (created) return "created";
+  if (!creating) return "not_created";
+  if (outcomeUnknown) return "unknown";
+  return error instanceof PreparedLaunchNotCreatedError ||
+    error instanceof HostCapabilityError ||
+    error instanceof HostCallNotDispatchedError
+    ? "not_created"
+    : "unknown";
+}
 
 /** Legacy runs share the authoritative writer, but never claim managed snapshots or reservations. */
 export class LegacyRoutineRunner {
@@ -191,36 +207,32 @@ export class LegacyRoutineRunner {
         agentCreationStatus: "created",
       });
     } catch (error) {
-      return this.failLaunch(run, agentId, creating, created, outcomeUnknown, error);
+      return this.failLaunch(
+        run,
+        agentId,
+        error,
+        creationAfterFailure(creating, created, outcomeUnknown, error),
+      );
     }
   }
 
   private failLaunch(
     run: RoutineRun,
     agentId: string,
-    creating: boolean,
-    created: boolean,
-    outcomeUnknown: boolean,
     error: unknown,
-  ): Promise<RoutineRun> | RoutineRun {
-    const notCreated =
-      !creating ||
-      (!created &&
-        !outcomeUnknown &&
-        (error instanceof PreparedLaunchNotCreatedError ||
-          error instanceof HostCapabilityError ||
-          error instanceof HostCallNotDispatchedError));
-    if (this.stopping && !notCreated)
+    creation: AgentCreationStatus,
+  ): Promise<RoutineRun> {
+    if (this.stopping && creation !== "not_created")
       return this.coordinator.finishLegacy(run.id, {
         agentId,
-        agentCreationStatus: created ? "created" : "unknown",
+        agentCreationStatus: creation,
       });
     return this.coordinator.finishLegacy(run.id, {
       executionStatus: this.stopping ? "canceled" : "failed",
       taskOutcome: "unknown",
       endedAt: this.timestamp(),
       agentId,
-      agentCreationStatus: created ? "created" : notCreated ? "not_created" : "unknown",
+      agentCreationStatus: creation,
       error: error instanceof Error ? error.message : String(error),
     });
   }

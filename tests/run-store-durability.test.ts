@@ -510,6 +510,19 @@ describe("initialized history cannot be silently downgraded", () => {
       await expect(stat(`${path}.v1.bak`)).rejects.toMatchObject({ code: "ENOENT" });
     },
   );
+
+  it("refuses even valid artifact-backed v1 coordinator data substituted beneath an actual seal", async () => {
+    const saved = await managedHistory();
+    const envelope: Record<string, unknown> = JSON.parse(saved.bytes.toString("utf8"));
+    envelope.version = 1;
+    const replacement = Buffer.from(JSON.stringify(envelope));
+    await writeFile(path, replacement);
+    await assertClosed(new RunStore(path), replacement);
+    const artifact = defined(saved.run.managed).artifact;
+    expect(await new RunArtifacts(directory).get<{ prepared: { agentId: string } }>(artifact)).toMatchObject({
+      prepared: { agentId: saved.run.agentId },
+    });
+  });
 });
 
 describe("unsealed backup-only history cannot be reset as legacy", () => {

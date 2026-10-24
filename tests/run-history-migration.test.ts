@@ -221,10 +221,7 @@ describe("historical no-change development labels", () => {
     "normalizes unverified v%i labels without losing retained execution evidence",
     async (version) => {
       const artifacts = new RunArtifacts(directory);
-      const artifact =
-        version === 1
-          ? { id: "a".repeat(64), sha256: "a".repeat(64) }
-          : await artifacts.put({ privateInput: "retained frozen data" });
+      const artifact = await artifacts.put({ privateInput: "retained frozen data" });
       const managedRun = oldQueuedRun("failed-preparation", "2026-10-01T09:00:00.000Z", 1);
       Object.assign(defined(managedRun.managed), {
         reservation: true,
@@ -281,8 +278,7 @@ describe("historical no-change development labels", () => {
         taskOutcome: "unknown",
       });
       expect((await reopened.read()).coordinator).toEqual(coordinator);
-      if (version > 1)
-        expect(await artifacts.get(artifact)).toEqual({ privateInput: "retained frozen data" });
+      expect(await artifacts.get(artifact)).toEqual({ privateInput: "retained frozen data" });
     },
   );
 
@@ -307,4 +303,33 @@ describe("historical no-change development labels", () => {
     await store.updateState(() => {});
     expect(await new RunStore(path).get(run.id)).toEqual(run);
   });
+});
+
+describe("unsealed v1 managed validation", () => {
+  it.each(["coordinator", "record"] as const)(
+    "preserves unreadable %s metadata instead of dropping it",
+    async (failure) => {
+      const artifacts = new RunArtifacts(directory);
+      const artifact = await artifacts.put({ privateInput: "retained source" });
+      const run = oldQueuedRun("protected-v1", "2026-10-01T09:00:00.000Z", 1);
+      Object.assign(defined(run.managed), { artifact, reservation: true });
+      const original = JSON.stringify({
+        version: 1,
+        routines: {
+          rt: { ...emptyRecord(), runs: [run] },
+          ...(failure === "record" ? { unreadable: { lastRunAt: null, runs: "damaged" } } : {}),
+        },
+        coordinator:
+          failure === "coordinator"
+            ? { requests: "damaged" }
+            : CoordinatorStateSchema.parse({ occurrences: { [run.occurrenceKey]: run.id }, circuits: {} }),
+      });
+      await writeFile(path, original);
+      const store = new RunStore(path);
+      await expect(store.read()).rejects.toThrow();
+      await expect(store.initialize()).rejects.toThrow();
+      expect(await readFile(path, "utf8")).toBe(original);
+      expect(await artifacts.get(artifact)).toEqual({ privateInput: "retained source" });
+    },
+  );
 });

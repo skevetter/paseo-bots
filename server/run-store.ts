@@ -121,13 +121,6 @@ function readRun(routineId: string, raw: unknown, dropped: string[], migrateEpoc
     return [];
   }
   const run = parsed.data;
-  // Dispatch failure and skipped work never establish a verified deterministic no-work decision.
-  if (run.taskOutcome === "no_change")
-    return [
-      run.executionStatus === "completed" && run.verification
-        ? run
-        : { ...run, taskOutcome: "unknown", verification: null },
-    ];
   return [runStateIssue(run) ? { ...run, taskOutcome: "unknown", verification: null } : run];
 }
 
@@ -136,9 +129,10 @@ function readRecord(
   routineId: string,
   entry: unknown,
   dropped: string[],
-  version: number | null,
+  envelope: Record<string, unknown>,
 ): RoutineRecord {
-  const strict = version !== null && version >= MANAGED_VERSION;
+  const version = typeof envelope.version === "number" ? envelope.version : null;
+  const strict = managedFormat(envelope);
   if (strict && !validManagedRecord(entry)) throw new UnsafeRunHistoryError(`unreadable record ${routineId}`);
   if (!isObject(entry)) return emptyRecord();
   const lastRunAt = typeof entry.lastRunAt === "string" ? entry.lastRunAt : null;
@@ -170,6 +164,13 @@ function validManagedRecord(entry: unknown): boolean {
   );
 }
 
+function managedFormat(envelope: Record<string, unknown>): boolean {
+  return (
+    typeof envelope.version === "number" &&
+    (envelope.version >= MANAGED_VERSION || envelope.coordinator !== undefined)
+  );
+}
+
 class UnsafeRunHistoryError extends UnsupportedFileVersionError {
   constructor(message: string) {
     super(VERSION);
@@ -187,16 +188,12 @@ function parse(raw: string): Loaded | UnsupportedVersion {
     return { unsupportedVersion: saved.version };
   const entries = versioned ? saved.routines : saved;
   if (!isObject(entries)) {
-    if (versioned && Number(saved.version) >= MANAGED_VERSION)
-      throw new UnsafeRunHistoryError("unreadable managed records");
+    if (managedFormat(saved)) throw new UnsafeRunHistoryError("unreadable managed records");
     throw new Error("Routine history has no routines");
   }
   const dropped: string[] = [];
   const routines: Records = Object.fromEntries(
-    Object.entries(entries).map(([id, entry]) => [
-      id,
-      readRecord(id, entry, dropped, versioned ? Number(saved.version) : null),
-    ]),
+    Object.entries(entries).map(([id, entry]) => [id, readRecord(id, entry, dropped, saved)]),
   );
   const coordinator = readCoordinator(saved, dropped, routines);
   normalizeAdmissionOrder(routines, coordinator, saved.version !== VERSION);
@@ -230,7 +227,7 @@ function readCoordinator(
   routines: Records,
 ): CoordinatorState {
   const parsed = CoordinatorStateSchema.safeParse(saved.coordinator);
-  const managed = typeof saved.version === "number" && saved.version >= MANAGED_VERSION;
+  const managed = managedFormat(saved);
   if (managed && (!parsed.success || dropped.length > 0))
     throw new UnsafeRunHistoryError("unreadable coordinator state or managed execution");
   const coordinator = parsed.success
@@ -446,7 +443,7 @@ export class RunStore {
     safety: { known: boolean; sealed: boolean; managed: boolean },
   ): Promise<Loaded | UnsupportedVersion | null> {
     if (safety.known) {
-      requireRecognizableHistory(raw, safety.managed);
+      requireRecognizableHistory(raw, safety.sealed, safety.managed);
       try {
         return parse(raw ?? "");
       } catch (error) {

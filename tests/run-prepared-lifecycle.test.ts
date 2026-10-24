@@ -287,6 +287,7 @@ describe("creation evidence boundary", () => {
       due: new Date(NOW),
       requestId: "failed-inspection",
       prompt: "Inspect the inbox",
+      title: "Inspect inbox",
     });
     expect(failed).toMatchObject({
       executionStatus: "failed",
@@ -342,7 +343,9 @@ describe("creation evidence boundary", () => {
       managed: { reservation: true, hostCreatedAt: NOW },
     });
   });
+});
 
+describe("workspace failure admission", () => {
   it("releases a failed workspace launch without claiming semantic no-work and admits the next request", async () => {
     const daemon = await connectFakeDaemon({ creationLifecycle: true, agentRequestReceipts: true });
     try {
@@ -384,7 +387,9 @@ describe("creation evidence boundary", () => {
       await daemon.close();
     }
   });
+});
 
+describe("creation receipt uncertainty", () => {
   it("bounds a wait for a queued UUID without reporting it as host-created", async () => {
     const h = await harness({}, false);
     const plan = makePrepared();

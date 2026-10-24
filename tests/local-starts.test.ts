@@ -421,7 +421,13 @@ describe("local legacy and colleague boundaries", () => {
     });
     const retained = (await h.coordinator.list()).runs;
     expect(retained).toEqual([
-      expect.objectContaining({ agentId, purpose: "maintenance", executionStatus: "running" }),
+      expect.objectContaining({
+        agentId,
+        purpose: "maintenance",
+        executionStatus: "running",
+        taskOutcome: "unknown",
+        agentCreationStatus: "created",
+      }),
     ]);
     expect(retained[0]?.managed).toBeUndefined();
   });
@@ -448,6 +454,13 @@ describe("local legacy and colleague boundaries", () => {
     const h = await harness({ legacy: true, features: {} });
     const request = input();
     expect(await h.starts.create(request)).toMatchObject({ status: "not_created", mode: "legacy" });
+    expect((await h.coordinator.list()).runs).toEqual([
+      expect.objectContaining({
+        executionStatus: "failed",
+        taskOutcome: "unknown",
+        agentCreationStatus: "not_created",
+      }),
+    ]);
     await h.config.update((values) => ({ ...values, bots: [{ ...h.bot, executionMode: "managed" }] }));
     expect(await h.starts.create(request)).toMatchObject({
       status: "not_created",
@@ -499,7 +512,11 @@ describe("durable legacy request replay", () => {
       (record) => record.runs,
     );
     const run = defined(retained[0]);
-    expect(run.executionStatus).toBe("starting");
+    expect(run).toMatchObject({
+      executionStatus: "starting",
+      taskOutcome: "unknown",
+      agentCreationStatus: "unknown",
+    });
     expect(run.managed).toBeUndefined();
     expect(creates(h.daemon)[0]).toHaveProperty("agentId", run.agentId);
     h.starts.stop();
@@ -555,6 +572,8 @@ describe("durable legacy request replay", () => {
     expect((await h.coordinator.list()).runs[0]).toMatchObject({
       executionStatus: "unknown",
       agentId: planned,
+      taskOutcome: "unknown",
+      agentCreationStatus: "created",
     });
     expect(creates(h.daemon)).toHaveLength(1);
   });
@@ -574,7 +593,12 @@ describe("legacy acknowledgement and lifecycle race", () => {
     });
     h.daemon.release();
     expect(await creating).toMatchObject({ status: "created", mode: "legacy", agentId: run.agentId });
-    expect(await h.coordinator.get(run.id)).toMatchObject({ executionStatus: "completed", endedAt: NOW });
+    expect(await h.coordinator.get(run.id)).toMatchObject({
+      executionStatus: "completed",
+      taskOutcome: "unknown",
+      agentCreationStatus: "created",
+      endedAt: NOW,
+    });
   });
 });
 
