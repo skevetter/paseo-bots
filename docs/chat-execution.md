@@ -22,6 +22,8 @@ Remote manual chats keep the selected remote host API. The composer and settings
 
 New local tasks wait for the existing bot-settings flush to succeed, then check the selected bot's live remaining drafts. An in-flight save, failed save or a newer edit during that save cannot silently launch with the older persisted configuration. The failed submission keeps its request identity and restores its input so it can be retried after saving. A host change during the wait prevents admission on the old host.
 
+Settings saves are single-flight. When a successful write leaves newer edits, autosave schedules that remaining intent even if its timer fired during the older write. Failed writes stay pending without an automatic retry loop. Closing the surface keeps its requested final flush, draining newer edits after an in-flight success without leaving a delayed autosave timer.
+
 An exact request with an acknowledged managed admission, or a pending/created legacy result, replays its existing admission even when later settings have changed or remain unsaved. A transport failure alone is not proof of admission: retry/check first flushes settings because it could still be a new server admission. The canonical raw `bots.chats.start` RPC remains authoritative; the client does not prepare configuration or grants.
 
 ## Origin-host recovery

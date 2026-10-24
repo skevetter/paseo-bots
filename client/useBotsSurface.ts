@@ -295,17 +295,20 @@ export function useDrafts(latest: LatestSettings, commit: CommitBotState): Draft
   const draftsRef = useRef(drafts);
   const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const saving = useRef<Promise<boolean> | null>(null);
+  const mounted = useRef(true);
 
-  const flush = async () => {
+  const flush = async (): Promise<boolean> => {
     clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
     if (saving.current) return saving.current;
     const pending = draftsRef.current;
     if (Object.keys(pending).length === 0) return true;
+    let succeeded = false;
     const save = commit((values) => applyDrafts(values, pending)).then((ok) => {
+      succeeded = ok;
       if (ok) {
         draftsRef.current = withoutSaved(draftsRef.current, pending);
-        setDrafts(draftsRef.current);
+        if (mounted.current) setDrafts(draftsRef.current);
       }
       return ok;
     });
@@ -314,8 +317,15 @@ export function useDrafts(latest: LatestSettings, commit: CommitBotState): Draft
       return await save;
     } finally {
       saving.current = null;
+      if (succeeded) resumeSaving();
     }
   };
+
+  function resumeSaving(): void {
+    if (Object.keys(draftsRef.current).length === 0) return;
+    if (mounted.current) saveTimer.current = setTimeout(() => void flushRef.current(), SAVE_DELAY_MS);
+    else void flushRef.current();
+  }
 
   const patchBot = (botId: string, patch: Partial<Bot>) => {
     const current = draftsRef.current;
@@ -336,7 +346,13 @@ export function useDrafts(latest: LatestSettings, commit: CommitBotState): Draft
 
   const flushRef = useRef(flush);
   flushRef.current = flush;
-  useEffect(() => () => void flushRef.current(), []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      void flushRef.current();
+    };
+  }, []);
 
   /** Patches any unsaved draft too, so autosave can't undo the change. */
   const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {

@@ -33,6 +33,7 @@ const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
   rpc.clear();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -108,13 +109,23 @@ async function settingsConsumer() {
     );
   });
   const root = defined(renderer.current);
-  cleanup.push(async () => {
+  let unmounted = false;
+  const unmount = async () => {
+    if (unmounted) return;
+    unmounted = true;
     await act(() => root.unmount());
+  };
+  cleanup.push(async () => {
+    await unmount();
     for (const write of writes) write.complete(false);
   });
   return {
     writes,
     admissions,
+    unmount,
+    get saved() {
+      return saved;
+    },
     get current() {
       return defined(current);
     },
@@ -167,4 +178,47 @@ it("retains the actionable draft and admits nothing after a failed save", async 
   await expect(start).rejects.toThrow("settings");
   expect(ui.current.drafts.drafts["bot-1"]?.modeId).toBe("default");
   expect(ui.admissions).toEqual([]);
+});
+
+it.each([true, false])("does not lose a newer autosave after an in-flight save resolves %s", async (ok) => {
+  const ui = await settingsConsumer();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  await act(() => ui.current.drafts.patchBot("bot-1", { title: "First edit" }));
+  await act(() => vi.advanceTimersByTimeAsync(600));
+  expect(ui.writes).toHaveLength(1);
+  await act(() => ui.current.drafts.patchBot("bot-1", { modeId: "default", executionMode: "managed" }));
+  await act(() => vi.advanceTimersByTimeAsync(600));
+  expect(ui.writes).toHaveLength(1);
+  await act(() => defined(ui.writes[0]).complete(ok));
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  if (ok) {
+    expect(ui.writes).toHaveLength(2);
+    await act(() => defined(ui.writes[1]).complete(true));
+    expect(ui.saved.bots[0]).toMatchObject({
+      title: "First edit",
+      modeId: "default",
+      executionMode: "managed",
+    });
+    expect(ui.current.drafts.hasDraft("bot-1")).toBe(false);
+  } else {
+    expect(ui.writes).toHaveLength(1);
+    expect(ui.saved.bots[0]?.modeId).toBe("full");
+    expect(ui.current.drafts.hasDraft("bot-1")).toBe(true);
+  }
+});
+
+it("drains the requested unmount flush after V1 without leaving an autosave timer", async () => {
+  const ui = await settingsConsumer();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  await act(() => ui.current.drafts.patchBot("bot-1", { title: "First edit" }));
+  await act(() => vi.advanceTimersByTimeAsync(600));
+  await act(() => ui.current.drafts.patchBot("bot-1", { modeId: "default" }));
+  await act(() => vi.advanceTimersByTimeAsync(600));
+  await ui.unmount();
+  await act(() => defined(ui.writes[0]).complete(true));
+  expect(ui.writes).toHaveLength(2);
+  await act(() => defined(ui.writes[1]).complete(true));
+  expect(ui.saved.bots[0]).toMatchObject({ title: "First edit", modeId: "default" });
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(ui.writes).toHaveLength(2);
 });
