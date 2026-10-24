@@ -8,6 +8,7 @@ import type { FrozenRelayPermissions } from "../shared/chat";
 import { accounts, appTools, connectedSlugs, deadline, readState, session, writeState } from "./composio";
 import type { BotsHost } from "./host";
 import { readCapped } from "./http";
+import { publishLegacyRelayGrant, readLegacyRelayGrant } from "./legacy-relay-grants";
 import { json, readMessage, refuseNonPost, tokenMatches } from "./mcp-http";
 import { answerMcp, type BotTool } from "./tools/mcp";
 
@@ -86,6 +87,9 @@ export class Relay {
   private listening: Promise<number> | null = null;
   private starts = 0;
   private closed = false;
+  private readonly requireActive = () => {
+    if (this.closed) throw new Error("The relay has been unloaded.");
+  };
   private readonly routes: RelayRoute[] = [];
   private readonly preparedPermissions = new Map<
     string,
@@ -188,15 +192,14 @@ export class Relay {
     botId: string,
     agentId: string,
     frozen: { tools: boolean; apps: boolean; permissions: FrozenRelayPermissions },
+    options: { durableLegacy?: boolean } = {},
   ): Promise<PluginServers> {
-    if (this.closed) throw new Error("The relay has been unloaded.");
-    const previous = this.preparedPermissions.get(agentId);
-    if (
-      previous &&
-      (previous.botId !== botId ||
-        JSON.stringify(previous.permissions) !== JSON.stringify(frozen.permissions))
-    ) {
-      throw new Error("Prepared relay identity has conflicting permissions.");
+    this.requireActive();
+    this.checkPreparedConflict(botId, agentId, frozen.permissions);
+    if (options.durableLegacy) {
+      await publishLegacyRelayGrant({ botId, agentId, frozen, permissions: frozen.permissions });
+      this.requireActive();
+      this.checkPreparedConflict(botId, agentId, frozen.permissions);
     }
     this.preparedPermissions.set(agentId, {
       botId,
@@ -286,12 +289,39 @@ export class Relay {
   ): Promise<{ permissions: FrozenRelayPermissions | null } | null> {
     const { botId, agentId, prepared } = identity;
     if (!ID.test(botId) || (agentId && !ID.test(agentId))) return null;
-    const admitted = agentId ? this.preparedPermissions.get(agentId) : undefined;
-    if (prepared && admitted?.botId !== botId) return null;
     const state = await readState();
     const token = creationRelayToken(state.secret, identity);
     if (!tokenMatches(token, request.headers.authorization)) return null;
-    return { permissions: prepared ? (admitted?.permissions ?? null) : null };
+    if (!prepared) return { permissions: null };
+    const admitted = agentId ? await this.admittedPrepared(botId, agentId) : null;
+    return admitted ? { permissions: admitted.permissions } : null;
+  }
+
+  private checkPreparedConflict(botId: string, agentId: string, permissions: FrozenRelayPermissions): void {
+    const previous = this.preparedPermissions.get(agentId);
+    if (
+      previous &&
+      (previous.botId !== botId || JSON.stringify(previous.permissions) !== JSON.stringify(permissions))
+    ) {
+      throw new Error("Prepared relay identity has conflicting permissions.");
+    }
+  }
+
+  /** Cold restore reads a receipt only after the bearer verified; the process map then caches it. */
+  private async admittedPrepared(
+    botId: string,
+    agentId: string,
+  ): Promise<{ botId: string; permissions: FrozenRelayPermissions } | null> {
+    if (this.closed) return null;
+    const known = this.preparedPermissions.get(agentId);
+    if (known) return known.botId === botId ? known : null;
+    const grant = await readLegacyRelayGrant(agentId);
+    if (this.closed || !grant || grant.botId !== botId) return null;
+    const current = this.preparedPermissions.get(agentId);
+    if (current) return current.botId === botId ? current : null;
+    const admitted = { botId, permissions: grant.permissions };
+    this.preparedPermissions.set(agentId, admitted);
+    return admitted;
   }
 
   private async handleTools(
@@ -306,6 +336,7 @@ export class Relay {
     const message = await readMessage(request, response);
     if (!message) return;
     const bot = await this.host.bot(botId);
+    this.requireActive();
     const id = (message.id as string | number | undefined) ?? null;
     if (!bot || bot.archived)
       return json(response, 403, {
@@ -315,7 +346,7 @@ export class Relay {
       });
     const answer = await answerMcp(
       message,
-      { name: "paseo-bots", tools: this.tools },
+      { name: "paseo-bots", tools: this.tools, beforeCall: this.requireActive },
       {
         bot: access.permissions ? { ...bot, contactBots: access.permissions.contactBots } : bot,
         agentId,
@@ -369,6 +400,7 @@ export class Relay {
         result: { content: [{ type: "text", text: verdict.refusal }], isError: true },
       });
     // Re-encoded so Composio parses exactly what was checked (no duplicate keys read another way).
+    this.requireActive();
     await this.forward(request, response, JSON.stringify(verdict.message));
   }
 
@@ -389,7 +421,9 @@ export class Relay {
   private async forward(request: IncomingMessage, response: ServerResponse, body: string) {
     const transport = request.headers["mcp-session-id"];
     const send = async (recreate: boolean) => {
+      this.requireActive();
       const upstream = await session({ recreate });
+      this.requireActive();
       return fetch(upstream.mcpUrl, {
         method: "POST",
         headers: {

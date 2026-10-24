@@ -106,6 +106,11 @@ an existing agent refuses the admission, and unavailable/uncertain inspection re
 treating the ID as unused. This preflight complements, but cannot replace, atomic UUID ownership.
 Server-minted IDs skip the native preflight. Replay always precedes inspection and configuration lookup.
 
+Failed legacy starts retain the SDK error message alongside creation evidence. Pending and
+not-created responses expose that retained cause so an operator can distinguish an ownership,
+workspace or provider failure. An error message is not proof that creation or external effects
+did not happen; it never authorizes a second launch or a verified task outcome.
+
 A lazy bounded host call passes an abort signal through workspace setup. Timeout or shutdown
 prevents a later setup continuation from issuing creation; it cannot cancel an SDK create already
 sent. Unknown legacy effects retain their planned UUID. There is no in-memory legacy-plan protocol,
@@ -174,7 +179,37 @@ Supported host snapshot/timeline reconciliation also runs periodically (`reconci
 
 `sessionOpened({agentId,workspaceId,provider,cwd,reason,purpose})` validates a started managed execution against its immutable admitted UUID/provider/directory before provider startup. Actual session openings persist numeric generations and correlation request IDs per agent: initial generation 1, pending retries reuse their generation/request ID, and a later interactive resume/refresh/import after actual activation advances it. `sessionActive(agentId)` records observed activation; a plugin restart alone never advances a generation. History purpose returns null without reading or writing run/session metadata. Legacy and migrated unknown provenance use generation 0. Hooks without a stable invocation identifier cannot distinguish arbitrarily delayed duplicate notifications after a later generation; no exactly-once SDK delivery guarantee is claimed.
 
-The global interactive hook first inspects the exact native agent. An agent without the managed run label follows its existing provider path without entering the Bots writer, so a stale Bots lock or damaged history cannot block unrelated or legacy agents. The label only selects the managed validation gate; the retained registry and frozen artifact authorize the opening. Missing or mismatched native identity is not treated as proof of an unmanaged session. History returns before even this inspection.
+The global interactive hook classifies managed ownership without fetching a native snapshot.
+Paseo invokes session-open hooks before opening the provider and saving the native agent
+configuration, so a fresh agent need not exist in the native registry yet. Native labels and
+environment flags are not ownership authority. History returns before classification, API
+attachment, lock waits or any run/session read or write.
+
+`isManagedAgent(agentId)` uses private, monotonic claims under
+`routines.json.managed-agents/`. A claim means only that this identity must enter managed
+validation. It supplies no reservation, permission, execution identity or epoch. The current
+authoritative run and verified frozen artifact must still authorize the opening. An orphan,
+historical retry identity or ambiguous owner cannot fall through as an unmanaged agent.
+
+Claim publication precedes authoritative metadata publication and host dispatch. Current
+managed UUIDs, every retained attempt UUID and persisted session identities remain claimed
+after completion, cancellation, retry, bot deletion and display retention. Claims left by a
+failed metadata commit can only refuse execution. Files use private, synchronized no-replace
+publication; existing entries must match exactly.
+
+Owner startup calls `RunStore.backfillManagedAgentClaims()` after acquiring its process lock.
+Backfill inventories strictly decoded supported history, retained backups, frozen artifacts and
+existing claims before publishing `coverage.json`; it does not rewrite historical metadata.
+Before coverage completes, healthy full read-only inventories can establish ordinary-session
+nonownership without waiting for the writer. No classifier lookup creates directories, seals
+history or moves malformed files aside.
+
+Once coverage is established, an unrelated exact-ID negative does not depend on the main
+history or coordinator lock. Claimed identities still fail closed if that authority is damaged.
+Unknown, incomplete or unreadable pre-backfill provenance cannot establish a negative:
+restore intact evidence and explicitly backfill it. Claim namespace or marker corruption also
+refuses classification. This isolation assumes the private claims survive; arbitrary deletion
+of all classification and historical evidence is indistinguishable from a pristine installation.
 
 Lifecycle replies and observed canonical timelines are published as private immutable artifacts before result/evidence references enter metadata. Lifecycle artifacts retain the full received reply, not merely the 400-character display excerpt. Timeline evidence records completeness honestly: gaps, errors, stale/newer/older data prevent a complete-reply claim. Bounded observations may remain partial; they never invent missing output. Evidence pins protect display visibility, while authoritative history and artifacts remain retained regardless.
 
@@ -205,6 +240,12 @@ Bounded lazy factories receive an operation-specific `AbortSignal`. Timeout and 
 
 Plugin unload permanently closes its relay before returning. Ordinary relay `stop()` remains restartable, but unload uses `close()`: a suspended preparation cannot mount credentials or reopen a listener after shutdown. This fence does not cancel external requests that were already dispatched.
 
+Unload also fences new MCP tool effects after asynchronous availability checks and prevents a
+connected-app POST after suspended session preparation. External control requests retain their
+originating server lifetime, so stopping and restarting that server cannot authorize an older
+suspended request. A tool, SDK operation or upstream request already entered is not canceled,
+reversed or proven stopped by closing its transport.
+
 Local managed starts register before creation. Remote manual chats retain the selected host's legacy launch path until a trusted remote coordinator exists; they must visibly report unsupported managed accounting/enforcement and must never use the storing host's Memory bridge or launch a remote prepared config on the local server.
 
 ## Migration, locking and rollback
@@ -218,6 +259,15 @@ Actual initialized markers and artifact evidence are distinct. Supported unseale
 The process lock uses exclusive creation, PID, hostname and a random ownership token. Another coordinator, including one in the same process, refuses. A stale/malformed lock is never automatically stolen. After a crash, verify the recorded process is no longer running on its recorded host, stop all coordinators, then manually remove only `coordinator.lock`. Never remove a lock merely because a timer elapsed. Release checks original inode and content and does not remove a changed owner.
 
 To downgrade: stop Paseo, preserve the current run file, `routines.json.initialized`, restricted artifacts and every migration backup, then restore the appropriate exact backup before starting the older plugin. Version 1/2 readers cannot interpret version 3; RPC compatibility is not disk downgrade compatibility. Restoring a backup discards newer intents, session generations and evidence metadata and does not undo external effects. Reconcile unknown operations before allowing new execution on restored history. Older plugins do not enforce the initialized marker; upgrading again deliberately refuses a legacy file paired with a managed seal until an operator audits and repairs that rollback material. Fresh installations have no migration backup.
+
+Preserve `routines.json.managed-agents/` with that rollback material. Its claims must survive
+terminal states and older-history restoration; older plugins do not enforce them. Audit
+path-bound claim files as well as the initialized seal when moving a data directory. Never
+delete coverage or claim files to make an unresolved managed identity appear unowned.
+
+Preserve `legacy-relay-grants/` too. Those immutable authorization receipts are required by
+new legacy prepared MCP endpoints after restart; they are not managed launch plans or ownership
+claims. A missing or invalid receipt never falls back to a broader current bot configuration.
 
 ### Durable publication and initialized history
 
@@ -250,3 +300,29 @@ were used.
 Standalone cold-process smoke used the real server preparation/launch adapter with a local inert host stand-in, no paid model agents. An unstarted plan survived a cold reopen; explicit start used its frozen model despite edited configuration. The process was SIGKILLed after persisted `starting` and host acceptance. A second process refused the stale lock; after confirmed process exit and manual lock removal, a fresh process adopted the same UUID without another create, persisted session generations 1 then 2, preserved exact history-read bytes, and retained a full lifecycle reply beyond the display excerpt. Separate actual-process smoke exercised hung creation, unrelated progress, late ACK refusal and unsupported active cancellation. Real loopback HTTP exercised identical replay, changed-body HTTP 409 beyond prompt truncation, distinct keys and replay after bot deletion. No live installed-plugin or Windows validation is claimed.
 
 Corrective standalone processes also refused a partial v2 backup before publishing an exact replacement backup, preserved unknown reservations and private artifacts across cold reopen, and refused empty/missing initialized history until explicit restoration. A real on-attach clock tick using the production adapter created a second provider before its deadline while the first SDK create remained unresolved. Captured session-epoch and cancellation-replay smoke proved no retry resurrection, no stale-generation settlement and no terminal reopening. Actual SDK workspace waits released only after timeout or completed shutdown issued zero create frames and performed no post-stop metadata writes. These are process/fault-window observations, not physical power-loss tests.
+
+### Legacy prepared relay authorization after restart
+
+`prepareChat` accepts an internal `executionMode`, stripped before SDK preparation. Only
+`LocalChatStarts.launchLegacy` and `LegacyRoutineRunner.launch` select `"legacy"`. Before returning
+native MCP configuration, the relay durably publishes a private immutable authorization receipt
+containing the bot/agent identity, enabled relay kinds and captured contact/app/tool/account limits.
+It contains no prompt, model, environment, headers or credentials and does not establish execution
+admission or managed accounting.
+
+Receipts are capped at 64 KiB before publication and read, use a real private 0700 namespace and
+0600 regular files, and validate schema, identity and checksum. Exact publication replays; a
+conflicting grant never overwrites existing bytes. Insecure, symlinked, malformed or unsupported
+storage refuses rather than repairing itself during authorization. Valid bearer authentication
+precedes cold receipt lookup. An unload racing that lookup cannot reactivate the relay.
+
+The default managed path writes no legacy receipt: after restart it still requires explicit
+restoration from its authoritative immutable launch artifact. New legacy endpoints restore their
+original authorization without rereading broader current settings. This does not establish a new
+policy for ignoring explicit revocation or a guarantee of canceling effects already dispatched.
+
+Real cold HTTP regressions cover retained contact restrictions after current grants broaden,
+still-authorized contact, denied write tools and wrong accounts, and the original allowed account.
+Separate storage/lifetime regressions cover size, privacy, identity, checksum, unsupported versions,
+immutable replay and suspended tool authorization across unload or server restart. The managed
+unbound-cold refusal remains covered. No paid agents or real connector actions are involved.

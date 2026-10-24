@@ -10,6 +10,7 @@ import { writeAtomic } from "../server/files";
 import { BotsHost } from "../server/host";
 import { Relay } from "../server/relay";
 import type { CoordinatorOptions } from "../server/run-coordinator";
+import { RunHistoryIntegrityError } from "../server/run-history-seal";
 import { RoutineScheduler, runPrompt } from "../server/scheduler";
 import { type Bot, EMPTY_LIBRARY, type Routine } from "../shared/bot";
 import {
@@ -497,17 +498,26 @@ describe("routine chats that take a while to start", () => {
 describe("the routine scheduler's saved state", () => {
   useSchedulerHome("paseo-bots-scheduler-state-");
 
-  it("sets a broken routines.json aside instead of overwriting the run history", async () => {
+  it("refuses damaged routine history before any host effect, then runs after an intact restore", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = '{"rt-1": {"lastRunAt": "2026-09-2';
     await writeState("routines.json", broken);
-    const { scheduler } = await startScheduler(
-      [makeBot({ id: "bot-s", routines: [routine({ createdAt: new Date().toISOString() })] })],
-      launchAssigned,
-    );
-    await scheduler.runNow("bot-s", "rt-1");
-    expect(await setAside("routines.json")).toEqual([broken]);
-    expect((await scheduler.status()).routines["rt-1"]?.runs.map(facts)).toEqual(["running/unknown"]);
+    const bots = [makeBot({ id: "bot-s", routines: [routine({ createdAt: new Date().toISOString() })] })];
+    const launch = vi.fn(launchAssigned);
+    const { scheduler } = await startScheduler(bots, launch);
+    await expect(scheduler.runNow("bot-s", "rt-1")).rejects.toBeInstanceOf(RunHistoryIntegrityError);
+    expect(launch).not.toHaveBeenCalled();
+    expect(await readFile(join(pluginDataPath(), "routines.json"), "utf8")).toBe(broken);
+    expect(await setAside("routines.json")).toEqual([]);
+    await scheduler.stop();
+
+    const intact = JSON.stringify({ "rt-1": { lastRunAt: null, runs: [] } });
+    await writeState("routines.json", intact);
+    const restarted = await startScheduler(bots, launchAssigned);
+    await restarted.scheduler.runNow("bot-s", "rt-1");
+    expect((await restarted.scheduler.status()).routines["rt-1"]?.runs.map(facts)).toEqual([
+      "running/unknown",
+    ]);
   });
 
   it("sets a broken webhooks.json aside instead of overwriting the secrets", async () => {

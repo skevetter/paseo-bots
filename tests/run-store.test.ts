@@ -222,14 +222,23 @@ describe("saving run history", () => {
 describe("a broken run history file", () => {
   useTempPaseoHome("paseo-bots-run-store-broken-");
 
-  it("is set aside, not overwritten", async () => {
+  it("preserves set-aside history and refuses new coverage until an explicit intact restore", async () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => {});
     const broken = '{"rt": {"lastRunAt": "2026-09-2';
     const store = await storeFrom(broken);
     expect((await store.read()).routines).toEqual({});
+    await expect(
+      store.update((routines) => {
+        routines.rt = { ...emptyRecord(), runs: [makeRun("fresh")] };
+      }),
+    ).rejects.toThrow();
+    await expect(store.isManagedAgent("unrelated")).rejects.toThrow();
+    await writeFile(store.path, JSON.stringify({ version: 1, routines: {} }));
+    await store.backfillManagedAgentClaims();
     await store.update((routines) => {
-      routines.rt = { ...emptyRecord(), runs: [makeRun("fresh")] };
+      routines.rt = { ...emptyRecord(), runs: [makeRun("after-explicit-restore")] };
     });
+    expect((await store.get("after-explicit-restore"))?.executionStatus).toBe("completed");
     const asides = await setAside();
     expect(asides).toHaveLength(1);
     expect(await readFile(join(pluginDataPath(), defined(asides[0])), "utf8")).toBe(broken);

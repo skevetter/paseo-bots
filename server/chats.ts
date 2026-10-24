@@ -29,6 +29,8 @@ export interface PrepareChatInput
   state?: BotState;
   inputArtifactRefs?: string[];
   environmentVersion?: string;
+  /** Internal producer choice; only legacy producers request durable legacy relay grants. */
+  executionMode?: "legacy" | "managed";
 }
 
 /** Admission resolves prompts, memory and permissions exactly once. The result is restricted data. */
@@ -50,12 +52,15 @@ export async function prepareChat(
     apps: bot.apps.length > 0 && (await relay.mountApps(bot.id)) !== null,
     permissions: await relay.preparePermissions(bot),
   };
+  const { executionMode, ...chatInput } = input;
   const prepared = await prepareBotChat(paseo, {
-    ...input,
+    ...chatInput,
     bot,
     library,
     policy: values,
-    plugin: await relay.mountPrepared(bot.id, input.agentId, frozenRelay),
+    plugin: await relay.mountPrepared(bot.id, input.agentId, frozenRelay, {
+      durableLegacy: executionMode === "legacy",
+    }),
     placement: bot.cwd ? { path: bot.cwd, projectRoot: null } : { path: home.path, projectRoot: home.root },
     systemPrompt: composed.systemPrompt,
     context: {

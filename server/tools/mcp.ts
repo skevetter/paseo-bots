@@ -84,12 +84,14 @@ async function callTool<Caller>(
   params: JsonRpcRequest["params"],
   tools: readonly McpTool<Caller>[],
   caller: Caller,
+  beforeCall?: () => void,
 ): Promise<Answer> {
   const tool = (await offeredTools(tools, caller)).find((entry) => entry.name === params?.name);
   if (!tool) return { error: { code: -32602, message: `Unknown tool ${String(params?.name)}` } };
   const parsed = tool.input.safeParse(params?.arguments ?? {});
   if (!parsed.success) return failure(`Invalid arguments. ${issues(parsed.error)}`);
   try {
+    beforeCall?.();
     return success(await tool.run(parsed.data, caller));
   } catch (error) {
     return failure(error instanceof Error ? error.message : String(error));
@@ -129,7 +131,7 @@ async function answer<Caller>(
         },
       };
     case "tools/call":
-      return callTool(message.params, server.tools, caller);
+      return callTool(message.params, server.tools, caller, server.beforeCall);
     default:
       return { error: { code: -32601, message: `Method not found: ${String(message.method)}` } };
   }
@@ -138,6 +140,8 @@ async function answer<Caller>(
 export interface McpServerSpec<Caller> {
   name: string;
   tools: readonly McpTool<Caller>[];
+  /** Recheck ownership after asynchronous availability checks, immediately before an effect starts. */
+  beforeCall?: () => void;
 }
 
 /** null for notifications, which get no answer. */

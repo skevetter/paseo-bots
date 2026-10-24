@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1045,5 +1045,32 @@ describe("opaque occurrence request identity", () => {
     await created(h, second);
     expect(second.occurrenceKey).not.toBe(first.occurrenceKey);
     expect(h.launches).toHaveLength(2);
+  });
+});
+
+describe("coordinator bootstrap failure cleanup", () => {
+  it("finishes stop, keeps the bootstrap rejection for callers, and leaves no lock behind", async () => {
+    const future = JSON.stringify({ version: 4, routines: {}, occurrences: ["not-ours-to-reset"] });
+    await writeFile(join(directory, "routines.json"), future);
+    const h = await harness({}, false);
+
+    await expect(h.coordinator.list({})).rejects.toThrow(/restore compatible intact history before backfill/);
+    await expect(h.coordinator.stop()).resolves.toBeUndefined();
+    coordinators.splice(coordinators.indexOf(h.coordinator), 1);
+
+    expect(await readFile(join(directory, "routines.json"), "utf8")).toBe(future);
+    await expect(stat(join(directory, "coordinator.lock"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("never removes a foreign coordinator lock while stopping a failed bootstrap", async () => {
+    const foreign = "foreign-owner\n";
+    await writeFile(join(directory, "coordinator.lock"), foreign);
+    const h = await harness({}, false);
+
+    await expect(h.coordinator.list({})).rejects.toThrow(/Coordinator lock exists/);
+    await expect(h.coordinator.stop()).resolves.toBeUndefined();
+    coordinators.splice(coordinators.indexOf(h.coordinator), 1);
+
+    expect(await readFile(join(directory, "coordinator.lock"), "utf8")).toBe(foreign);
   });
 });

@@ -102,6 +102,16 @@ Cold recovery launches the JSON artifact, never `prepareChat` again. `launchPrep
 
 ## Agent lifecycle and turn completion
 
+The [current public before-hook ordering](https://paseo.sh/docs/plugins/reference.md#ordering-and-returned-values)
+places `agent.session_open` before provider-session opening and native configuration persistence.
+Its request contains identity, placement, reason, purpose and launch environment, not native
+labels. A missing native snapshot at that boundary is therefore not an ownership decision.
+Bots uses durable managed-agent claims for scoping and its retained registry/artifact for
+authorization. Environment overrides are not persisted and cannot be the sole cold-resume gate.
+Registered-hook regressions drive the real SDK transport before the fixture persists a native
+agent; this is not a claim of physical daemon validation across the entire SDK version matrix.
+
+
 Statuses: `PluginAgentSnapshot.status` and the daemon's `AgentSnapshotPayload.status` are both `initializing | idle | running | error | closed` (`AGENT_LIFECYCLE_STATUSES`; pinned). The snapshot also carries `activeTurn: { turnId: string; startedAt: string | null } | null` (optional), `lastError?: string`, `pendingPermissions`, and `attentionReason: "finished" | "error" | "permission" | null`.
 
 Turn events, as the plugin receives them (`PluginLifecycleEvents`, `server.on` in `index.server.ts`):

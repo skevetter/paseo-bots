@@ -172,6 +172,7 @@ export class LegacyRoutineRunner {
           state: input.state,
           routineId: input.routine.id,
           agentId,
+          executionMode: "legacy",
           idempotencyKey: run.executionId,
           prompt: input.prompt,
           title: input.routine.name,

@@ -33,13 +33,22 @@ export class ManagedSessions {
     return this.store.updateState((state) => this.openInState(state, input));
   }
 
+  private managedRun(state: RunSnapshot, agentId: string): RoutineRun | undefined {
+    let found: RoutineRun | undefined;
+    for (const record of Object.values(state.routines))
+      for (const run of record.runs) {
+        if (!run.managed || run.agentId !== agentId) continue;
+        if (found) throw new Error("Managed agent identity belongs to multiple executions.");
+        found = run;
+      }
+    return found;
+  }
+
   private async openInState(
     state: RunSnapshot,
     input: ManagedSessionOpening,
   ): Promise<ManagedSessionReceipt | null> {
-    const run = Object.values(state.routines)
-      .flatMap((record) => record.runs)
-      .find((entry) => entry.agentId === input.agentId && entry.managed);
+    const run = this.managedRun(state, input.agentId);
     if (!run?.managed) return null;
     await this.validateRun(run, input);
     this.checkLifetime();
@@ -99,10 +108,8 @@ export class ManagedSessions {
       const opening = state.coordinator.sessions[agentId]?.at(-1);
       if (!opening || opening.state === "active") return;
       if (expectedEpoch !== undefined && opening.sessionEpoch !== expectedEpoch) return;
-      const run = Object.values(state.routines)
-        .flatMap((record) => record.runs)
-        .find((entry) => entry.agentId === agentId && entry.executionId === opening.executionId);
-      if (!run?.managed || run.managed.launchIntent === false)
+      const run = this.managedRun(state, agentId);
+      if (!run?.managed || run.executionId !== opening.executionId || run.managed.launchIntent === false)
         throw new Error("Provider-session activation has no matching managed execution.");
       this.checkTerminal(run);
       opening.state = "active";

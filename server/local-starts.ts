@@ -253,6 +253,7 @@ export class LocalChatStarts {
       const created = await this.calls.run(async (signal) => {
         const prepared = await prepareChat(this.host, this.relay, bot, {
           ...input,
+          executionMode: "legacy",
           agentId,
           idempotencyKey: input.idempotencyKey ?? `paseo-bots:${agentId}`,
           state,
@@ -322,9 +323,7 @@ export class LocalChatStarts {
         taskOutcome: "unknown",
         agentCreationStatus: creation,
         endedAt: new Date(this.now()).toISOString(),
-        error: noCreate
-          ? "Creation was refused before agent creation."
-          : "Legacy launch did not complete; inspect this host before retrying.",
+        error: `${noCreate ? "Creation was refused before agent creation." : "Legacy launch did not complete; inspect this host before retrying."} ${error instanceof Error ? error.message : String(error)}`,
       });
     return this.legacyResult(run);
   }
@@ -386,13 +385,17 @@ export class LocalChatStarts {
       plannedAgentId: run.agentId,
       planId: null,
       run: null,
-      message:
-        status === "created"
-          ? null
-          : status === "not_created"
-            ? "The retained legacy request ended without agent creation."
-            : "Legacy creation is unconfirmed. Its retained request identity prevents relaunch, but it has no frozen recovery plan or managed accounting. Inspect the planned agent ID on this host; do not retry with a new request ID.",
+      message: this.legacyMessage(status, run.error),
     };
+  }
+
+  private legacyMessage(status: LocalChatStartResult["status"], error: string | null): string | null {
+    if (status === "created") return null;
+    const message =
+      status === "not_created"
+        ? "The retained legacy request ended without agent creation."
+        : "Legacy creation is unconfirmed. Its retained request identity prevents relaunch, but it has no frozen recovery plan or managed accounting. Inspect the planned agent ID on this host; do not retry with a new request ID.";
+    return error ? `${message} ${error}` : message;
   }
 }
 

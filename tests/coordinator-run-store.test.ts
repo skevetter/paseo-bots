@@ -60,7 +60,8 @@ describe("coordinator history version migration", () => {
         null,
         "\t",
       )}\n\n`;
-      const preStoreBackup = '{"legacy":"original unversioned history"}\n';
+      const preStoreRun = makeRun("pre-store", { output: "pre-store output" });
+      const preStoreBackup = `${JSON.stringify({ "rt-pre-store": { lastRunAt: preStoreRun.scheduledFor, runs: [null, preStoreRun] } }, null, 2)}\n`;
       await writeFile(path, original);
       await writeFile(`${path}.pre-run-store`, preStoreBackup);
       const store = new RunStore(path);
@@ -100,10 +101,53 @@ describe("coordinator history version migration", () => {
   );
 });
 
+describe("legacy empty slots", () => {
+  it("bootstraps claims over null holes, keeps valid runs byte-for-byte, and writes no fabricated fields", async () => {
+    const legacy = {
+      id: "legacy-kept",
+      trigger: "manual",
+      scheduledFor: "2026-09-19T09:00:00.000Z",
+      startedAt: "2026-09-19T09:00:00.000Z",
+      endedAt: "2026-09-19T09:01:00.000Z",
+      status: "completed",
+      agentId: null,
+      output: "legacy output",
+      error: null,
+    };
+    const original = JSON.stringify({
+      "rt-null": null,
+      "rt-holes": { lastRunAt: null, runs: [null, legacy] },
+    });
+    await writeFile(path, original);
+    const store = new RunStore(path);
+    await store.backfillManagedAgentClaims();
+    expect(await readFile(path, "utf8")).toBe(original);
+    const { routines } = await store.read();
+    expect(routines["rt-null"]).toEqual(emptyRecord());
+    const runs = defined(routines["rt-holes"]).runs;
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      id: "legacy-kept",
+      output: "legacy output",
+      sessionEpoch: 0,
+      verification: null,
+    });
+    await store.updateState(() => {});
+    const saved = JSON.parse(await readFile(path, "utf8"));
+    expect(saved.version).toBe(3);
+    expect(saved.routines["rt-holes"].runs.map((run: { id: string }) => run.id)).toEqual(["legacy-kept"]);
+  });
+});
+
 describe("unreadable managed execution safety", () => {
   it.each([
     '{"version":2,"routines":{"rt":{"runs":[',
     JSON.stringify({ version: 2, routines: {}, coordinator: { occurrences: "lost", circuits: {} } }),
+    JSON.stringify({
+      version: 2,
+      routines: { rt: { lastRunAt: null, runs: [null] } },
+      coordinator: { occurrences: {}, circuits: {} },
+    }),
   ])("refuses reads and writes without freeing unknown history: %s", async (original) => {
     await writeFile(path, original);
     const store = new RunStore(path);

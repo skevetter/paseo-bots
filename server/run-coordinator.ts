@@ -177,13 +177,23 @@ export class RunCoordinator {
     this.validateTiming();
     this.calls = new BoundedHostCalls(options.launchTimeoutMs ?? 30_000);
     this.creationWaits = new CreationWaits((id) => this.get(id), options.launchTimeoutMs ?? 30_000);
-    this.opened = this.lock.acquire();
+    this.opened = this.open();
     void this.opened.catch(() => {});
     this.detach = host.onAttach(() => {
       void this.recover().catch((error: unknown) =>
         console.error("paseo-bots: coordinator recovery failed", error),
       );
     });
+  }
+
+  private async open(): Promise<void> {
+    await this.lock.acquire();
+    try {
+      await this.store.backfillManagedAgentClaims();
+    } catch (error) {
+      await this.lock.release();
+      throw error;
+    }
   }
 
   private validateTiming(): void {
@@ -231,7 +241,10 @@ export class RunCoordinator {
     await this.creationWaits.close();
     this.stopped = true;
     this.state = "stopped";
-    await this.opened.then(() => this.lock.release());
+    // Bootstrap failure already reached every caller through `opened`; cleanup must still finish.
+    // release() is a no-op without ownership and token-checked otherwise, so a foreign lock is never removed.
+    await this.opened.catch(() => undefined);
+    await this.lock.release();
   }
 
   async admit(input: Admission): Promise<RoutineRun> {
@@ -648,6 +661,10 @@ export class RunCoordinator {
         reason: `The retained admission artifact cannot be verified: ${errorText(error)}`,
       };
     }
+  }
+
+  isManagedAgent(agentId: string): Promise<boolean> {
+    return this.store.isManagedAgent(agentId);
   }
 
   async sessionOpened(input: ManagedSessionOpening): Promise<ManagedSessionReceipt | null> {

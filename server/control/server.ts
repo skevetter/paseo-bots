@@ -96,6 +96,7 @@ export class ControlServer {
   }
 
   private async dispatch(request: IncomingMessage, response: ServerResponse) {
+    const owner = this.server;
     if ((request.url ?? "").split("?")[0] !== PATH) return json(response, 404, { error: "not found" });
     // Browsers send an Origin; MCP clients don't.
     if (request.headers.origin) return json(response, 403, { error: "forbidden" });
@@ -104,7 +105,17 @@ export class ControlServer {
     if (refuseNonPost(request, response)) return;
     const message = await readMessage(request, response);
     if (!message) return;
-    const answer = await answerMcp(message, { name: "paseo-bots-control", tools: this.tools }, this.context);
+    const answer = await answerMcp(
+      message,
+      {
+        name: "paseo-bots-control",
+        tools: this.tools,
+        beforeCall: () => {
+          if (!owner || this.server !== owner) throw new Error("The control server has been stopped.");
+        },
+      },
+      this.context,
+    );
     if (!answer) return response.writeHead(202).end();
     json(response, 200, answer);
   }

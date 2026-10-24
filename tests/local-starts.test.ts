@@ -246,6 +246,7 @@ describe("local managed admission", () => {
     expect(creates(h.daemon)).toEqual([]);
   });
 });
+// Three durable admissions exercise real fsync; this is not a launch-latency assertion.
 it("reuses one durable task after a lost HTTP reply and real stored draft restoration", async () => {
   const h = await harness();
   const call = await registered(h);
@@ -279,7 +280,7 @@ it("reuses one durable task after a lost HTTP reply and real stored draft restor
   );
   expect(new Set([admitted.planId, second.planId, third.planId]).size).toBe(3);
   setDraft("lost-http-reply", null);
-});
+}, 15_000);
 it("releases capacity after a workspace failure proven to precede agent creation", async () => {
   const h = await harness();
   const list = h.daemon.api.workspaces.list.bind(h.daemon.api.workspaces);

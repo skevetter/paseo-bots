@@ -336,7 +336,7 @@ describe("ambiguous history without a valid seal", () => {
 });
 
 describe("legacy malformed data recovery", () => {
-  it("sets aside unrecognized malformed legacy bytes only without known managed history", async () => {
+  it("preserves set-aside legacy bytes and requires explicit intact restoration before new coverage", async () => {
     const original = Buffer.from('{"old legacy data":');
     await writeFile(path, original);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -348,6 +348,10 @@ describe("legacy malformed data recovery", () => {
       const aside = join(directory, defined(names[0]));
       expect(await readFile(aside)).toEqual(original);
       await expect(readFile(path)).rejects.toMatchObject({ code: "ENOENT" });
+      await expect(store.isManagedAgent("unrelated")).rejects.toThrow();
+      await expect(store.backfillManagedAgentClaims()).rejects.toThrow();
+      await writeFile(path, JSON.stringify({ version: 1, routines: {} }));
+      await store.backfillManagedAgentClaims();
       await store.update((records) => {
         records.recovered = { ...emptyRecord(), runs: [makeRun("after-legacy-repair")] };
       });

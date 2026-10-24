@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { Server } from "node:net";
 import { join } from "node:path";
 import type {
@@ -9,11 +9,18 @@ import type {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import contribute from "../index.server";
 import { pluginDataPath } from "../server/bot-home";
+import { ManagedAgentClaims } from "../server/managed-agent-claims";
 import { Relay } from "../server/relay";
+import { readHistoryText } from "../server/run-history-seal";
 import { RunStore } from "../server/run-store";
 import { BotStore } from "../server/state";
 import { BOT_LABEL } from "../shared/bot";
-import { runsPrepareRpc } from "../shared/local-start";
+import {
+  chatsStartRpc,
+  LocalChatStartResultSchema,
+  LocalPreparedPlanSchema,
+  runsPrepareRpc,
+} from "../shared/local-start";
 import { RUN_LABEL } from "../shared/managed-runs";
 import { newUuid } from "../shared/uuid";
 import { connectFakeDaemon, type FakeDaemon } from "./fake-daemon";
@@ -80,34 +87,114 @@ async function breakHistory(failure: "lock" | "future" | "missing") {
   const lock = join(pluginDataPath(), "coordinator.lock");
   if (failure === "lock") await writeFile(lock, "retained foreign ownership");
   if (failure === "future") await writeFile(history, '{"version":999,"routines":{}}');
-  if (failure === "missing") {
-    await rm(history, { force: true });
-    await new RunStore(history).initialize();
-    await rm(history);
-  }
+  if (failure === "missing") await rm(history);
   return { history, lock };
 }
 
 describe("native session ownership isolation", () => {
   useTempPaseoHome("paseo-bots-hook-isolation-");
+  afterEach(async () => {
+    await rm(pluginDataPath(), { recursive: true, force: true });
+  });
+
+  it.each(["legacy", "managed"] as const)(
+    "creates a fresh %s agent when session opening precedes native persistence",
+    async (executionMode) => {
+      const bot = makeBot({ executionMode, cwd: "/work" });
+      await new BotStore().update((values) => ({ ...values, bots: [bot] }));
+      const daemon = await connectFakeDaemon({ creationLifecycle: true });
+      const server = plugin(daemon);
+      daemon.beforeSessionOpen(async (request) => {
+        await server.open(request);
+      });
+      try {
+        const input = {
+          botId: bot.id,
+          requestId: `before-native-persistence-${executionMode}`,
+          prompt: "An inert transport creation",
+        };
+        const result = await vi.waitFor(
+          async () => {
+            const receipt = LocalChatStartResultSchema.parse(await server.call(chatsStartRpc.name, input));
+            expect(receipt.status, receipt.message ?? undefined).toBe("created");
+            return receipt;
+          },
+          { timeout: 10_000 },
+        );
+        const agentId = defined(result.agentId);
+        expect((await daemon.api.agents.ref(agentId).refresh())?.agent.id).toBe(agentId);
+        const snapshot = await new RunStore().read();
+        const run = defined(
+          Object.values(snapshot.routines)
+            .flatMap((record) => record.runs)
+            .find((candidate) => candidate.agentId === agentId),
+        );
+        expect(run).toMatchObject({
+          agentCreationStatus: "created",
+          taskOutcome: "unknown",
+          sessionEpoch: executionMode === "managed" ? 1 : 0,
+        });
+        expect(Boolean(run.managed)).toBe(executionMode === "managed");
+        expect(daemon.sent.filter((frame) => frame.type === "agent.create.request")).toHaveLength(1);
+      } finally {
+        await server.stop();
+        await daemon.close();
+      }
+    },
+    15_000,
+  );
+});
+
+describe("retained native ownership isolation", () => {
+  useTempPaseoHome("paseo-bots-retained-hook-isolation-");
+  afterEach(async () => {
+    await rm(pluginDataPath(), { recursive: true, force: true });
+  });
 
   it.each(["lock", "future", "missing"] as const)(
     "keeps unrelated and legacy sessions independent of broken %s state",
     async (failure) => {
+      const bot = makeBot({ executionMode: "managed", cwd: "/work" });
+      await new BotStore().update((values) => ({ ...values, bots: [bot] }));
+      const daemon = await connectFakeDaemon({ creationLifecycle: true });
+      const initial = plugin(daemon);
+      let managedId: string;
+      try {
+        const admitted = LocalPreparedPlanSchema.parse(
+          await initial.call(runsPrepareRpc.name, {
+            botId: bot.id,
+            requestId: "retained-managed-ownership",
+            prompt: "An inert deferred plan",
+          }),
+        );
+        managedId = admitted.plannedAgentId;
+      } finally {
+        await initial.stop();
+      }
       const { history, lock } = await breakHistory(failure);
       const before = await readFile(history, "utf8").catch(() => null);
-      const daemon = await connectFakeDaemon({ creationLifecycle: true });
       const server = plugin(daemon);
+      daemon.beforeSessionOpen(async (request) => {
+        await server.open(request);
+      });
       vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        for (const labels of [{}, { [BOT_LABEL]: "legacy-bot" }]) {
-          const request = opening(newUuid());
-          daemon.setAgent(request.agentId, { labels });
-          expect(await server.open(request)).toBe(request);
+        const candidates: Record<string, string>[] = [
+          {},
+          { [BOT_LABEL]: "legacy-bot" },
+          { [RUN_LABEL]: "not-owned" },
+        ];
+        for (const labels of candidates) {
+          const agent = await daemon.api.workspaces.ref("ws-1").agents.create({
+            agentId: newUuid(),
+            config: { provider: "claude/claude-sonnet-5-5" },
+            labels,
+          });
+          expect((await daemon.api.agents.ref(agent.id).refresh())?.agent.id).toBe(agent.id);
         }
-        const managed = opening(newUuid());
-        daemon.setAgent(managed.agentId, { labels: { [RUN_LABEL]: "retained-run" } });
-        await expect(server.open(managed)).rejects.toThrow();
+        await expect(
+          server.open({ ...opening(managedId), provider: bot.provider, reason: "resume" }),
+        ).rejects.toThrow();
         expect(await readFile(history, "utf8").catch(() => null)).toBe(before);
         if (failure === "lock") expect(await readFile(lock, "utf8")).toBe("retained foreign ownership");
       } finally {
@@ -118,10 +205,52 @@ describe("native session ownership isolation", () => {
       }
     },
   );
+});
+
+describe("unavailable native execution provenance", () => {
+  useTempPaseoHome("paseo-bots-hook-provenance-");
+  afterEach(async () => {
+    await rm(pluginDataPath(), { recursive: true, force: true });
+  });
+
+  it("refuses native creation from an orphan managed claim without inventing an execution", async () => {
+    const store = new RunStore();
+    await store.initialize();
+    const history = await realpath(store.path);
+    const agentId = newUuid();
+    await new ManagedAgentClaims(history).publish([agentId]);
+    const before = await readFile(history, "utf8");
+    const daemon = await connectFakeDaemon({ creationLifecycle: true });
+    const server = plugin(daemon);
+    daemon.beforeSessionOpen(async (request) => {
+      await server.open(request);
+    });
+    try {
+      const ordinary = await daemon.api.workspaces.ref("ws-1").agents.create({
+        agentId: newUuid(),
+        config: { provider: "claude/claude-sonnet-5-5" },
+      });
+      expect((await daemon.api.agents.ref(ordinary.id).refresh())?.agent.id).toBe(ordinary.id);
+      await expect(
+        daemon.api.workspaces.ref("ws-1").agents.create({
+          agentId,
+          config: { provider: "claude/claude-sonnet-5-5" },
+        }),
+      ).rejects.toThrow();
+      expect(await daemon.api.agents.ref(agentId).refresh()).toBeNull();
+      expect(await readFile(history, "utf8")).toBe(before);
+    } finally {
+      await server.stop();
+      await daemon.close();
+    }
+  });
 
   it("passes history through without inspecting native identity or entering the broken gate", async () => {
     await mkdir(pluginDataPath(), { recursive: true });
     await writeFile(join(pluginDataPath(), "coordinator.lock"), "foreign ownership");
+    const history = join(pluginDataPath(), "routines.json");
+    const before = '{"version":999,"routines":{}}';
+    await writeFile(history, before);
     const daemon = await connectFakeDaemon({ creationLifecycle: true });
     const server = plugin(daemon);
     try {
@@ -129,6 +258,7 @@ describe("native session ownership isolation", () => {
       const frames = [...daemon.sent];
       expect(await server.open(request)).toBe(request);
       expect(daemon.sent).toEqual(frames);
+      expect(await readFile(history, "utf8")).toBe(before);
     } finally {
       await server.stop().catch(() => {});
       await daemon.close();
@@ -168,13 +298,13 @@ describe("plugin preparation lifetime", () => {
       await entered.reached;
       await server.stop();
       const history = join(pluginDataPath(), "routines.json");
-      const before = await readFile(history, "utf8");
+      const before = await readHistoryText(history);
       resumed.release();
       await rejected;
       expect(
         listening.mock.contexts.every((listener) => listener instanceof Server && !listener.listening),
       ).toBe(true);
-      expect(await readFile(history, "utf8")).toBe(before);
+      expect(await readHistoryText(history)).toBe(before);
       expect(daemon.sent.filter((frame) => frame.type === "agent.create.request")).toEqual([]);
     } finally {
       resumed.release();

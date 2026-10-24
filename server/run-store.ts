@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { realpath } from "node:fs/promises";
+import { readdir, realpath } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { type CoordinatorState, CoordinatorStateSchema } from "../shared/managed-runs";
@@ -23,6 +23,11 @@ import {
   UnsupportedFileVersionError,
   writeDurableAtomic,
 } from "./files";
+import {
+  ManagedAgentClaims,
+  ManagedAgentClaimsError,
+  retainedArtifactAgentIds,
+} from "./managed-agent-claims";
 import { type RunHistoryFilter, RunHistoryIndex, type RunHistoryPage } from "./run-history-index";
 import {
   inspectHistorySeal,
@@ -139,7 +144,10 @@ function readRecord(
   if (Array.isArray(entry.runs))
     return {
       lastRunAt,
-      runs: entry.runs.flatMap((run) => readRun(routineId, run, dropped, version !== VERSION)),
+      // Managed records refused null slots above; a legacy slot carries no identity, so it is simply empty.
+      runs: entry.runs.flatMap((run) =>
+        run === null ? [] : readRun(routineId, run, dropped, version !== VERSION),
+      ),
     };
   if (!lastRunAt) return emptyRecord();
   const run = {
@@ -178,7 +186,20 @@ class UnsafeRunHistoryError extends UnsupportedFileVersionError {
   }
 }
 
-function parse(raw: string): Loaded | UnsupportedVersion {
+function validateClaimRecords(entries: Record<string, unknown>, saved: Record<string, unknown>): void {
+  for (const [id, entry] of Object.entries(entries)) {
+    if (entry === null && !managedFormat(saved)) continue;
+    if (!isObject(entry) || ("runs" in entry && !Array.isArray(entry.runs)))
+      throw new UnsafeRunHistoryError(`unreadable claim provenance in record ${id}`);
+  }
+}
+
+function validateClaimRead(dropped: string[], strictClaims: boolean): void {
+  if (strictClaims && dropped.length > 0)
+    throw new UnsafeRunHistoryError(`unreadable claim provenance: ${dropped.join("; ")}`);
+}
+
+function parse(raw: string, strictClaims = false): Loaded | UnsupportedVersion {
   const saved: unknown = decodeHistory(raw);
   if (!isObject(saved)) throw new Error("Routine history isn't an object");
   const versioned = typeof saved.version === "number";
@@ -191,11 +212,13 @@ function parse(raw: string): Loaded | UnsupportedVersion {
     if (managedFormat(saved)) throw new UnsafeRunHistoryError("unreadable managed records");
     throw new Error("Routine history has no routines");
   }
+  if (strictClaims) validateClaimRecords(entries, saved);
   const dropped: string[] = [];
   const routines: Records = Object.fromEntries(
     Object.entries(entries).map(([id, entry]) => [id, readRecord(id, entry, dropped, saved)]),
   );
   const coordinator = readCoordinator(saved, dropped, routines);
+  validateClaimRead(dropped, strictClaims);
   normalizeAdmissionOrder(routines, coordinator, saved.version !== VERSION);
   return {
     raw,
@@ -342,14 +365,107 @@ export class RunStore {
   private readonly index = new RunHistoryIndex();
   /** The file revision whose unreadable runs were last reported, so polling doesn't repeat the report. */
   private reported = "";
+  private claims: ManagedAgentClaims | undefined;
+  private claimsPath = "";
 
   constructor(path = join(pluginDataPath(), "routines.json")) {
     this.path = resolve(path);
   }
 
+  /** Scoping only; deliberately independent of the writer queue and coordinator ownership lock. */
+  async isManagedAgent(agentId: string): Promise<boolean> {
+    const path = join(await canonicalPath(dirname(this.path)), basename(this.path));
+    const claims = this.agentClaims(path);
+    const covered = await claims.hasCoverage();
+    if (await claims.has(agentId)) return true;
+    if (covered) return false;
+    const retained = await claims.inventory();
+    const inventory = await this.claimInventory(path, retained.size === 0);
+    if (inventory.has(agentId) || retained.has(agentId)) return true;
+    // A launch can publish while the read-only historical inventory is being collected.
+    return claims.has(agentId);
+  }
+
+  /** Explicit owner startup/recovery seam; unlike initialize, never upgrades history bytes. */
+  backfillManagedAgentClaims(): Promise<void> {
+    return this.serial((path) => this.ensureAgentClaims(path));
+  }
+
+  private agentClaims(path: string): ManagedAgentClaims {
+    if (!this.claims || this.claimsPath !== path) {
+      this.claims = new ManagedAgentClaims(path);
+      this.claimsPath = path;
+    }
+    return this.claims;
+  }
+
+  private managedAgentIds(snapshot: Pick<RunSnapshot, "routines" | "coordinator">): Set<string> {
+    const ids = new Set(Object.keys(snapshot.coordinator.sessions));
+    for (const record of Object.values(snapshot.routines))
+      for (const run of record.runs) this.addManagedAgentIds(ids, run);
+    return ids;
+  }
+
+  private addManagedAgentIds(ids: Set<string>, run: RoutineRun): void {
+    if (!run.managed) return;
+    if (run.agentId !== null) ids.add(run.agentId);
+    for (const attempt of run.managed.attempts) ids.add(attempt.agentId);
+  }
+
+  private async requirePristineHistory(path: string, hasEvidence: boolean): Promise<void> {
+    if (hasEvidence) throw new ManagedAgentClaimsError("history is missing before historical backfill");
+    const entries = await readdir(dirname(path)).catch((error: unknown) => {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return [];
+      throw error;
+    });
+    if (entries.some((entry) => entry.startsWith(`${basename(path)}.corrupt-`)))
+      throw new ManagedAgentClaimsError("unreadable history was previously set aside before backfill");
+  }
+
+  private async claimInventory(path: string, allowPristine: boolean): Promise<Set<string>> {
+    const safety = await inspectHistorySeal(path);
+    const raw = await readHistoryText(path);
+    const ids = await retainedArtifactAgentIds(path);
+    if (raw === null) {
+      await this.requirePristineHistory(path, !allowPristine || safety.known || ids.size > 0);
+    } else {
+      requireRecognizableHistory(raw, safety.sealed, safety.managed);
+      for (const id of this.decodeClaimIds(raw)) ids.add(id);
+    }
+    await this.addBackupClaims(path, ids);
+    return ids;
+  }
+
+  private async addBackupClaims(path: string, ids: Set<string>): Promise<void> {
+    for (const suffix of [BACKUP_SUFFIX, ".v1.bak", ".v2.bak"]) {
+      const backup = await readHistoryText(`${path}${suffix}`);
+      if (backup !== null) for (const id of this.decodeClaimIds(backup)) ids.add(id);
+    }
+  }
+
+  private decodeClaimIds(raw: string): Set<string> {
+    const loaded = parse(raw, true);
+    if ("unsupportedVersion" in loaded)
+      throw new ManagedAgentClaimsError(
+        `Unsupported routine history version ${loaded.unsupportedVersion} at ${this.path}; restore compatible intact history before backfill`,
+      );
+    return this.managedAgentIds(loaded);
+  }
+
+  private async ensureAgentClaims(path: string): Promise<void> {
+    const claims = this.agentClaims(path);
+    if (await claims.hasCoverage()) return;
+    const retained = await claims.inventory();
+    const ids = await this.claimInventory(path, retained.size === 0);
+    for (const id of retained) ids.add(id);
+    await claims.publish(ids);
+    await claims.complete();
+  }
+
   /** Establish durable history and its seal before publishing private execution artifacts. */
   initialize(): Promise<void> {
     return this.serial(async (path) => {
+      await this.ensureAgentClaims(path);
       const loaded = await this.load(path);
       if (loaded.revision === "missing" || loaded.version !== VERSION)
         await this.persist(loaded, loaded.routines, path);
@@ -374,6 +490,7 @@ export class RunStore {
 
   write(revision: string, routines: Records): Promise<RunWrite> {
     return this.serial(async (path) => {
+      await this.ensureAgentClaims(path);
       const loaded = await this.load(path);
       if (loaded.revision !== revision)
         return { status: "conflict", error: "Run history changed elsewhere. Reload before saving again." };
@@ -388,6 +505,7 @@ export class RunStore {
 
   updateState<T>(change: (state: RunSnapshot) => T | Promise<T>): Promise<T> {
     return this.serial(async (path) => {
+      await this.ensureAgentClaims(path);
       const loaded = await this.load(path);
       const result = await change(loaded);
       await this.persist(loaded, loaded.routines, path);
@@ -396,7 +514,7 @@ export class RunStore {
   }
 
   private async serial<T>(work: (path: string) => Promise<T>): Promise<T> {
-    const path = await canonicalPath(this.path);
+    const path = join(await canonicalPath(dirname(this.path)), basename(this.path));
     const next = (writerQueues.get(path) ?? Promise.resolve()).then(() => work(path));
     writerQueues.set(
       path,
@@ -473,6 +591,8 @@ export class RunStore {
     const raw = JSON.stringify(envelope, null, 2);
     await this.assertSource(loaded, path);
     await this.backup(loaded, path);
+    const claims = this.agentClaims(path);
+    await claims.publish(this.managedAgentIds(envelope));
     await writeDurableAtomic(path, raw, {
       mode: 0o600,
       beforePublish: () => this.assertSource(loaded, path),

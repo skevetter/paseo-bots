@@ -1,5 +1,7 @@
 import { createPaseoApi, type PaseoApi } from "@getpaseo/client";
 import { DaemonClient } from "@getpaseo/client/internal/daemon-client";
+import type { PluginSessionOpenRequest } from "@getpaseo/plugin/server";
+import { z } from "zod";
 import type { ProviderEntry } from "../shared/changes/context";
 import type { CreationEvidence } from "../shared/chat";
 
@@ -24,6 +26,7 @@ export interface FakeDaemon {
   release(): void;
   setProviders(entries: ProviderEntry[]): void;
   creation(events: Omit<CreationEvidence, "idempotencyKey">[], error?: string): void;
+  beforeSessionOpen(handler: (request: PluginSessionOpenRequest) => Promise<void>): void;
   setAgent(agentId: string, patch: Record<string, unknown> | null): void;
   close(): Promise<void>;
 }
@@ -59,6 +62,13 @@ export function agentSnapshot(id: string, patch: Record<string, unknown> = {}) {
   };
 }
 
+const SessionCreationSchema = z.object({
+  agentId: z.string(),
+  workspaceId: z.string(),
+  config: z.object({ provider: z.string() }),
+  env: z.record(z.string(), z.string()).default({}),
+});
+
 class DaemonReplies {
   providers: ProviderEntry[] = [
     {
@@ -72,6 +82,7 @@ class DaemonReplies {
   ];
   creationEvents: Omit<CreationEvidence, "idempotencyKey">[] = [];
   creationError: string | null = null;
+  sessionOpening?: (request: PluginSessionOpenRequest) => Promise<void>;
   readonly agents = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly reply: (message: unknown) => void) {}
@@ -110,7 +121,7 @@ class DaemonReplies {
         });
         break;
       case "agent.create.request":
-        this.agentCreate(message);
+        void this.agentCreate(message);
         break;
       case "create_agent_request": {
         const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
@@ -141,10 +152,13 @@ class DaemonReplies {
     });
   }
 
-  private agentCreate(message: Record<string, unknown>): void {
+  private async agentCreate(message: Record<string, unknown>): Promise<void> {
+    const error = this.sessionOpening
+      ? ((await this.openSession(message)) ?? this.creationError)
+      : this.creationError;
     const agentId = (message.agentId as string | undefined) ?? "daemon-picked-id";
     const agent = agentSnapshot(agentId, { labels: message.labels ?? {} });
-    if (!this.creationError) this.agents.set(agentId, agent);
+    if (!error) this.agents.set(agentId, agent);
     const snapshots = this.creationEvents.map((event) => ({
       ...event,
       idempotencyKey: message.idempotencyKey,
@@ -154,11 +168,30 @@ class DaemonReplies {
       type: "agent.create.response",
       payload: {
         requestId: message.requestId,
-        agent: this.creationError ? null : agent,
-        error: this.creationError,
+        agent: error ? null : agent,
+        error,
         creation: snapshots.at(-1),
       },
     });
+  }
+
+  private async openSession(message: Record<string, unknown>): Promise<string | null> {
+    if (!this.sessionOpening) return null;
+    try {
+      const input = SessionCreationSchema.parse(message);
+      await this.sessionOpening({
+        agentId: input.agentId,
+        workspaceId: input.workspaceId,
+        provider: input.config.provider,
+        cwd: FIXTURE_WORKSPACE.workspaceDirectory,
+        reason: "create",
+        purpose: "interactive",
+        env: input.env,
+      });
+      return null;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : String(cause);
+    }
   }
 }
 
@@ -255,6 +288,9 @@ export async function connectFakeDaemon(features: Features): Promise<FakeDaemon>
     creation(events, error) {
       server.creationEvents = events;
       server.creationError = error ?? null;
+    },
+    beforeSessionOpen(handler) {
+      server.sessionOpening = handler;
     },
     setAgent(agentId, patch) {
       if (patch === null) server.agents.delete(agentId);
