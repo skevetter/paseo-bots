@@ -354,8 +354,10 @@ describe("routine overlap admission", () => {
     expect([skipped.executionStatus, skipped.skipped, skipped.taskOutcome]).toEqual([
       "canceled",
       "busy",
-      "no_change",
+      "unknown",
     ]);
+    expect(skipped.agentCreationStatus).toBe("not_created");
+    expect(coalesced.agentCreationStatus).toBe("not_created");
     expect(queued.executionStatus).toBe("queued");
     expect(coalesced.managed?.coalescedInto).toBe(queued.id);
     expect(coalesced.executionStatus).toBe("canceled");
@@ -431,6 +433,35 @@ describe("resource capacity admission", () => {
 });
 
 describe("bounded infrastructure retry", () => {
+  it("does not transfer positive creation evidence to a safe retry's new UUID", async () => {
+    const h = await harness({
+      launch: async (_host, _relay, plan, observer) => {
+        observer?.onEvent?.({
+          kind: "agent",
+          idempotencyKey: plan.idempotencyKey,
+          revision: 1,
+          phase: "agent_ready",
+          workspaceId: "workspace-1",
+          agentId: plan.agentId,
+          error: null,
+        });
+        throw new ProvenInfrastructureError("Native record exists but no task effects occurred", "omp");
+      },
+    });
+    const plan = makePrepared();
+    const run = await retryAt(h, await h.coordinator.admitPrepared(plan, occurrence()), START + 2_250);
+    expect(run.agentId).not.toBe(plan.agentId);
+    expect(run.agentCreationStatus).toBe("not_created");
+    expect(run.managed?.hostCreatedAt).toBeUndefined();
+    expect(run.managed?.creation).toBeNull();
+    expect(run.managed?.attempts.map((attempt) => attempt.agentId)).toEqual([plan.agentId, run.agentId]);
+    expect((await h.coordinator.waitForCreation(run.id, { timeoutMs: 0 })).status).toBe("pending");
+    await h.coordinator.cancel(run.id);
+    const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 0 });
+    expect(receipt.status).toBe("not_created");
+    expect(receipt.run.taskOutcome).toBe("unknown");
+  });
+
   it("persists three distinct attempts at 2s and 8s plus jitter without re-resolving config", async () => {
     const h = await harness({
       launch: async () => {
@@ -455,7 +486,11 @@ describe("bounded infrastructure retry", () => {
     now += 1;
     await h.coordinator.pump();
     const terminal = await observed(h, run, "failed");
-    expect([terminal.executionStatus, terminal.taskOutcome]).toEqual(["failed", "no_change"]);
+    expect([terminal.executionStatus, terminal.taskOutcome, terminal.agentCreationStatus]).toEqual([
+      "failed",
+      "unknown",
+      "unknown",
+    ]);
     expect(terminal.managed?.attempts.map((attempt) => attempt.state)).toEqual([
       "failed",
       "failed",
@@ -536,6 +571,31 @@ describe("provider circuit recovery", () => {
 });
 
 describe("execution evidence identity", () => {
+  it("retains a matched native creation even when later relay/timeline inspection fails", async () => {
+    const h = await harness({
+      launch: async () => {
+        throw new Error("Lost creation reply");
+      },
+      refresh: async () => {
+        throw new Error("Relay restoration unavailable");
+      },
+    });
+    const plan = makePrepared();
+    const run = await observed(h, await h.coordinator.admitPrepared(plan, occurrence()), "unknown");
+    h.agents.set(plan.agentId, hostEvidence(h.launches[0] ?? plan));
+    await h.coordinator.reconcile(run.id);
+    const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 0 });
+    expect(receipt.status).toBe("created");
+    expect(receipt.run).toMatchObject({
+      agentId: plan.agentId,
+      executionStatus: "unknown",
+      taskOutcome: "unknown",
+      agentCreationStatus: "created",
+      managed: { reservation: true, hostCreatedAt: START },
+    });
+    expect(h.launches).toHaveLength(1);
+  });
+
   it.each(["transport", "outcomeUnknown"] as const)(
     "does not retry an ambiguous %s creation",
     async (kind) => {
@@ -706,7 +766,11 @@ describe("cancellation safety", () => {
     );
     const canceled = await h.coordinator.cancel(queued.id);
     expect(canceled.error).toBeNull();
-    expect([canceled.run.executionStatus, canceled.run.taskOutcome]).toEqual(["canceled", "no_change"]);
+    expect([
+      canceled.run.executionStatus,
+      canceled.run.taskOutcome,
+      canceled.run.agentCreationStatus,
+    ]).toEqual(["canceled", "unknown", "not_created"]);
     expect(canceled.run.managed?.reservation).toBe(false);
     const unsupported = await h.coordinator.cancel(active.id);
     expect(unsupported.error).toContain("does not expose active cancellation");

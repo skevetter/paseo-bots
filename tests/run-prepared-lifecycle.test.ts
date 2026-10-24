@@ -7,9 +7,10 @@ import { Relay } from "../server/relay";
 import { RunArtifacts } from "../server/run-artifacts";
 import { type CoordinatorOptions, type PreparedAdmission, RunCoordinator } from "../server/run-coordinator";
 import { RunStore } from "../server/run-store";
-import type { PreparedBotChat } from "../shared/chat";
+import { launchPreparedBotChat, type PreparedBotChat, PreparedLaunchNotCreatedError } from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import { makePrepared } from "./coordinator-fixture";
+import { connectFakeDaemon } from "./fake-daemon";
 import { defined, type FakeHost, fakeHost, makeBot } from "./helpers";
 
 const NOW = Date.parse("2026-10-23T10:00:00.000Z");
@@ -202,7 +203,11 @@ describe("explicit prepared start", () => {
     const run = await admit(h, plan);
     await h.coordinator.cancel(run.id);
     const canceled = await h.coordinator.startPrepared(run.id);
-    expect([canceled.executionStatus, canceled.taskOutcome]).toEqual(["canceled", "no_change"]);
+    expect([canceled.executionStatus, canceled.taskOutcome, canceled.agentCreationStatus]).toEqual([
+      "canceled",
+      "unknown",
+      "not_created",
+    ]);
     expect(canceled.managed?.launchIntent).toBe(false);
     expect(canceled.managed?.reservation).toBe(false);
     expect(h.launches).toHaveLength(0);
@@ -268,6 +273,118 @@ describe("immutable prepared metadata", () => {
 });
 
 describe("creation evidence boundary", () => {
+  it("records rejected preparation and missed occurrences as unknown tasks with no agent", async () => {
+    const h = await harness({
+      prepare: async () => {
+        throw new Error("Cannot inspect launch configuration");
+      },
+    });
+    const state = await h.host.values();
+    const failed = await h.coordinator.admit({
+      bot: defined(state.bots[0]),
+      state,
+      trigger: "manual",
+      due: new Date(NOW),
+      requestId: "failed-inspection",
+      prompt: "Inspect the inbox",
+    });
+    expect(failed).toMatchObject({
+      executionStatus: "failed",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
+      agentId: null,
+    });
+    expect((await h.coordinator.waitForCreation(failed.id, { timeoutMs: 0 })).status).toBe("not_created");
+    const missed = await h.coordinator.recordMissed("missed-routine", new Date(NOW - 60_000), new Date(NOW));
+    expect(missed).toMatchObject({
+      executionStatus: "canceled",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
+      agentId: null,
+      skipped: "missed",
+    });
+    expect(h.launches).toEqual([]);
+  });
+
+  it("does not downgrade authentic creation after a later ambiguous or negative launch error", async () => {
+    const h = await harness({
+      launch: async (_host, _relay, plan, observer) => {
+        observer?.onEvent?.({
+          kind: "agent",
+          idempotencyKey: plan.idempotencyKey,
+          revision: 1,
+          phase: "agent_ready",
+          agentId: plan.agentId,
+          workspaceId: "workspace-1",
+          error: null,
+        });
+        observer?.onEvent?.({
+          kind: "agent",
+          idempotencyKey: plan.idempotencyKey,
+          revision: 2,
+          phase: "failed",
+          agentId: null,
+          workspaceId: null,
+          error: "Lost later progress",
+          outcomeUnknown: true,
+        });
+        throw new PreparedLaunchNotCreatedError("Later adapter failure is not stronger than a creation ACK");
+      },
+    });
+    const run = await admit(h, makePrepared());
+    await h.coordinator.startPrepared(run.id);
+    const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 5_000 });
+    expect(receipt.status).toBe("created");
+    expect(receipt.run).toMatchObject({
+      executionStatus: "unknown",
+      taskOutcome: "unknown",
+      agentCreationStatus: "created",
+      managed: { reservation: true, hostCreatedAt: NOW },
+    });
+  });
+
+  it("releases a failed workspace launch without claiming semantic no-work and admits the next request", async () => {
+    const daemon = await connectFakeDaemon({ creationLifecycle: true, agentRequestReceipts: true });
+    try {
+      vi.spyOn(daemon.api.workspaces, "list").mockRejectedValueOnce(new Error("Workspace unavailable"));
+      const h = await harness({
+        launch: async (_host, _relay, plan, observer) => launchPreparedBotChat(daemon.api, plan, observer),
+      });
+      const plan = makePrepared({ botName: "Inbox", placement: { path: "/work", projectRoot: null } });
+      const run = await admit(h, plan);
+      await h.coordinator.startPrepared(run.id);
+      const failed = await h.coordinator.waitForCreation(run.id, { timeoutMs: 5_000 });
+      expect(failed.status).toBe("not_created");
+      expect(failed.run).toMatchObject({
+        executionStatus: "failed",
+        taskOutcome: "unknown",
+        agentCreationStatus: "not_created",
+        managed: { reservation: false, launchIntent: false },
+      });
+      expect(daemon.sent.filter((frame) => frame.type === "agent.create.request")).toEqual([]);
+      const next = await admit(
+        h,
+        makePrepared({
+          botName: "Inbox",
+          placement: { path: "/work", projectRoot: null },
+        }),
+        { requestId: "next-workspace-request" },
+      );
+      await h.coordinator.startPrepared(next.id);
+      const created = await h.coordinator.waitForCreation(next.id, { timeoutMs: 5_000 });
+      expect(created.status).toBe("created");
+      expect(created.run.agentCreationStatus).toBe("created");
+      expect(
+        daemon.sent.filter((frame) => frame.type === "agent.create.request").map((frame) => frame.agentId),
+      ).toEqual([next.agentId]);
+      const reopened = await new RunStore(h.store.path).get(run.id);
+      expect(reopened?.taskOutcome).toBe("unknown");
+      expect(reopened?.agentCreationStatus).toBe("not_created");
+    } finally {
+      await daemon.close();
+    }
+  });
+
   it("bounds a wait for a queued UUID without reporting it as host-created", async () => {
     const h = await harness({}, false);
     const plan = makePrepared();
@@ -329,7 +446,11 @@ describe("creation evidence boundary", () => {
     const receipt = await h.coordinator.waitForCreation(run.id, { timeoutMs: 5_000 });
     expect(receipt.status).toBe("not_created");
     const failed = defined(await h.coordinator.get(run.id));
-    expect([failed.executionStatus, failed.taskOutcome]).toEqual(["failed", "no_change"]);
+    expect([failed.executionStatus, failed.taskOutcome, failed.agentCreationStatus]).toEqual([
+      "failed",
+      "unknown",
+      "not_created",
+    ]);
     expect(failed.managed?.reservation).toBe(false);
     expect(h.launches).toHaveLength(1);
     await h.coordinator.pump();

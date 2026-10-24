@@ -15,7 +15,9 @@ export function expireBeforeLaunch(run: RoutineRun, now: number): boolean {
   if (now < deadlineOf(run)) return false;
   if (run.executionStatus !== "queued" && run.executionStatus !== "reserved") return false;
   run.executionStatus = "canceled";
-  run.taskOutcome = "no_change";
+  run.taskOutcome = "unknown";
+  if (run.agentCreationStatus !== "created" && run.managed?.hostCreatedAt === undefined)
+    run.agentCreationStatus = "not_created";
   run.error = "Execution deadline expired before launch; no new agent was started.";
   run.endedAt = new Date(now).toISOString();
   if (run.managed) {

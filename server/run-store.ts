@@ -121,6 +121,13 @@ function readRun(routineId: string, raw: unknown, dropped: string[], migrateEpoc
     return [];
   }
   const run = parsed.data;
+  // Dispatch failure and skipped work never establish a verified deterministic no-work decision.
+  if (run.taskOutcome === "no_change")
+    return [
+      run.executionStatus === "completed" && run.verification
+        ? run
+        : { ...run, taskOutcome: "unknown", verification: null },
+    ];
   return [runStateIssue(run) ? { ...run, taskOutcome: "unknown", verification: null } : run];
 }
 
@@ -226,8 +233,9 @@ function readCoordinator(
   const managed = typeof saved.version === "number" && saved.version >= MANAGED_VERSION;
   if (managed && (!parsed.success || dropped.length > 0))
     throw new UnsafeRunHistoryError("unreadable coordinator state or managed execution");
-  const coordinator =
-    managed && parsed.success ? parsed.data : CoordinatorStateSchema.parse({ occurrences: {}, circuits: {} });
+  const coordinator = parsed.success
+    ? parsed.data
+    : CoordinatorStateSchema.parse({ occurrences: {}, circuits: {} });
   for (const record of Object.values(routines))
     for (const run of record.runs) coordinator.occurrences[run.occurrenceKey] ??= run.id;
   return coordinator;
