@@ -36,7 +36,7 @@
     "semantic-release": "^25.0.9",
     "typescript": "^5.9.3",
     "vitest": "^5.0.3",
-    "zod": "^4.4.3"
+    "zod": "4.6.6"
   },
   "description": "Personal bots for Paseo: instructions, a model, memory, routines, teams, skills, MCP tools and connected apps.",
   "license": "MIT",
