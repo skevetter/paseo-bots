@@ -1,6 +1,7 @@
 import type { PluginLifecycleEvents, PluginServerContext } from "@getpaseo/plugin/server";
 import { turnEnded, turnStarted } from "./server/activity";
 import { hostProviders, newBotStart } from "./server/apply-context";
+import { registerAutomations } from "./server/automations";
 import { ensureBotHome, ensureBotsHome, migrateRenamedPluginData } from "./server/bot-home";
 import { CommandAllowlist } from "./server/commands";
 import {
@@ -40,6 +41,7 @@ import {
 } from "./server/proposals";
 import { Relay } from "./server/relay";
 import { routineRunResponse, routineStatusResponse } from "./server/routine-responses";
+import { previewSchedule } from "./server/schedule-preview";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
 import { BotStore } from "./server/state";
@@ -111,6 +113,7 @@ import {
   systemPromptRpc,
   uploadRpc,
 } from "./shared/rpc";
+import { routinePreviewScheduleRpc } from "./shared/schedule-preview";
 import { PLUGIN_VERSION } from "./shared/version";
 
 interface ChatEventServices {
@@ -412,12 +415,14 @@ export default function contribute(server: PluginServerContext) {
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
   server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id, store) }));
+  server.handle(routinePreviewScheduleRpc, (input) => previewSchedule(input));
   server.handle(routineStatusRpc, async (_input, context) => {
     host.attach(context.paseo);
     return routineStatusResponse(await scheduler.status());
   });
   handleRuns(server, host, scheduler);
   registerLocalStarts(server, host, starts);
+  registerAutomations(server, host, scheduler);
   server.handle(routineRunNowRpc, async ({ botId, routineId, requestId }, context) => {
     host.attach(context.paseo);
     const { run } = await scheduler.runNow(botId, routineId, requestId);

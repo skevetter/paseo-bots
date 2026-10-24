@@ -85,9 +85,9 @@ backend does not sum cumulative host usage snapshots.
 
 ## Rollback
 
-Stop the daemon and preserve `state.json` before downgrading. Envelope version 3 is refused by version-2 and
+Stop the daemon and preserve `state.json` before downgrading. Envelope version 4 is refused by version-3 and
 older plugins, which never read it. There is no automatic downgrade that preserves replay/revert history.
 Restore a pre-upgrade whole-state backup only if intentionally discarding subsequent changes; never restore it
-over a running daemon. For rollback to envelope version 1 or 2, use the `state.json.v1.bak` or
-`state.json.v2.bak` procedure in `policies.md`; that also discards newer changes. Active external work is not
+over a running daemon. Restore the appropriate `state.json.v1.bak`, `.v2.bak` or `.v3.bak` using the digest
+procedure in `policies.md`; that also discards newer changes. Active external work is not
 canceled by a rollback and must not be restarted merely because its state is uncertain.

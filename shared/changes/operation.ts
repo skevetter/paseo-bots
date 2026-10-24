@@ -62,6 +62,7 @@ export interface OperationChange {
   notes?: readonly string[];
   skill?: SkillPublication;
   fleet?: ApplicationReceipt["fleet"];
+  automations?: ApplicationReceipt["automations"];
 }
 
 export function assertOperationCapacity(values: BotState): void {
@@ -130,6 +131,7 @@ export function applyOperation(
     notes: [...(done.notes ?? [])],
     ...(done.skill ? { skill: done.skill } : {}),
     ...(done.fleet ? { fleet: done.fleet } : {}),
+    ...(done.automations ? { automations: done.automations } : {}),
   };
   return {
     status: "applied",

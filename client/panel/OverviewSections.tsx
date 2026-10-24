@@ -168,7 +168,7 @@ function SummarySheet({
                 ? bot.routines
                     .map(
                       (routine) =>
-                        `${routine.name}: ${describeSchedule(routine.schedule)}${routine.enabled ? "" : " (paused)"}`,
+                        `${routine.name}: ${describeSchedule(routine.schedule, routine.schedulePolicy)}${routine.enabled ? "" : " (paused)"}`,
                     )
                     .join("\n")
                 : "Only when you message it"

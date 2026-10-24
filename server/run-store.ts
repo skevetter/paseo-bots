@@ -42,8 +42,10 @@ export type { RunHistoryFilter, RunHistoryPage } from "./run-history-index";
 // The only reader and writer of routines.json. Writes are serialized, replace the file atomically, and
 // save only over the revision they were made from, like state.ts does for bots.
 
-const VERSION = 3;
+const VERSION = 4;
 const MANAGED_VERSION = 2;
+/** From this version on, session epochs and admission order are already numeric; older versions migrate to them. */
+const NUMERIC_EPOCH_VERSION = 3;
 /** Unprotected terminal rows in the old-client display projection, never an evidence-retention cap. */
 export const KEEP_RUNS = 30;
 /** Where runs saved before the store had a version are kept, once, so an older plugin can be put back. */
@@ -146,7 +148,9 @@ function readRecord(
       lastRunAt,
       // Managed records refused null slots above; a legacy slot carries no identity, so it is simply empty.
       runs: entry.runs.flatMap((run) =>
-        run === null ? [] : readRun(routineId, run, dropped, version !== VERSION),
+        run === null
+          ? []
+          : readRun(routineId, run, dropped, version === null || version < NUMERIC_EPOCH_VERSION),
       ),
     };
   if (!lastRunAt) return emptyRecord();
@@ -205,7 +209,10 @@ function parse(raw: string, strictClaims = false): Loaded | UnsupportedVersion {
   const versioned = typeof saved.version === "number";
   // This is readable data from another version, not corruption. Let load refuse it outside readParsed's
   // corruption recovery so a downgrade can't move it away and silently create an empty history.
-  if (typeof saved.version === "number" && ![0, 1, MANAGED_VERSION, VERSION].includes(saved.version))
+  if (
+    typeof saved.version === "number" &&
+    ![0, 1, MANAGED_VERSION, NUMERIC_EPOCH_VERSION, VERSION].includes(saved.version)
+  )
     return { unsupportedVersion: saved.version };
   const entries = versioned ? saved.routines : saved;
   if (!isObject(entries)) {
@@ -219,7 +226,8 @@ function parse(raw: string, strictClaims = false): Loaded | UnsupportedVersion {
   );
   const coordinator = readCoordinator(saved, dropped, routines);
   validateClaimRead(dropped, strictClaims);
-  normalizeAdmissionOrder(routines, coordinator, saved.version !== VERSION);
+  const numericEpochs = typeof saved.version === "number" && saved.version >= NUMERIC_EPOCH_VERSION;
+  normalizeAdmissionOrder(routines, coordinator, !numericEpochs);
   return {
     raw,
     sealed: false,
@@ -295,6 +303,8 @@ function normalizeAdmissionOrder(
 /** Append to authoritative evidence; displayRecords is the only bounded projection. */
 export function appendRun(record: RoutineRecord, run: RoutineRun): void {
   record.runs.push(run);
+  if (run.trigger === "schedule" && (!record.lastRunAt || run.scheduledFor > record.lastRunAt))
+    record.lastRunAt = run.scheduledFor;
 }
 
 /** Old-client status stays small without deleting detailed history or protected evidence. */
@@ -437,7 +447,7 @@ export class RunStore {
   }
 
   private async addBackupClaims(path: string, ids: Set<string>): Promise<void> {
-    for (const suffix of [BACKUP_SUFFIX, ".v1.bak", ".v2.bak"]) {
+    for (const suffix of [BACKUP_SUFFIX, ".v1.bak", ".v2.bak", ".v3.bak"]) {
       const backup = await readHistoryText(`${path}${suffix}`);
       if (backup !== null) for (const id of this.decodeClaimIds(backup)) ids.add(id);
     }

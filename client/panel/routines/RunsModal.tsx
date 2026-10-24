@@ -1,5 +1,7 @@
 import { Modal } from "@getpaseo/plugin/client/react-native";
 import { SettingsCard, SettingsRow, SettingsSection } from "@getpaseo/plugin/client/ui";
+import { describeSchedule } from "../../../shared/routines";
+import { hasCreationProof } from "../../../shared/run-details";
 import type { PanelProps } from "../BotPanel";
 import { CardNote, DrillRow } from "../rows";
 import { type RecentRun, runHint, runTime, UPCOMING_DAYS, type UpcomingRun } from "./runs";
@@ -18,7 +20,7 @@ function RecentRunRow({
   onOpenChat(agentId: string): void;
 }) {
   const hint = runHint(entry, now);
-  const agentId = entry.agentCreationStatus === "created" ? entry.agentId : null;
+  const agentId = hasCreationProof(entry) ? entry.agentId : null;
   return agentId ? (
     <DrillRow
       colors={colors}
@@ -52,7 +54,7 @@ export function RunsModal({
       <Modal.Content contentContainerStyle={{ gap: 0 }}>
         <SettingsSection
           title="Upcoming"
-          info={`The next runs over the coming ${UPCOMING_DAYS} days, in this host's local time.`}
+          info={`The next runs over ${UPCOMING_DAYS} days, displayed in this device's local time. Each routine's policy controls when it is due.`}
         >
           <SettingsCard>
             {upcoming.length === 0 ? <CardNote colors={colors} text="Nothing scheduled" /> : null}
@@ -60,7 +62,7 @@ export function RunsModal({
               <SettingsRow
                 key={`${routine.id}:${at.getTime()}`}
                 label={runTime(at, now)}
-                hint={routine.name}
+                hint={`${routine.name} · ${describeSchedule(routine.schedule, routine.schedulePolicy)}`}
               />
             ))}
           </SettingsCard>

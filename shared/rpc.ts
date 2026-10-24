@@ -28,6 +28,7 @@ import {
   PurposeSchema,
   RunIdSchema,
   runStateIssue,
+  ScheduleRecoveryReceiptSchema,
   SessionEpochSchema,
   SkippedSchema,
   TaskOutcomeSchema,
@@ -332,6 +333,8 @@ export const RoutineRunShape = z.object({
   /** The start of the bot's reply once the run finished. */
   output: z.string().nullable(),
   error: z.string().nullable(),
+  /** Present only on runs that record a suppressed schedule recovery; absent on older rows. */
+  recovery: ScheduleRecoveryReceiptSchema.optional(),
   managed: ManagedRunSchema.optional(),
 });
 export const RoutineRunSchema = RoutineRunShape.superRefine((run, context) => {

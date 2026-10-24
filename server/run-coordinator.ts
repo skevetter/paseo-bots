@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { Bot, BotState, Routine } from "../shared/bot";
 import type { CreationEvidence, PreparedBotChat, PreparedChatMetadata } from "../shared/chat";
-import { PreparedLaunchNotCreatedError } from "../shared/chat";
+import { PreparedLaunchNotCreatedError, ROUTINE_LABEL } from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import { EXECUTION_LABEL, type HostReadiness, OCCURRENCE_LABEL, RUN_LABEL } from "../shared/managed-runs";
 import type { RoutineRecord, RoutineRun } from "../shared/rpc";
@@ -12,9 +12,15 @@ import {
   newExecutionId,
   type Purpose,
   providerTurnId,
+  ScheduleRecoveryReceiptSchema,
   SessionEpochSchema,
   type Trigger,
 } from "../shared/runs";
+import {
+  type RecoverySummary,
+  type ScheduleRecoveryPlan,
+  scheduleNotBefore,
+} from "../shared/schedule-recovery";
 import { newUuid } from "../shared/uuid";
 import { PLUGIN_VERSION } from "../shared/version";
 import { launchPreparedChat, prepareChat, refreshPreparedChat } from "./chats";
@@ -79,6 +85,7 @@ export interface Admission {
   requestHash?: string;
   deferLaunch?: boolean;
   deadlineAt?: number;
+  notBefore?: number;
 }
 export interface PreparedAdmission {
   routineId?: string;
@@ -92,7 +99,17 @@ export interface PreparedAdmission {
   requestHash?: string;
   deferLaunch?: boolean;
   deadlineAt?: number;
+  notBefore?: number;
 }
+export interface ScheduledAdmission {
+  bot: Bot;
+  state: BotState;
+  routine: Routine;
+}
+type ScheduledStage =
+  | { kind: "existing"; input: Admission; run: RoutineRun }
+  | { kind: "rejected"; input: Admission; run: RoutineRun; error: string }
+  | { kind: "prepared"; input: Admission; run: RoutineRun; prepared: PreparedBotChat };
 export interface CoordinatorOptions {
   store?: RunStore;
   now?: () => number;
@@ -273,28 +290,9 @@ export class RunCoordinator {
     if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
       return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
     this.host.requirePaseo();
-    const agentId = newUuid();
     let prepared: PreparedBotChat;
     try {
-      prepared = await this.calls.run(
-        () =>
-          (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
-            agentId,
-            idempotencyKey: identity.executionId,
-            prompt: input.prompt,
-            title: input.title,
-            routineId: input.routine?.id,
-            purpose: input.purpose,
-            state: input.state,
-            labels: {
-              ...input.labels,
-              [RUN_LABEL]: identity.id,
-              [EXECUTION_LABEL]: identity.executionId,
-              [OCCURRENCE_LABEL]: key,
-            },
-          }),
-        "Managed preparation",
-      );
+      prepared = await this.prepareAdmission(input, identity);
     } catch (error) {
       return this.rejectAdmission(input, identity, errorText(error));
     }
@@ -309,6 +307,162 @@ export class RunCoordinator {
       },
       identity,
     );
+  }
+
+  private prepareAdmission(input: Admission, identity: RoutineRun): Promise<PreparedBotChat> {
+    return this.calls.run(
+      () =>
+        (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
+          agentId: newUuid(),
+          idempotencyKey: identity.executionId,
+          prompt: input.prompt,
+          title: input.title,
+          routineId: input.routine?.id,
+          purpose: input.purpose,
+          state: input.state,
+          labels: {
+            ...input.labels,
+            [RUN_LABEL]: identity.id,
+            [EXECUTION_LABEL]: identity.executionId,
+            [OCCURRENCE_LABEL]: identity.occurrenceKey,
+          },
+        }),
+      "Managed preparation",
+    );
+  }
+
+  /** Every selected intent and suppression reaches one snapshot before any selected host create. */
+  async admitSchedule(target: ScheduledAdmission, plan: ScheduleRecoveryPlan): Promise<RoutineRun[]> {
+    if (!plan.plannedThrough) return [];
+    const captured = this.captureAdmission(this.scheduledInput(target, plan.plannedThrough), "");
+    if (!captured.routine) throw new Error("Scheduled admission requires its captured routine.");
+    target = { state: captured.state, bot: captured.bot, routine: captured.routine };
+    const saved = await this.serial(() => this.store.read());
+    if (plan.runs.length) this.host.requirePaseo();
+    const staged: ScheduledStage[] = [];
+    for (const due of plan.runs)
+      staged.push(await this.stageScheduled(this.scheduledInput(target, due), saved));
+    const admitted = await this.serial(() => this.commitScheduled(target.routine, staged, plan.summaries));
+    await this.recovery;
+    await this.pump();
+    const current = await this.store.read();
+    return admitted.map((run) => copy(lookup(current, run.id) ?? run));
+  }
+
+  private scheduledInput(target: ScheduledAdmission, due: Date): Admission {
+    const seconds = target.routine.runtime?.deadlineSeconds;
+    return {
+      ...target,
+      trigger: "schedule",
+      due,
+      requestId: "schedule",
+      prompt: target.routine.prompt,
+      title: target.routine.name,
+      labels: { [ROUTINE_LABEL]: target.routine.id },
+      resourceIds: target.routine.runtime?.resourceIds,
+      overlap: target.routine.runtime?.overlap,
+      deadlineAt: seconds === undefined ? undefined : due.getTime() + seconds * 1000,
+      notBefore: scheduleNotBefore(target.routine, due),
+    };
+  }
+
+  private async stageScheduled(input: Admission, saved: RunSnapshot): Promise<ScheduledStage> {
+    const request = this.admissionRequest(input);
+    input = { ...input, requestHash: request.requestHash };
+    const key = requestKey(request);
+    const existing = existingRequest(saved, key, request.requestHash);
+    if (existing) return { kind: "existing", input, run: copy(existing) };
+    const run = admitRun({
+      routineId: input.routine?.id ?? `chat:${input.bot.id}`,
+      trigger: "schedule",
+      due: input.due,
+      now: new Date(this.now()),
+      epoch: SessionEpochSchema.parse(1),
+    });
+    run.occurrenceKey = key;
+    try {
+      this.validateDeadline(input.deadlineAt);
+      if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
+        return { kind: "rejected", input, run, error: "Execution deadline expired before preparation." };
+      return { kind: "prepared", input, run, prepared: await this.prepareAdmission(input, run) };
+    } catch (error) {
+      return { kind: "rejected", input, run, error: errorText(error) };
+    }
+  }
+
+  private async commitScheduled(
+    routine: Routine,
+    staged: ScheduledStage[],
+    summaries: RecoverySummary[],
+  ): Promise<RoutineRun[]> {
+    await this.store.initialize();
+    for (const stage of staged) {
+      if (stage.kind !== "prepared") continue;
+      const input = { ...stage.input, routineId: routine.id, capacity: routine.runtime?.capacity };
+      await this.validatePreparedMode(stage.prepared, input);
+      const frozen = this.freezePrepared(stage.prepared, stage.run);
+      const artifact = await this.artifacts.put({ prepared: frozen, capacity: input.capacity ?? {} });
+      this.initialize(stage.run, frozen, input, artifact);
+    }
+    return this.store.updateState((state) => {
+      const admitted = summaries.map((summary) => this.suppressScheduled(state, routine.id, summary));
+      for (const stage of staged) admitted.push(this.commitScheduledStage(state, routine.id, stage));
+      return admitted;
+    });
+  }
+
+  private commitScheduledStage(state: RunSnapshot, routineId: string, stage: ScheduledStage): RoutineRun {
+    const request = this.admissionRequest(stage.input);
+    const prior = existingRequest(state, stage.run.occurrenceKey, request.requestHash);
+    if (prior) return copy(prior);
+    if (stage.kind === "rejected")
+      return this.recordRejection(state, stage.run, { input: stage.input, error: stage.error });
+    if (stage.kind === "existing") throw new Error("The scheduled replay lost its authoritative receipt.");
+    this.validateAgentOwnership(state, stage.prepared.agentId);
+    this.recordAdmission(state, routineId, stage.run);
+    return copy(stage.run);
+  }
+
+  recordRecovery(routineId: string, summary: RecoverySummary): Promise<RoutineRun> {
+    return this.serial(() =>
+      this.store.updateState((state) => this.suppressScheduled(state, routineId, summary)),
+    );
+  }
+
+  private suppressScheduled(state: RunSnapshot, routineId: string, summary: RecoverySummary): RoutineRun {
+    const now = new Date(this.now());
+    const run = admitRun({
+      routineId,
+      trigger: "schedule",
+      due: summary.due,
+      now,
+      epoch: SessionEpochSchema.parse(0),
+    });
+    const priorId = state.coordinator.occurrences[run.occurrenceKey];
+    if (priorId) {
+      const prior = lookup(state, priorId);
+      if (!prior) throw new Error("The suppressed occurrence lost its authoritative receipt.");
+      return copy(prior);
+    }
+    Object.assign(run, {
+      executionStatus: "canceled",
+      taskOutcome: "unknown",
+      agentCreationStatus: "not_created",
+      skipped: "missed",
+      endedAt: now.toISOString(),
+      recovery: ScheduleRecoveryReceiptSchema.parse({
+        reason: summary.reason,
+        count: summary.count,
+        firstDue: summary.firstDue?.toISOString() ?? null,
+        plannedThrough: summary.through.toISOString(),
+        into: summary.into?.toISOString() ?? null,
+      }),
+    });
+    const record = state.routines[routineId] ?? emptyRecord();
+    appendRun(record, run);
+    state.routines[routineId] = record;
+    state.coordinator.occurrences[run.occurrenceKey] = run.id;
+    return copy(run);
   }
 
   private captureAdmission(input: Admission, requestHash: string): Admission {
@@ -346,7 +500,6 @@ export class RunCoordinator {
     run.endedAt = new Date(this.now()).toISOString();
     const id = input.routine?.id ?? `chat:${input.bot.id}`;
     const record = state.routines[id] ?? emptyRecord();
-    if (run.trigger === "schedule") record.lastRunAt = run.scheduledFor;
     appendRun(record, run);
     state.routines[id] = record;
     rememberRequest(state, request, run);
@@ -375,6 +528,7 @@ export class RunCoordinator {
           overlap: input.overlap,
           deferLaunch: input.deferLaunch,
           deadlineAt: input.deadlineAt,
+          notBefore: input.notBefore,
         }),
     };
   }
@@ -414,6 +568,7 @@ export class RunCoordinator {
           overlap: input.overlap,
           deferLaunch: input.deferLaunch,
           deadlineAt: input.deadlineAt,
+          notBefore: input.notBefore,
         }),
     };
     const admitted = await this.serial(async () => {
@@ -514,7 +669,7 @@ export class RunCoordinator {
       overlap: input.overlap ?? "skip",
       reservation: false,
       overlapLimit: input.overlap === undefined && input.trigger === "webhook" ? 3 : 1,
-      notBefore: this.now(),
+      notBefore: input.notBefore ?? this.now(),
       attempts: [],
       timeline: null,
       creation: null,
@@ -557,7 +712,6 @@ export class RunCoordinator {
     if (decision === "skip" || decision === "coalesce") {
       this.recordBusy(run, decision === "coalesce" ? queued : undefined);
     }
-    if (run.trigger === "schedule") record.lastRunAt = run.scheduledFor;
     managed.admissionOrder = ++state.coordinator.admissionOrder;
     managed.admittedAt = this.now();
     rememberRequest(
@@ -620,7 +774,6 @@ export class RunCoordinator {
         run.skipped = "missed";
         run.endedAt = now.toISOString();
         const record = state.routines[routineId] ?? emptyRecord();
-        record.lastRunAt = due.toISOString();
         appendRun(record, run);
         state.routines[routineId] = record;
         state.coordinator.occurrences[run.occurrenceKey] = run.id;
@@ -697,7 +850,6 @@ export class RunCoordinator {
         const record = state.routines[input.routineId] ?? emptyRecord();
         initialize?.(record, run);
         if (run.agentId) this.validateAgentOwnership(state, run.agentId);
-        if (input.trigger === "schedule") record.lastRunAt = run.scheduledFor;
         appendRun(record, run);
         state.routines[input.routineId] = record;
         rememberRequest(state, input, run);

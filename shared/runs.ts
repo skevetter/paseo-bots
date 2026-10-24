@@ -140,6 +140,18 @@ export type TaskOutcome = z.infer<typeof TaskOutcomeSchema>;
 export const VerificationSchema = z.object({ verifier: VerifierRefSchema, at: z.string() });
 export type Verification = z.infer<typeof VerificationSchema>;
 
+/** Typed facts for suppressed scheduled occurrences; absent on runs that were not recovery receipts. */
+export const ScheduleRecoveryReceiptSchema = z
+  .object({
+    reason: z.enum(["outside_window", "recovery_limit", "coalesced"]),
+    count: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).nullable(),
+    firstDue: z.iso.datetime().nullable(),
+    plannedThrough: z.iso.datetime(),
+    into: z.iso.datetime().nullable(),
+  })
+  .strict();
+export type ScheduleRecoveryReceipt = z.infer<typeof ScheduleRecoveryReceiptSchema>;
+
 export interface RunState {
   executionStatus: ExecutionStatus;
   taskOutcome: TaskOutcome;

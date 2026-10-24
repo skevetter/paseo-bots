@@ -94,7 +94,7 @@ describe("run history saved before outcomes existed", () => {
     });
 
     const saved = JSON.parse(await readFile(store.path, "utf8"));
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     expect(saved.routines["rt-runs"].runs).toHaveLength(6);
     expect(await readFile(`${store.path}.pre-run-store`, "utf8")).toBe(original);
 
@@ -247,15 +247,15 @@ describe("a broken run history file", () => {
   });
 
   it("refuses future history on every read and write without moving it away or running a change", async () => {
-    const future = JSON.stringify({ version: 4, routines: {}, occurrences: [{ key: "x" }] });
+    const future = JSON.stringify({ version: 5, routines: {}, occurrences: [{ key: "x" }] });
     const store = await storeFrom(future);
     const change = vi.fn();
-    await expect(store.read()).rejects.toThrow("Unsupported routine history version 4");
+    await expect(store.read()).rejects.toThrow("Unsupported routine history version 5");
     await expect(store.read()).rejects.toThrow("file left unchanged");
-    await expect(store.update(change)).rejects.toThrow("Unsupported routine history version 4");
-    await expect(store.write("missing", {})).rejects.toThrow("Unsupported routine history version 4");
+    await expect(store.update(change)).rejects.toThrow("Unsupported routine history version 5");
+    await expect(store.write("missing", {})).rejects.toThrow("Unsupported routine history version 5");
     await expect(new RunStore(store.path).update(change)).rejects.toThrow(
-      "Unsupported routine history version 4",
+      "Unsupported routine history version 5",
     );
     expect(change).not.toHaveBeenCalled();
     expect(await readFile(store.path, "utf8")).toBe(future);

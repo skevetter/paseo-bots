@@ -10,6 +10,9 @@ import {
   DraftConflictError,
   stageDrafts,
 } from "../client/bot-drafts";
+import { applyAutomationChange, previewAutomationChange } from "../server/automation-changes";
+import { automationTargets } from "../server/automation-targets";
+import { BotsHost } from "../server/host";
 import { BotStore } from "../server/state";
 import type { Bot } from "../shared/bot";
 import { defined, makeBot, NOW } from "./helpers";
@@ -42,24 +45,21 @@ async function fixture() {
       }),
     ],
   }));
-  return { store, base: defined((await store.read()).values.bots[0]) };
+  return { store, host: new BotsHost(store), base: defined((await store.read()).values.bots[0]) };
 }
 
-// An atomic remote pause: disables every routine and records a receipt in the same write.
-async function pause(store: BotStore) {
-  const result = await store.apply(
-    { id: "pause-before-delayed-draft", kind: "routine.pause", bodyHash: "pause-all", at: NOW },
-    (values) => ({
-      values: {
-        ...values,
-        bots: values.bots.map((bot) => ({
-          ...bot,
-          routines: bot.routines.map((routine) => ({ ...routine, enabled: false })),
-        })),
-      },
-    }),
-  );
-  if (result.status !== "applied") throw new Error(`Unexpected pause status: ${result.status}`);
+async function pause(host: BotsHost, store: BotStore) {
+  const snapshot = await store.read();
+  const request = {
+    operationId: "pause-before-delayed-draft",
+    revision: snapshot.revision,
+    targetIds: [...automationTargets(snapshot.values).keys()],
+    enabled: false,
+  };
+  const shown = await previewAutomationChange(host, request);
+  if (shown.status !== "previewed") throw new Error(shown.error);
+  const result = await applyAutomationChange(host, { request, previewDigest: shown.preview.digest });
+  if (result.status !== "applied") throw new Error(JSON.stringify(result));
   return result.receipt;
 }
 
@@ -72,13 +72,14 @@ async function persist(store: BotStore, pending: BotDrafts) {
 
 describe("pending bot edits over atomic routine changes", () => {
   it("saves an unrelated title without undoing an acknowledged pause or its receipt", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const pending = { [base.id]: captureDraft(base, { title: "local title" }) };
     const stale = await store.read();
     const outgoing = applyDrafts(stale.values, pending);
-    const receipt = await pause(store);
+    const receipt = await pause(host, store);
     expect((await store.write(stale.revision, outgoing)).status).toBe("conflict");
-    const saved = await persist(store, pending);
+    const fresh = await store.read();
+    const saved = await store.write(fresh.revision, applyDrafts(fresh.values, pending));
     expect(saved.status).toBe("saved");
     const after = await store.read();
     const bot = defined(after.values.bots[0]);
@@ -101,7 +102,7 @@ describe("conservative field rebasing", () => {
       conflict: { kind: "changed", fields: ["title"] },
     });
     expect(await store.read()).toEqual(before);
-    expect(defined(pending[base.id]).value.title).toBe("local title");
+    expect(pending[base.id]?.value.title).toBe("local title");
   });
 
   it.each([
@@ -134,13 +135,13 @@ describe("conservative field rebasing", () => {
   );
 
   it("refuses a whole-array routine edit after pause rather than mixing old enabled booleans", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const pending = {
       [base.id]: captureDraft(base, {
         routines: base.routines.map((routine) => ({ ...routine, name: "local rename" })),
       }),
     };
-    const receipt = await pause(store);
+    const receipt = await pause(host, store);
     const before = await store.read();
     await expect(persist(store, pending)).rejects.toBeInstanceOf(DraftConflictError);
     expect(await store.read()).toEqual(before);
@@ -191,7 +192,7 @@ describe("conservative field rebasing", () => {
 
 describe("own autosave acknowledgements with later keystrokes", () => {
   it("advances V2 onto the real V1 acknowledgement without reverting an intervening pause", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
     const current = stageDrafts(
       captured,
@@ -199,7 +200,7 @@ describe("own autosave acknowledgements with later keystrokes", () => {
       { title: "V2" },
       { recordHistory: true, inFlight: captured[base.id] },
     );
-    const receipt = await pause(store);
+    const receipt = await pause(host, store);
     const savedV1 = await persist(store, captured);
     const remaining = acknowledgeDrafts(current, captured, savedV1.values).drafts;
     expect(defined(remaining[base.id]).base.title).toBe("V1");
@@ -216,7 +217,7 @@ describe("own autosave acknowledgements with later keystrokes", () => {
   });
 
   it("retains an explicit return to the original title while V1 is saving", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
     const current = stageDrafts(
       captured,
@@ -225,7 +226,7 @@ describe("own autosave acknowledgements with later keystrokes", () => {
       { recordHistory: true, inFlight: captured[base.id] },
     );
     expect(defined(current[base.id]).value.title).toBe(base.title);
-    const receipt = await pause(store);
+    const receipt = await pause(host, store);
     const savedV1 = await persist(store, captured);
     const remaining = acknowledgeDrafts(current, captured, savedV1.values).drafts;
     const savedV2 = await persist(store, remaining);
@@ -238,7 +239,7 @@ describe("own autosave acknowledgements with later keystrokes", () => {
 
 describe("remote changes incorporated by an earlier autosave acknowledgement", () => {
   it("retains a V2 routine-array conflict after V1 rebases over an atomic pause", async () => {
-    const { store, base } = await fixture();
+    const { host, store, base } = await fixture();
     const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
     const stale = await store.read();
     const outgoing = applyDrafts(stale.values, captured);
@@ -250,7 +251,7 @@ describe("remote changes incorporated by an earlier autosave acknowledgement", (
       },
       { recordHistory: true, inFlight: captured[base.id] },
     );
-    const receipt = await pause(store);
+    const receipt = await pause(host, store);
     expect((await store.write(stale.revision, outgoing)).status).toBe("conflict");
     const savedV1 = await persist(store, captured);
     expect(defined(savedV1.values.bots[0]).title).toBe("V1");
@@ -264,7 +265,7 @@ describe("remote changes incorporated by an earlier autosave acknowledgement", (
     expect(await store.read()).toEqual(before);
     expect(before.values.receipts).toEqual([receipt]);
     expect(defined(defined(remaining[base.id]).value.routines[0]).name).toBe("V2 routine name");
-    // Explicit review starts a new draft from the actual saved bot, not the conflicted V2.
+    // Explicit discard/review starts a new draft from the actual saved bot, not the conflicted V2.
     const reviewed = defined(before.values.bots[0]);
     const recovered = stageDrafts(
       {},
@@ -281,4 +282,38 @@ describe("remote changes incorporated by an earlier autosave acknowledgement", (
     });
     expect(savedAfterReview.values.receipts).toEqual([receipt]);
   });
+
+  it.each([
+    { local: { model: "V2-model" }, remote: { provider: "remote-provider" }, fields: ["model", "provider"] },
+    {
+      local: { alwaysAllow: ["server/tool"] },
+      remote: { modeId: "remote-mode" },
+      fields: ["alwaysAllow", "modeId"],
+    },
+  ] satisfies { local: Partial<Bot>; remote: Partial<Bot>; fields: string[] }[])(
+    "retains V2 execution dependency conflicts incorporated by V1: $fields",
+    async ({ local, remote, fields }) => {
+      const { store, base } = await fixture();
+      const captured = stageDrafts({}, base, { title: "V1" }, { recordHistory: true });
+      const current = stageDrafts(captured, base, local, {
+        recordHistory: true,
+        inFlight: captured[base.id],
+      });
+      await store.update((values) => ({
+        ...values,
+        bots: values.bots.map((bot) => ({ ...bot, ...remote })),
+      }));
+      const savedV1 = await persist(store, captured);
+      expect(defined(savedV1.values.bots[0])).toMatchObject({ title: "V1", ...remote });
+      const acknowledgement = acknowledgeDrafts(current, captured, savedV1.values);
+      const remaining = acknowledgement.drafts;
+      expect(defined(acknowledgement.conflicts[base.id]).fields).toEqual(expect.arrayContaining(fields));
+      const before = await store.read();
+      await expect(persist(store, remaining)).rejects.toMatchObject({
+        conflict: { fields: expect.arrayContaining(fields) },
+      });
+      expect(await store.read()).toEqual(before);
+      expect(defined(remaining[base.id]).value).toMatchObject(local);
+    },
+  );
 });

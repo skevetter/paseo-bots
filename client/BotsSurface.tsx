@@ -11,6 +11,7 @@ import type { PolicyState } from "../shared/policies";
 import { ensureBotHomeRpc } from "../shared/rpc";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
+import { AutomationsPage } from "./automations/AutomationsPage";
 import { autoStarter, withoutStart } from "./autoStart";
 import { ExportDialog, NewBotDialog, RenameDialog } from "./BotDialogs";
 import { BotSidebar } from "./BotSidebar";
@@ -19,6 +20,7 @@ import {
   createBot,
   deleteTeam,
   importBots,
+  openAutomations,
   openBotMenu,
   openBotMenuFromPane,
   openChatMenu,
@@ -158,9 +160,11 @@ function renderSidebar(ctx: SurfaceContext): ReactElement {
       onEditTeam={ctx.setEditingTeam}
       onTeamMap={() => {
         ctx.setFleet(false);
+        ctx.setAutomations(null);
         ctx.setTeamMap(true);
       }}
       onFleet={() => void openFleet(ctx)}
+      onAutomations={() => openAutomations(ctx)}
     />
   );
 }
@@ -221,17 +225,39 @@ function draftRecoveryProps(ctx: SurfaceContext): DraftRecoveryProps {
   };
 }
 
+function renderDraftRecovery(ctx: SurfaceContext): ReactElement {
+  return (
+    <View style={{ padding: 24, gap: 12 }}>
+      <DraftRecovery {...draftRecoveryProps(ctx)} />
+      <Button
+        colors={ctx.colors}
+        label="Back to bots"
+        onPress={() => {
+          ctx.setFleet(false);
+          ctx.setAutomations(null);
+        }}
+      />
+    </View>
+  );
+}
+
 function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElement {
   const { selectedBot, selection, layout, panel } = ctx;
   if (ctx.teamMap) return renderTeamMap(ctx);
+  if ((ctx.automations || ctx.fleet) && ctx.hasPendingDrafts()) return renderDraftRecovery(ctx);
+  if (ctx.automations) {
+    return (
+      <AutomationsPage
+        colors={ctx.colors}
+        compact={layout.compact}
+        bots={ctx.allBots}
+        runId={ctx.automations.runId}
+        onRun={(runId) => ctx.setAutomations({ runId })}
+        onClose={() => ctx.setAutomations(null)}
+      />
+    );
+  }
   if (ctx.fleet) {
-    if (ctx.hasPendingDrafts())
-      return (
-        <View style={{ padding: 24, gap: 12 }}>
-          <DraftRecovery {...draftRecoveryProps(ctx)} />
-          <Button colors={ctx.colors} label="Back to bots" onPress={() => ctx.setFleet(false)} />
-        </View>
-      );
     return <FleetPage colors={ctx.colors} compact={layout.compact} onClose={() => ctx.setFleet(false)} />;
   }
   if (!selectedBot || !selection) return <Splash colors={ctx.colors} />;
@@ -264,7 +290,7 @@ function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElem
 
 function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
   const { selectedBot, panel, layout } = ctx;
-  if (ctx.fleet || !selectedBot || !panel.open) return null;
+  if (ctx.fleet || ctx.automations || !selectedBot || !panel.open) return null;
   return (
     <BotPanel
       key={`${selectedBot.id}:${ctx.panelVersion}`}
@@ -327,11 +353,15 @@ function renderCompact(ctx: SurfaceContext, parts: ScreenParts): ReactElement {
     <View ref={ctx.paneRef} collapsable={false} style={{ flex: 1 }}>
       {parts.tabProps ? <TeamTabSwitcher {...parts.tabProps} /> : null}
       {parts.sidebar}
-      {ctx.selection || teamMap || ctx.fleet ? (
+      {ctx.selection || teamMap || ctx.fleet || ctx.automations ? (
         <SlideOver
-          onClose={() =>
-            ctx.fleet ? ctx.setFleet(false) : teamMap ? ctx.setTeamMap(false) : ctx.setSelection(null)
-          }
+          onClose={() => {
+            if (ctx.automations) ctx.setAutomations(null);
+            else if (ctx.fleet) ctx.setFleet(false);
+            else if (teamMap) ctx.setTeamMap(false);
+            else ctx.setSelection(null);
+          }}
+          onBack={() => (ctx.automations ? ctx.goBack() : false)}
         >
           {parts.pane}
         </SlideOver>

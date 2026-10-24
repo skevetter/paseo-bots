@@ -208,81 +208,6 @@ async function complete(h: Harness, run: RoutineRun, turnId: string | null = nul
   });
 }
 
-describe("scheduled deadline representation", () => {
-  it("retains an unsafe deadline as a rejected occurrence instead of wedging its cursor", async () => {
-    const prepare = vi.fn(async () => {
-      throw new Error("Unsafe deadlines must not reach preparation");
-    });
-    const h = await harness({ prepare });
-    const state = await h.host.values();
-    const bot = defined(state.bots[0]);
-    const routine = {
-      id: "rt-unsafe-deadline",
-      name: "Unsafe deadline",
-      prompt: "Do not launch.",
-      enabled: true,
-      resultsChatId: null,
-      createdAt: new Date(START).toISOString(),
-      schedule: { kind: "interval" as const, minutes: 60 },
-      runtime: { deadlineSeconds: Number.MAX_SAFE_INTEGER },
-    };
-    bot.routines.push(routine);
-    const rejected = await h.coordinator.admit({
-      bot,
-      state,
-      routine,
-      trigger: "schedule",
-      due: new Date(START),
-      requestId: "schedule",
-      prompt: routine.prompt,
-      title: routine.name,
-      deadlineAt: START + routine.runtime.deadlineSeconds * 1000,
-    });
-    expect([
-      rejected.executionStatus,
-      rejected.taskOutcome,
-      rejected.agentCreationStatus,
-      rejected.agentId,
-    ]).toEqual(["failed", "unknown", "not_created", null]);
-    expect(prepare).not.toHaveBeenCalled();
-    expect(h.launches).toEqual([]);
-    const record = defined((await h.store.read()).routines[routine.id]);
-    expect(record.lastRunAt).toBe(new Date(START).toISOString());
-    expect(record.runs.map((run) => run.id)).toContain(rejected.id);
-  });
-
-  it("does not consume an occurrence while waiting for the host API to attach", async () => {
-    const h = await harness(
-      {
-        prepare: async (_host, _relay, bot, input) =>
-          makePrepared({
-            botId: bot.id,
-            agentId: defined(input.agentId),
-            idempotencyKey: defined(input.idempotencyKey),
-          }),
-      },
-      false,
-    );
-    const state = await h.host.values();
-    const input = {
-      bot: defined(state.bots[0]),
-      state,
-      trigger: "schedule" as const,
-      due: new Date(START),
-      requestId: "waiting-for-host",
-      prompt: "Do not consume this occurrence before host readiness.",
-      title: "Host readiness",
-    };
-    await expect(h.coordinator.admit(input)).rejects.toBeInstanceOf(Error);
-    expect((await h.store.read()).routines["chat:bot-1"]).toBeUndefined();
-    expect(h.launches).toEqual([]);
-    h.host.attach(h.api);
-    await h.coordinator.recover();
-    const admitted = await h.coordinator.admit(input);
-    expect((await h.coordinator.waitForCreation(admitted.id)).status).toBe("created");
-  });
-});
-
 async function changeCrashWindow(h: Harness, run: RoutineRun, status: "reserved" | "starting" | "running") {
   await h.store.updateState(({ routines }) => {
     const saved = defined(defined(routines["routine-1"]).runs.find((entry) => entry.id === run.id));
@@ -1125,7 +1050,7 @@ describe("opaque occurrence request identity", () => {
 
 describe("coordinator bootstrap failure cleanup", () => {
   it("finishes stop, keeps the bootstrap rejection for callers, and leaves no lock behind", async () => {
-    const future = JSON.stringify({ version: 4, routines: {}, occurrences: ["not-ours-to-reset"] });
+    const future = JSON.stringify({ version: 5, routines: {}, occurrences: ["not-ours-to-reset"] });
     await writeFile(join(directory, "routines.json"), future);
     const h = await harness({}, false);
 
@@ -1147,5 +1072,38 @@ describe("coordinator bootstrap failure cleanup", () => {
     coordinators.splice(coordinators.indexOf(h.coordinator), 1);
 
     expect(await readFile(join(directory, "coordinator.lock"), "utf8")).toBe(foreign);
+  });
+});
+
+describe("host readiness before ordinary managed admission", () => {
+  it("retains the occurrence for the same request after the host API attaches", async () => {
+    const h = await harness(
+      {
+        prepare: async (_host, _relay, bot, input) =>
+          makePrepared({
+            botId: bot.id,
+            agentId: defined(input.agentId),
+            idempotencyKey: defined(input.idempotencyKey),
+          }),
+      },
+      false,
+    );
+    const state = await h.host.values();
+    const input = {
+      bot: defined(state.bots[0]),
+      state,
+      trigger: "schedule" as const,
+      due: new Date(START),
+      requestId: "waiting-for-host",
+      prompt: "Do not consume this occurrence before host readiness.",
+      title: "Host readiness",
+    };
+    await expect(h.coordinator.admit(input)).rejects.toBeInstanceOf(Error);
+    expect((await h.store.read()).routines["chat:bot-1"]).toBeUndefined();
+    expect(h.launches).toEqual([]);
+    h.host.attach(h.api);
+    await h.coordinator.recover();
+    const admitted = await h.coordinator.admit(input);
+    expect((await h.coordinator.waitForCreation(admitted.id)).status).toBe("created");
   });
 });

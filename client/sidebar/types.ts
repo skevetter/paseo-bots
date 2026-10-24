@@ -66,6 +66,7 @@ export interface BotSidebarProps {
   onEditTeam(group: BotGroup): void;
   onTeamMap(): void;
   onFleet(): void;
+  onAutomations(): void;
 }
 
 export type GroupProps = BotSidebarProps & {

@@ -88,6 +88,7 @@ export function select(ctx: SurfaceContext, next: Selection) {
   ctx.setSelection(next);
   ctx.setTeamMap(false);
   ctx.setFleet(false);
+  ctx.setAutomations(null);
   const { openTab, groups } = ctx;
   const tab = openTab && tabOf(next.botId, groups) !== openTab.id ? tabOf(next.botId, groups) : null;
   if (tab || ctx.currentUi().collapsed.includes(next.botId)) {
@@ -109,10 +110,20 @@ export async function openFleet(ctx: SurfaceContext) {
   if (!(await flushBotEdits(ctx))) return;
   ctx.setPanel({ open: false, section: null });
   ctx.setTeamMap(false);
+  ctx.setAutomations(null);
   ctx.setFleet(true);
 }
 
+export async function openAutomations(ctx: SurfaceContext) {
+  if (!(await flushBotEdits(ctx))) return;
+  ctx.setPanel({ open: false, section: null });
+  ctx.setTeamMap(false);
+  ctx.setFleet(false);
+  ctx.setAutomations({ runId: null });
+}
+
 function openPanel(ctx: SurfaceContext, bot: Bot, section: SectionId | null) {
+  ctx.setAutomations(null);
   if (ctx.selection?.botId !== bot.id) select(ctx, { botId: bot.id, chatId: null });
   ctx.setPanel({ open: true, section });
 }
