@@ -257,7 +257,6 @@ export class RunCoordinator {
       return (await this.get(prior.id)) ?? prior;
     }
     input = this.captureAdmission(input, request.requestHash);
-    this.validateDeadline(input.deadlineAt);
     const identity = admitRun({
       routineId: input.routine?.id ?? `chat:${input.bot.id}`,
       trigger: input.trigger,
@@ -266,12 +265,13 @@ export class RunCoordinator {
       epoch: SessionEpochSchema.parse(1),
     });
     identity.occurrenceKey = key;
-    if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
-      return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
-    this.host.requirePaseo();
-    const agentId = newUuid();
     let prepared: PreparedBotChat;
     try {
+      this.validateDeadline(input.deadlineAt);
+      if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
+        return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
+      this.host.requirePaseo();
+      const agentId = newUuid();
       prepared = await this.calls.run(
         () =>
           (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {

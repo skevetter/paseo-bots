@@ -551,3 +551,16 @@ describe("unsealed backup-only history cannot be reset as legacy", () => {
     },
   );
 });
+
+describe("malformed managed run rows fail closed", () => {
+  it("refuses an unsealed v3 history with a malformed managed run row", async () => {
+    const envelope = {
+      version: 3,
+      routines: { rt: { lastRunAt: null, runs: [{ ...makeRun("malformed-row"), startedAt: 12 }] } },
+      coordinator: { occurrences: {}, circuits: {} },
+    };
+    const bytes = Buffer.from(`${JSON.stringify(envelope, null, "\t")}\n`);
+    await writeFile(path, bytes);
+    await assertClosed(new RunStore(path), bytes);
+  });
+});

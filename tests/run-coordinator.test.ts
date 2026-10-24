@@ -208,6 +208,50 @@ async function complete(h: Harness, run: RoutineRun, turnId: string | null = nul
   });
 }
 
+describe("scheduled deadline representation", () => {
+  it("retains an unsafe deadline as a rejected occurrence instead of wedging its cursor", async () => {
+    const prepare = vi.fn(async () => {
+      throw new Error("Unsafe deadlines must not reach preparation");
+    });
+    const h = await harness({ prepare });
+    const state = await h.host.values();
+    const bot = defined(state.bots[0]);
+    const routine = {
+      id: "rt-unsafe-deadline",
+      name: "Unsafe deadline",
+      prompt: "Do not launch.",
+      enabled: true,
+      resultsChatId: null,
+      createdAt: new Date(START).toISOString(),
+      schedule: { kind: "interval" as const, minutes: 60 },
+      runtime: { deadlineSeconds: Number.MAX_SAFE_INTEGER },
+    };
+    bot.routines.push(routine);
+    const rejected = await h.coordinator.admit({
+      bot,
+      state,
+      routine,
+      trigger: "schedule",
+      due: new Date(START),
+      requestId: "schedule",
+      prompt: routine.prompt,
+      title: routine.name,
+      deadlineAt: START + routine.runtime.deadlineSeconds * 1000,
+    });
+    expect([
+      rejected.executionStatus,
+      rejected.taskOutcome,
+      rejected.agentCreationStatus,
+      rejected.agentId,
+    ]).toEqual(["failed", "unknown", "not_created", null]);
+    expect(prepare).not.toHaveBeenCalled();
+    expect(h.launches).toEqual([]);
+    const record = defined((await h.store.read()).routines[routine.id]);
+    expect(record.lastRunAt).toBe(new Date(START).toISOString());
+    expect(record.runs.map((run) => run.id)).toContain(rejected.id);
+  });
+});
+
 async function changeCrashWindow(h: Harness, run: RoutineRun, status: "reserved" | "starting" | "running") {
   await h.store.updateState(({ routines }) => {
     const saved = defined(defined(routines["routine-1"]).runs.find((entry) => entry.id === run.id));
