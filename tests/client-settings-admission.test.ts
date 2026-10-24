@@ -5,8 +5,8 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useChatStartFeedback } from "../client/chat/LocalStartNotice";
 import { type StartChat, useStartChat } from "../client/chat/useStartChat";
 import type { BotHost } from "../client/data";
-import type { BotStoreState } from "../client/useBotState";
-import { type DraftState, useDrafts } from "../client/useBotsSurface";
+import { type DraftState, useBotDrafts } from "../client/useBotDrafts";
+import type { BotStoreState, CommitBotState } from "../client/useBotState";
 import { type BotState, EMPTY_LIBRARY } from "../shared/bot";
 import { chatsStartRpc, type LocalChatStartResult } from "../shared/local-start";
 import { newUuid } from "../shared/uuid";
@@ -17,7 +17,7 @@ const rpc = vi.hoisted(() => new Map<string, (input: unknown) => Promise<unknown
 vi.mock("@getpaseo/plugin/client", () => ({
   useRpc: (contract: { name: string }) => (input: unknown) => defined(rpc.get(contract.name))(input),
 }));
-vi.mock("@getpaseo/plugin/client/react-native", () => ({}));
+vi.mock("@getpaseo/plugin/client/react-native", () => ({ useToast: () => ({ error: () => {} }) }));
 vi.mock("react-native", () => ({ Platform: { OS: "web" } }));
 vi.mock("../client/data", () => ({}));
 vi.mock("../client/intent", () => ({}));
@@ -37,6 +37,16 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+async function mountConsumer(consumer: () => null): Promise<ReactTestRenderer> {
+  const renderer: { current: ReactTestRenderer | null } = { current: null };
+  await act(() => {
+    renderer.current = create(
+      createElement(QueryClientProvider, { client: new QueryClient() }, createElement(consumer)),
+    );
+  });
+  return defined(renderer.current);
+}
+
 async function settingsConsumer() {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const daemon = await connectFakeDaemon({});
@@ -54,16 +64,24 @@ async function settingsConsumer() {
       reload: async () => {},
     },
   };
-  const writes: { values: BotState; complete: (ok: boolean) => void }[] = [];
-  const commit = (mutate: (values: BotState) => BotState) => {
+  const writes: {
+    values: BotState;
+    complete: (ok: boolean, remote?: (values: BotState) => BotState) => void;
+  }[] = [];
+  let revisions = 0;
+  const commit: CommitBotState = (mutate, onSaved) => {
     const values = mutate(saved);
     const gate = Promise.withResolvers<boolean>();
     writes.push({
       values,
-      complete: (ok) => {
+      complete: (ok, remote) => {
         if (ok) {
-          saved = values;
-          if (latest.current.status === "ready") latest.current = { ...latest.current, values };
+          const stored = remote ? remote(values) : values;
+          saved = stored;
+          revisions += 1;
+          const revision = `rev-${revisions}`;
+          latest.current = { ...latest.current, status: "ready", values: stored, revision };
+          onSaved?.({ revision, values: stored });
         }
         gate.resolve(ok);
       },
@@ -86,7 +104,7 @@ async function settingsConsumer() {
   });
   let current: { drafts: DraftState; start: StartChat } | null = null;
   function Consumer() {
-    const drafts = useDrafts(latest, commit);
+    const drafts = useBotDrafts(latest, commit);
     const feedback = useChatStartFeedback();
     const selected = drafts.drafts[bot.id] ?? bot;
     const start = useStartChat({
@@ -102,13 +120,7 @@ async function settingsConsumer() {
     current = { drafts, start };
     return null;
   }
-  const renderer: { current: ReactTestRenderer | null } = { current: null };
-  await act(() => {
-    renderer.current = create(
-      createElement(QueryClientProvider, { client: new QueryClient() }, createElement(Consumer)),
-    );
-  });
-  const root = defined(renderer.current);
+  const root = await mountConsumer(Consumer);
   let unmounted = false;
   const unmount = async () => {
     if (unmounted) return;
@@ -227,4 +239,31 @@ it("drains the requested unmount flush after V1 without leaving an autosave time
   expect(ui.saved.bots[0]).toMatchObject({ title: "First edit", modeId: "default" });
   await runAutosaveTimers();
   expect(ui.writes).toHaveLength(2);
+});
+
+it("publishes V2's conflict from V1's ACK and never auto-retries it", async () => {
+  const ui = await settingsConsumer();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  await act(() => ui.current.drafts.patchBot("bot-1", { modeId: "default" }));
+  let autosave: Promise<boolean> = Promise.resolve(false);
+  await act(() => {
+    autosave = ui.current.drafts.flush();
+  });
+  await act(() => ui.current.drafts.patchBot("bot-1", { model: "reviewed-model" }));
+  await act(async () => {
+    defined(ui.writes[0]).complete(true, (values) => ({
+      ...values,
+      bots: values.bots.map((bot) => ({ ...bot, model: "remote-model" })),
+    }));
+    await autosave;
+  });
+  expect(await autosave).toBe(true);
+  expect(ui.current.drafts.draftConflicts["bot-1"]).toMatchObject({
+    kind: "changed",
+    fields: expect.arrayContaining(["model"]),
+  });
+  expect(ui.current.drafts.drafts["bot-1"]?.model).toBe("reviewed-model");
+  expect(ui.current.drafts.hasDraft("bot-1")).toBe(true);
+  await runAutosaveTimers();
+  expect(ui.writes).toHaveLength(1);
 });

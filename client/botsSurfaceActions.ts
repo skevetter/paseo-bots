@@ -99,8 +99,14 @@ export function select(ctx: SurfaceContext, next: Selection) {
   }
 }
 
+async function flushBotEdits(ctx: SurfaceContext): Promise<boolean> {
+  if ((await ctx.flush()) && !ctx.hasPendingDrafts()) return true;
+  ctx.toast.error("Save or discard unsaved bot edits before continuing.");
+  return false;
+}
+
 export async function openFleet(ctx: SurfaceContext) {
-  await ctx.flush();
+  if (!(await flushBotEdits(ctx))) return;
   ctx.setPanel({ open: false, section: null });
   ctx.setTeamMap(false);
   ctx.setFleet(true);
@@ -120,7 +126,7 @@ async function addBot(ctx: SurfaceContext, bot: Bot, section: SectionId = "ident
 }
 
 async function duplicate(ctx: SurfaceContext, bot: Bot) {
-  await ctx.flush();
+  if (!(await flushBotEdits(ctx))) return;
   const { json } = await ctx.exportBot({ bot, includeMemory: false });
   const entry = await ctx.importBot({ botId: newBotId(), json });
   const copy = duplicateOf(bot, entry.bot);
@@ -196,16 +202,15 @@ function workspaceOpener(ctx: SurfaceContext, bot: Bot): (() => void) | undefine
 }
 
 function saveAsPreset(ctx: SurfaceContext, bot: Bot) {
-  void ctx
-    .flush()
-    .then(() =>
-      ctx.commit((values) => ({
-        ...values,
-        presets: [
-          ...(values.presets ?? []),
-          presetFromBot(values.bots.find((entry) => entry.id === bot.id) ?? bot),
-        ],
-      })),
+  void flushBotEdits(ctx)
+    .then((ready) =>
+      ready
+        ? ctx.commit((values) => {
+            const current = values.bots.find((entry) => entry.id === bot.id);
+            if (!current) throw new Error("This bot no longer exists.");
+            return { ...values, presets: [...(values.presets ?? []), presetFromBot(current)] };
+          })
+        : false,
     )
     .then(
       (saved) =>
@@ -444,7 +449,7 @@ export function createBot(ctx: SurfaceContext, start?: NewBotStart) {
 }
 
 export async function importBots(ctx: SurfaceContext, json: string) {
-  await ctx.flush();
+  if (!(await flushBotEdits(ctx))) return;
   const { bots, teams, notes } = await ctx.importTeam({ json });
   await admitImports(ctx, { bots, teams });
   ctx.setCreating(false);

@@ -167,9 +167,9 @@ A crash before step 4 leaves the original config intact. Reopening repeats the m
 Reopening a v3 config does not rewrite it or its backups. `configBackupPath(statePath, version)` names the
 backup.
 
-Why v3: v2 readers rewrite the file while keeping version 2, silently dropping fields they do not know. Observed
-on the B04 and 9cff0f5 v2 readers: a managed `executionMode` was stripped, and an unknown `runtimePolicy` was
-dropped. Version 3 makes those readers refuse the file instead.
+Why v3: older v2 readers can rewrite a file while silently stripping fields they do not know.
+The actual B04 reader stripped managed `executionMode`; both that reader and the later 9cff0f5
+v2 reader refused envelope v3 before parsing its values.
 
 Ordinary malformed files retain `readParsed`'s existing `.corrupt-<timestamp>` set-aside behavior.
 A future envelope version is different: `UnsupportedFileVersionError` from `server/files.ts` keeps it in

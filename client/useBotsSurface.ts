@@ -9,16 +9,13 @@ import {
   type Bot,
   type BotGroup,
   type BotListUi,
-  type BotState,
   DEFAULT_BOT_LIST_UI,
   type TeamFileTeam,
 } from "../shared/bot";
 import type { ProviderModesById } from "../shared/bot-checks";
-import { patchSavedBot, pushHistory } from "../shared/bot-history";
 
 import { importsApplyRpc } from "../shared/imports";
 import type { ImportedBot } from "../shared/library";
-import { patchBotOverrides } from "../shared/policies";
 import { exportBotRpc, importBotRpc, importTeamRpc } from "../shared/rpc";
 import {
   type BotHost,
@@ -35,9 +32,8 @@ import type { SectionId } from "./panel/BotPanel";
 import type { Selection } from "./sidebar/types";
 import { useTypeScale } from "./typography";
 import { type MenuApi, useMenu } from "./ui/Menu";
+import { type DraftState, useBotDrafts } from "./useBotDrafts";
 import { type BotStoreState, type CommitBotState, useBotState } from "./useBotState";
-
-const SAVE_DELAY_MS = 600;
 
 type Setter<T> = Dispatch<SetStateAction<T>>;
 
@@ -119,14 +115,6 @@ export interface SurfaceLayoutState {
   typeVersion: number;
 }
 
-export interface DraftState {
-  drafts: Record<string, Bot>;
-  flush(): Promise<boolean>;
-  hasDraft(botId: string): boolean;
-  patchBot(botId: string, patch: Partial<Bot>): void;
-  updateBot(botId: string, patch: Partial<Bot>, recordHistory?: boolean): Promise<boolean>;
-}
-
 export interface BotsSurfaceModel
   extends SurfaceServices,
     ScreenState,
@@ -152,23 +140,6 @@ type BackSetters = Pick<
   ScreenState,
   "setPanel" | "setTeamMap" | "setSelection" | "setLibraryView" | "setFleet"
 >;
-
-function applyDrafts(values: BotState, pending: Record<string, Bot>): BotState {
-  let history = values.history;
-  const bots = values.bots.map((bot) => {
-    const draft = pending[bot.id];
-    if (!draft) return bot;
-    history = pushHistory(history, bot);
-    return draft;
-  });
-  return { ...values, bots, history };
-}
-
-function withoutSaved(current: Record<string, Bot>, saved: Record<string, Bot>): Record<string, Bot> {
-  const next = { ...current };
-  for (const [id, bot] of Object.entries(saved)) if (next[id] === bot) delete next[id];
-  return next;
-}
 
 function useServices(host: PluginScreenProps["host"]): SurfaceServices & { latest: LatestSettings } {
   const { settings, latest, commit } = useBotState();
@@ -290,83 +261,6 @@ function useSurfaceLayout(): SurfaceLayoutState {
   };
 }
 
-export function useDrafts(latest: LatestSettings, commit: CommitBotState): DraftState {
-  const [drafts, setDrafts] = useState<Record<string, Bot>>({});
-  const draftsRef = useRef(drafts);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const saving = useRef<Promise<boolean> | null>(null);
-  const mounted = useRef(true);
-
-  const flush = async (): Promise<boolean> => {
-    clearTimeout(saveTimer.current);
-    saveTimer.current = undefined;
-    if (saving.current) return saving.current;
-    const pending = draftsRef.current;
-    if (Object.keys(pending).length === 0) return true;
-    let succeeded = false;
-    const save = commit((values) => applyDrafts(values, pending)).then((ok) => {
-      succeeded = ok;
-      if (ok) {
-        draftsRef.current = withoutSaved(draftsRef.current, pending);
-        if (mounted.current) setDrafts(draftsRef.current);
-      }
-      return ok;
-    });
-    saving.current = save;
-    try {
-      return await save;
-    } finally {
-      saving.current = null;
-      if (succeeded) resumeSaving();
-    }
-  };
-
-  function resumeSaving(): void {
-    if (Object.keys(draftsRef.current).length === 0) return;
-    if (mounted.current) saveTimer.current = setTimeout(() => void flushRef.current(), SAVE_DELAY_MS);
-    else void flushRef.current();
-  }
-
-  const patchBot = (botId: string, patch: Partial<Bot>) => {
-    const current = draftsRef.current;
-    const base =
-      current[botId] ??
-      (latest.current.status === "ready"
-        ? latest.current.values.bots.find((bot) => bot.id === botId)
-        : undefined);
-    if (!base) return;
-    draftsRef.current = {
-      ...current,
-      [botId]: patchBotOverrides(base, { ...patch, updatedAt: new Date().toISOString() }),
-    };
-    setDrafts(draftsRef.current);
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
-  };
-
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      void flushRef.current();
-    };
-  }, []);
-
-  /** Patches any unsaved draft too, so autosave can't undo the change. */
-  const updateBot = (botId: string, patch: Partial<Bot>, recordHistory = false) => {
-    const current = draftsRef.current;
-    if (current[botId]) {
-      draftsRef.current = { ...current, [botId]: patchBotOverrides(current[botId], patch) };
-      setDrafts(draftsRef.current);
-    }
-    return commit((values) => patchSavedBot(values, botId, patch, recordHistory));
-  };
-
-  return { drafts, flush, hasDraft: (botId) => Boolean(draftsRef.current[botId]), patchBot, updateBot };
-}
-
 function useLibraryEntry(flush: () => Promise<boolean>, setLibraryView: Setter<LibraryViewState | null>) {
   /** Saves bot edits first so the library sees them. */
   const enterLibrary = (target: LibraryTarget | null) => {
@@ -443,7 +337,7 @@ export function useBotsSurface({
   const listUi = useListUi(latest, services.commit);
   const surfaceLayout = useSurfaceLayout();
   useChatInvalidation();
-  const drafts = useDrafts(latest, services.commit);
+  const drafts = useBotDrafts(latest, services.commit);
   useLibraryEntry(drafts.flush, screen.setLibraryView);
   const { panel, selection, teamMap, libraryView, fleet } = screen;
   const goBack = useBackNavigation(

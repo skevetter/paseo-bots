@@ -34,6 +34,7 @@ import {
 import { ChatPane } from "./ChatPane";
 import { type ChatStartFeedback, ChatStartNotices, useChatStartFeedback } from "./chat/LocalStartNotice";
 import { type StartChat, useStartChat } from "./chat/useStartChat";
+import { DraftRecovery, DraftRecoveryDialog, type DraftRecoveryProps } from "./DraftRecovery";
 import { type BotHost, type LocalHost, useBotHost } from "./data";
 import { FleetPage } from "./fleet/FleetPage";
 import { LibraryView } from "./library/LibraryView";
@@ -199,18 +200,35 @@ function renderTeamMap(ctx: SurfaceContext): ReactElement {
   );
 }
 
+function draftRecoveryProps(ctx: SurfaceContext): DraftRecoveryProps {
+  return {
+    colors: ctx.colors,
+    botIds: Object.keys(ctx.drafts),
+    conflicts: ctx.draftConflicts,
+    saving: ctx.draftSaving,
+    onRetry: () => void ctx.flush(),
+    onDiscard: ctx.discardDrafts,
+    onDiscardAndReview: (botId) => {
+      ctx.discardDrafts(botId);
+      if (ctx.hasPendingDrafts()) return;
+      if (!ctx.values.bots.some((bot) => bot.id === botId)) {
+        ctx.toast.error("This bot no longer exists. Its unsaved edits were discarded.");
+        return;
+      }
+      select(ctx, { botId, chatId: null });
+      ctx.setPanel({ open: true, section: "overview" });
+    },
+  };
+}
+
 function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElement {
   const { selectedBot, selection, layout, panel } = ctx;
   if (ctx.teamMap) return renderTeamMap(ctx);
   if (ctx.fleet) {
-    if (Object.keys(ctx.drafts).length > 0)
+    if (ctx.hasPendingDrafts())
       return (
         <View style={{ padding: 24, gap: 12 }}>
-          <Text accessibilityRole="alert" style={{ color: ctx.colors.statusDanger }}>
-            Save pending bot edits before changing fleet settings. Unsaved drafts cannot overwrite a bulk
-            operation.
-          </Text>
-          <Button colors={ctx.colors} label="Retry saving bot edits" onPress={() => void ctx.flush()} />
+          <DraftRecovery {...draftRecoveryProps(ctx)} />
           <Button colors={ctx.colors} label="Back to bots" onPress={() => ctx.setFleet(false)} />
         </View>
       );
@@ -262,9 +280,7 @@ function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
       onSection={(section) => ctx.setPanel({ open: true, section })}
       onClose={() => ctx.setPanel({ open: false, section: panel.section })}
       onPatch={(patch) => ctx.patchBot(selectedBot.id, patch)}
-      flush={async () => {
-        await ctx.flush();
-      }}
+      flush={async () => (await ctx.flush()) && !ctx.hasDraft(selectedBot.id)}
       onRestore={(snapshot) => {
         ctx.patchBot(selectedBot.id, snapshot);
         ctx.setPanelVersion((version) => version + 1);
@@ -450,6 +466,9 @@ function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
         style={{ flex: 1, backgroundColor: colors.surface0, paddingBottom: keyboardHeight }}
         onLayout={(event) => ctx.setSurfaceWidth(event.nativeEvent.layout.width)}
       >
+        {ctx.hasPendingDrafts() && (ctx.settings.saveError || Object.keys(ctx.draftConflicts).length > 0) ? (
+          <DraftRecoveryDialog {...draftRecoveryProps(ctx)} />
+        ) : null}
         {layout.compact ? renderCompact(ctx, parts) : renderDesktop(ctx, parts)}
         {renderTeamSheet(ctx)}
         {renderNewBotDialog(ctx)}

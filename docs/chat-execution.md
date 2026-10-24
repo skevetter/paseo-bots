@@ -32,6 +32,10 @@ Settings saves are single-flight. When a successful write leaves newer edits, au
 
 An exact request with an acknowledged managed admission, or a pending/created legacy result, replays its existing admission even when later settings have changed or remain unsaved. A transport failure alone is not proof of admission: retry/check first flushes settings because it could still be a new server admission. The canonical raw `bots.chats.start` RPC remains authoritative; the client does not prepare configuration or grants.
 
+Drafts rebase onto each save's compare-and-set revision. Unrelated fields saved over a remote routine or policy change keep that remote change and its receipt. A field that depends on a changed execution setting (model, provider, mode, tool allowances), or a full routines array edited over a remote change, is retained as a conflict and is never auto-retried. A successful autosave whose acknowledgement reports such a conflict stops scheduling autosave for the remaining drafts until the user reviews the conflict.
+
+Retained conflicts and save failures show a visible warning with retry, discard, and saved-bot review controls. Routine Run now and webhook-copy actions require a successful selected-bot flush with no newer draft. Preset creation, duplication, imports, and Fleet entry likewise refuse remaining edits. Library navigation remains read-only and does not authorize a launch. A queued or uncertain routine is reported as accepted without claiming its planned chat exists; actual chat creation still says nothing about verified task success.
+
 ## Origin-host recovery
 
 Local start results and remote created-chat results retain the origin host ID/label, request ID and known agent or planned ID. Completion and notice checks never navigate an old-host identity through the bot's newly selected host. A result arriving after a host change stays visible with exact origin details; opening/checking/canceling is unavailable on a mismatched host. Select the bot's origin host and explicitly open or check the retained result. A planned ID alone is not creation evidence.

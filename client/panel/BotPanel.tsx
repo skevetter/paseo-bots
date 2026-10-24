@@ -178,8 +178,8 @@ export interface PanelProps {
   library: Library;
   groups: readonly BotGroup[];
   onPatch(patch: Partial<Bot>): void;
-  /** Saves pending edits now; routines run from the saved bot. */
-  flush(): Promise<void>;
+  /** True only after the selected bot's visible edits are saved and no newer draft remains. */
+  flush(): Promise<boolean>;
   onRestore(snapshot: Bot): void;
   onSetup(): void;
   onOpenChat(chatId: string): void;

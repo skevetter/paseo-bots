@@ -65,9 +65,7 @@ function stateRevision(values: BotState): string {
   return sha256(JSON.stringify({ version: VERSION, values: normalized }));
 }
 
-type Parsed =
-  | { current: StateSnapshot }
-  | { legacy: { raw: string; values: BotState; version: number } };
+type Parsed = { current: StateSnapshot } | { legacy: { raw: string; values: BotState; version: number } };
 
 function parse(raw: string): Parsed {
   const decoded = JSON.parse(raw);
