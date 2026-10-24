@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, posix, relative, sep } from "node:path";
 import type { LibrarySkill } from "../shared/bot";
+import type { ApplicationReceipt } from "../shared/changes/receipt";
 import {
   parseSkillFrontmatter,
   parseSkillSource,
@@ -20,6 +21,7 @@ import {
   sanitizeSkillName,
 } from "../shared/skills";
 import { botDataPath, botsHomePath, pluginDataPath } from "./bot-home";
+import { writeAtomic } from "./files";
 import { readCapped } from "./http";
 
 // Bots get a link to each of their skills in <bot>/skills, so the agent reads them inside its own
@@ -233,7 +235,7 @@ export function sha256(text: string): string {
 }
 
 export async function skillSha(id: string): Promise<string | null> {
-  const text = await readFile(join(librarySkillPath(id), "SKILL.md"), "utf8").catch(() => null);
+  const text = await optionalSkillText(join(librarySkillPath(id), "SKILL.md"));
   return text === null ? null : sha256(text);
 }
 
@@ -254,6 +256,92 @@ export async function writeSkill({ id, text }: { id: string; text: string }) {
   await mkdir(dir, { recursive: true });
   await writeFile(join(dir, "SKILL.md"), text, "utf8");
   return { description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+}
+
+function stagingPath(operationId: string): string {
+  return join(pluginDataPath(), "staging", "skills", operationId);
+}
+
+export class SkillPublicationConflictError extends Error {
+  constructor(operationId: string) {
+    super(
+      `Skill publication for operation ${operationId} conflicts with current content. Staging was preserved.`,
+    );
+    this.name = "SkillPublicationConflictError";
+  }
+}
+
+async function optionalSkillText(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf8");
+  } catch (error) {
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT")
+      return null;
+    throw error;
+  }
+}
+
+/**
+ * A skill an operation is about to add goes here first, where nothing reads it. The library only points at
+ * it once the operation's changes are saved; publishStagedSkill moves it into place after that.
+ */
+export async function stageSkill(operationId: string, text: string) {
+  const path = join(stagingPath(operationId), "SKILL.md");
+  const existing = await optionalSkillText(path);
+  if (existing !== null && existing !== text) throw new SkillPublicationConflictError(operationId);
+  if (existing === null) await writeAtomic(path, text);
+  return { description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+}
+
+function checkSkillPredecessor(
+  receipt: ApplicationReceipt,
+  target: { id: string; sha: string },
+  liveSha: string | null,
+): void {
+  const expected = receipt.skill;
+  if (!expected || expected.id !== target.id || expected.sha !== target.sha)
+    throw new SkillPublicationConflictError(receipt.operationId);
+  if (liveSha !== expected.previousSha) throw new SkillPublicationConflictError(receipt.operationId);
+}
+
+/**
+ * The caller holds the config writer queue while comparing the current review hash and live file.
+ * A superseding commit, intervening file edit, or mismatching stage is a conflict, never an overwrite.
+ */
+export async function publishStagedSkill(
+  operationId: string,
+  target: { id: string; text: string },
+  receipt: ApplicationReceipt,
+  reviewedSha: string | null | undefined,
+): Promise<void> {
+  const { id, text } = target;
+  const sha = sha256(text);
+  const conflict = new SkillPublicationConflictError(operationId);
+  if (reviewedSha !== sha) throw conflict;
+  const staged = join(stagingPath(operationId), "SKILL.md");
+  const stagedText = await optionalSkillText(staged);
+  if (stagedText !== null && stagedText !== text) throw conflict;
+  const live = join(librarySkillPath(id), "SKILL.md");
+  const liveText = await optionalSkillText(live);
+  if (liveText !== text) {
+    checkSkillPredecessor(receipt, { id, sha }, liveText === null ? null : sha256(liveText));
+    if (stagedText === text) {
+      await mkdir(dirname(live), { recursive: true });
+      await rename(staged, live);
+    } else await writeAtomic(live, text);
+  }
+  await rm(stagingPath(operationId), { recursive: true, force: true });
+}
+
+/** Removes the staging of every operation `keep` doesn't name: what a crash left before its changes were saved. */
+export async function discardStagedSkills(keep: (operationId: string) => boolean): Promise<string[]> {
+  const root = join(pluginDataPath(), "staging", "skills");
+  const staged = await readdir(root).catch(() => []);
+  const dropped = staged.filter((operationId) => !keep(operationId));
+  await Promise.all(
+    dropped.map((operationId) => rm(stagingPath(operationId), { recursive: true, force: true })),
+  );
+  return dropped;
 }
 
 export async function deleteSkill({ id }: { id: string }) {

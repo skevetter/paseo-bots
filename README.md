@@ -33,6 +33,8 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 
 An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
 
+Committed proposal changes cannot be dismissed: retry acceptance or let startup recovery finish them. Accepted proposals remain protected from retention until their receipt pin is durably released; interrupted completion is reconciled without applying the changes again. Recovery also finishes receipt-backed proposals dismissed by an older version. Keep both `state.json` and `proposals.json` when backing up or rolling back interrupted operations.
+
 ## Approval for new bots
 
 **Settings > Bots > Defaults for new bots** sets the approval mode a new bot starts in, on any provider:

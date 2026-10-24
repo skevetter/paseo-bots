@@ -534,12 +534,9 @@ describe("addImportedBots", () => {
       { name: "Ghosts", logo: null, lead: null, members: [9], instructions: "" },
     ];
 
-    const next = addImportedBots(
-      values,
-      [incoming("bot-x"), incoming("bot-y"), incoming("bot-z")],
-      teams,
-      "later",
-    );
+    const next = addImportedBots(values, [incoming("bot-x"), incoming("bot-y"), incoming("bot-z")], teams, {
+      now: "later",
+    });
 
     expect(next.groups?.map(({ name, leadId, memberIds }) => ({ name, leadId, memberIds }))).toEqual([
       { name: "Old", leadId: null, memberIds: ["mine"] },

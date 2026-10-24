@@ -1,15 +1,33 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { type BotState, EMPTY_LIBRARY } from "../shared/bot";
-import { newRoutineId } from "../shared/bot-ids";
 import { applyChanges } from "../shared/changes/apply";
 import type { ProviderInfo } from "../shared/changes/context";
+import { changeIds } from "../shared/changes/ids";
+import {
+  checkedReceipt,
+  findReceipt,
+  type Operation,
+  type OperationChange,
+  OperationConflictError,
+  type OperationScope,
+} from "../shared/changes/operation";
+import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { addImportedBots, setBotUses, updateSkill, upsertSkills } from "../shared/library";
 import type { Proposal } from "../shared/proposals";
+import { parseSkillFrontmatter } from "../shared/skills";
 import { pluginDataPath } from "./bot-home";
 import type { CommandAllowlist } from "./commands";
 import { readParsed, writeJson } from "./files";
-import { writeSkill } from "./library";
+import {
+  discardStagedSkills,
+  publishStagedSkill,
+  SkillPublicationConflictError,
+  sha256,
+  skillSha,
+  stageSkill,
+} from "./library";
+import { newOperation } from "./operations";
 import type { BotStore } from "./state";
 
 const KEEP = 200;
@@ -17,7 +35,7 @@ const KEEP = 200;
 type NewProposal = Pick<Proposal, "botId" | "agentId" | "kind" | "data"> & Partial<Pick<Proposal, "origin">>;
 
 export interface AcceptServices {
-  store: Pick<BotStore, "read" | "update">;
+  store: Pick<BotStore, "read" | "apply" | "reconcileOperation" | "completeOperation">;
   commands: Pick<CommandAllowlist, "add">;
   /** The host's providers, which pick new bots' approval modes. */
   providers?: readonly ProviderInfo[] | null;
@@ -56,7 +74,18 @@ function serial<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function save(proposals: Proposal[]): Promise<void> {
-  await writeJson(storePath(), { proposals: proposals.slice(-KEEP) }, 0o600);
+  const retained = [...proposals];
+  while (retained.length > KEEP) {
+    const oldest = retained.findIndex(
+      (proposal) => proposal.status !== "pending" && !proposal.completionPending,
+    );
+    if (oldest === -1)
+      throw new Error(
+        "Too many unresolved proposals. Reconcile committed work or resolve a pending proposal.",
+      );
+    retained.splice(oldest, 1);
+  }
+  await writeJson(storePath(), { proposals: retained }, 0o600);
 }
 
 export function createProposal(input: NewProposal): Promise<Proposal> {
@@ -96,23 +125,49 @@ function pending(proposals: readonly Proposal[], id: string): Proposal {
   return current;
 }
 
-async function resolve(id: string, status: "accepted" | "dismissed"): Promise<Proposal> {
+async function resolve(id: string, status: "accepted" | "dismissed", committed = false): Promise<Proposal> {
   const proposals = await load();
-  const resolved = { ...pending(proposals, id), status, resolvedAt: new Date().toISOString() };
+  const current = committed ? proposals.find((proposal) => proposal.id === id) : pending(proposals, id);
+  if (!current) throw new Error("This proposal is no longer available.");
+  const resolved = {
+    ...current,
+    status,
+    resolvedAt: new Date().toISOString(),
+    ...(committed ? { completionPending: true } : {}),
+  };
   await save(proposals.map((proposal) => (proposal.id === id ? resolved : proposal)));
   return resolved;
 }
 
-export function dismissProposal(id: string): Promise<Proposal> {
-  return serial(() => resolve(id, "dismissed"));
+export function dismissProposal(id: string, store: Pick<BotStore, "read">): Promise<Proposal> {
+  return serial(async () => {
+    pending(await load(), id);
+    if (findReceipt((await store.read()).values, id))
+      throw new Error(
+        "These changes are already committed. Reconcile the operation instead of dismissing it.",
+      );
+    return resolve(id, "dismissed");
+  });
 }
 
-function withRoutine(values: BotState, proposal: Extract<Proposal, { kind: "routine" }>): BotState {
+async function clearCompletion(id: string): Promise<void> {
+  const proposals = await load();
+  const current = proposals.find((proposal) => proposal.id === id);
+  if (!current?.completionPending) return;
+  delete current.completionPending;
+  await save(proposals);
+}
+
+function withRoutine(
+  values: BotState,
+  proposal: Extract<Proposal, { kind: "routine" }>,
+  scope: OperationScope,
+): BotState {
   const routine = {
-    id: newRoutineId(),
+    id: changeIds(scope.operationId, 0).id("rt"),
     ...proposal.data,
     enabled: true,
-    createdAt: new Date().toISOString(),
+    createdAt: scope.now,
   };
   return {
     ...values,
@@ -122,10 +177,12 @@ function withRoutine(values: BotState, proposal: Extract<Proposal, { kind: "rout
   };
 }
 
-function withSkill(values: BotState, botId: string, skill: AcceptedSkill): BotState {
-  const library = upsertSkills(values.library ?? EMPTY_LIBRARY, [
-    { id: skill.id, description: skill.description, source: "", reviewedSha: skill.sha },
-  ]);
+function withSkill(values: BotState, botId: string, skill: AcceptedSkill, now: string): BotState {
+  const library = upsertSkills(
+    values.library ?? EMPTY_LIBRARY,
+    [{ id: skill.id, description: skill.description, source: "", reviewedSha: skill.sha }],
+    now,
+  );
   return {
     ...values,
     library: updateSkill(library, skill.id, { enabled: true }),
@@ -133,46 +190,175 @@ function withSkill(values: BotState, botId: string, skill: AcceptedSkill): BotSt
   };
 }
 
-async function apply(proposal: Proposal, services: AcceptServices): Promise<AcceptedSkill | null> {
+/** The proposal's id names its operation, so accepting it again is the same operation. */
+function operationFor(proposal: Proposal): Operation {
+  return {
+    ...newOperation({
+      id: proposal.id,
+      kind: proposal.kind,
+      body: { kind: proposal.kind, botId: proposal.botId, data: proposal.data },
+    }),
+    pending: true,
+  };
+}
+
+interface Applied {
+  skill: AcceptedSkill | null;
+  receipt: ApplicationReceipt | null;
+}
+
+async function reconcileSkill(
+  proposal: Extract<Proposal, { kind: "skill" }>,
+  store: AcceptServices["store"],
+): Promise<void> {
+  await store.reconcileOperation(operationFor(proposal), (values, receipt) =>
+    publishStagedSkill(
+      proposal.id,
+      { id: proposal.data.name, text: proposal.data.text },
+      receipt,
+      values.library?.skills.find((skill) => skill.id === proposal.data.name)?.reviewedSha,
+    ),
+  );
+}
+
+async function applySkill(
+  proposal: Extract<Proposal, { kind: "skill" }>,
+  services: AcceptServices,
+): Promise<Applied> {
+  const { store, guard = () => {} } = services;
+  const operation = operationFor(proposal);
+  const receipt = checkedReceipt((await store.read()).values, operation);
+  const { name, text } = proposal.data;
+  const skill = { id: name, description: parseSkillFrontmatter(text).description ?? "", sha: sha256(text) };
+  let saved = receipt;
+  if (!saved) {
+    guard(proposal, (await store.read()).values);
+    const previousSha = await skillSha(name);
+    await stageSkill(operation.id, text);
+    saved = (
+      await store.apply(operation, (values, scope) => {
+        guard(proposal, values);
+        return {
+          values: withSkill(values, proposal.botId, skill, scope.now),
+          skill: { id: name, sha: skill.sha, previousSha },
+        };
+      })
+    ).receipt;
+  }
+  await reconcileSkill(proposal, store);
+  return { skill, receipt: saved };
+}
+
+async function apply(proposal: Proposal, services: AcceptServices): Promise<Applied> {
   const { store, commands, providers, guard = () => {} } = services;
-  const checked = (change: (values: BotState) => BotState) =>
-    store.update((values) => {
+  const operation = operationFor(proposal);
+  const run = (change: (values: BotState, scope: OperationScope) => OperationChange) =>
+    store.apply(operation, (values, scope) => {
       guard(proposal, values);
-      return change(values);
+      return change(values, scope);
     });
   switch (proposal.kind) {
-    case "skill": {
-      guard(proposal, (await store.read()).values);
-      const saved = await writeSkill({ id: proposal.data.name, text: proposal.data.text });
-      const skill = { id: proposal.data.name, ...saved };
-      await checked((values) => withSkill(values, proposal.botId, skill));
-      return skill;
-    }
+    case "skill":
+      return applySkill(proposal, services);
     case "routine":
-      await checked((values) => withRoutine(values, proposal));
-      return null;
+      return {
+        skill: null,
+        receipt: (await run((values, scope) => ({ values: withRoutine(values, proposal, scope) }))).receipt,
+      };
     case "changes": {
-      const context = { now: new Date().toISOString(), provider: proposal.data.provider, providers };
-      await checked((values) => applyChanges(values, proposal.data.changes, context));
-      return null;
+      const { changes, provider } = proposal.data;
+      const { receipt } = await run((values, scope) => {
+        const notes: string[] = [];
+        const context = { now: scope.now, operationId: scope.operationId, provider, providers, notes };
+        return { values: applyChanges(values, changes, context), notes };
+      });
+      return { skill: null, receipt };
     }
     case "command":
+      // The allowlist takes an exact command once, so accepting again changes nothing.
       guard(proposal, (await store.read()).values);
       await commands.add(proposal.botId, proposal.data.command, proposal.data.cwd);
-      return null;
-    case "import":
-      await checked((values) => addImportedBots(values, proposal.data.bots, proposal.data.teams));
-      return null;
+      return { skill: null, receipt: null };
+    case "import": {
+      const { bots, teams } = proposal.data;
+      const { receipt } = await run((values, scope) => ({
+        values: addImportedBots(values, bots, teams, {
+          now: scope.now,
+          ids: changeIds(scope.operationId, 0),
+        }),
+      }));
+      return { skill: null, receipt };
+    }
   }
 }
 
-/** Applied before it counts as accepted, so a change that no longer fits leaves it pending. */
+/**
+ * The changes and their receipt are saved in one write, then the proposal is marked accepted. A crash
+ * between them leaves the proposal pending with its receipt in the state, so accepting again, or the
+ * recovery at startup, only marks it: the changes are never applied twice. A change that no longer fits
+ * leaves it pending.
+ */
 export function acceptProposal(
   id: string,
   services: AcceptServices,
-): Promise<{ proposal: Proposal; skill?: AcceptedSkill }> {
+): Promise<{ proposal: Proposal; skill?: AcceptedSkill; receipt?: ApplicationReceipt }> {
   return serial(async () => {
-    const skill = await apply(pending(await load(), id), services);
-    return { proposal: await resolve(id, "accepted"), ...(skill ? { skill } : {}) };
+    const { skill, receipt } = await apply(pending(await load(), id), services);
+    const proposal = await resolve(id, "accepted", receipt !== null);
+    if (receipt) {
+      await services.store.completeOperation(operationFor(proposal));
+      await clearCompletion(id);
+      delete proposal.completionPending;
+    }
+    return {
+      proposal,
+      ...(skill ? { skill } : {}),
+      ...(receipt ? { receipt } : {}),
+    };
+  });
+}
+
+export interface Recovery {
+  /** Proposals whose changes were saved but which were still pending, now accepted. */
+  accepted: string[];
+  /** Identity or publication conflicts; pending work and its staged files remain available. */
+  conflicts: string[];
+  /** Skill files staged by an operation that never saved its changes. */
+  discarded: string[];
+}
+
+/** Publication conflicts leave the proposal and its pin intact for explicit reconciliation. */
+async function finish(proposal: Proposal, store: AcceptServices["store"], recovery: Recovery): Promise<void> {
+  const { values } = await store.read();
+  if (!findReceipt(values, proposal.id)) {
+    if (!values.pendingOperations?.includes(proposal.id)) await clearCompletion(proposal.id);
+    return;
+  }
+  const operation = operationFor(proposal);
+  try {
+    checkedReceipt(values, operation);
+    if (proposal.status !== "accepted") {
+      if (proposal.kind === "skill") await reconcileSkill(proposal, store);
+      await resolve(proposal.id, "accepted", true);
+      recovery.accepted.push(proposal.id);
+    }
+    await store.completeOperation(operation);
+    await clearCompletion(proposal.id);
+  } catch (error) {
+    if (!(error instanceof OperationConflictError || error instanceof SkillPublicationConflictError))
+      throw error;
+    recovery.conflicts.push(proposal.id);
+  }
+}
+
+/** Run at startup, before anything accepts a proposal. Finishes what a crash left half done. */
+export function recoverProposals(store: AcceptServices["store"]): Promise<Recovery> {
+  return serial(async () => {
+    const recovery: Recovery = { accepted: [], conflicts: [], discarded: [] };
+    for (const proposal of await load()) await finish(proposal, store, recovery);
+    const { values } = await store.read();
+    // A receipt proves committed work, even when its proposal has changed or vanished.
+    recovery.discarded = await discardStagedSkills((id) => !!findReceipt(values, id));
+    return recovery;
   });
 }

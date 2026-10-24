@@ -27,7 +27,13 @@ import { probeMcpServer } from "./server/mcp-probe";
 import { mcpSources } from "./server/mcp-sources";
 import { deleteLogDay, listLogDays, listMemory, readLogDay, readMemory } from "./server/memory";
 import { systemPrompt } from "./server/prompt";
-import { acceptProposal, dismissProposal, getProposal, listProposals } from "./server/proposals";
+import {
+  acceptProposal,
+  dismissProposal,
+  getProposal,
+  listProposals,
+  recoverProposals,
+} from "./server/proposals";
 import { Relay } from "./server/relay";
 import { RoutineScheduler } from "./server/scheduler";
 import { exportBot, exportTeam, importBot, importTeam } from "./server/share";
@@ -210,6 +216,17 @@ export default function contribute(server: PluginServerContext) {
   const scheduler = new RoutineScheduler(host, relay);
   const journal = new MemoryJournal();
   const commands = new CommandAllowlist();
+  void recoverProposals(store)
+    .then(({ conflicts }) => {
+      if (conflicts.length)
+        console.error(
+          "paseo-bots: proposal recovery needs reconciliation; staged files were preserved",
+          conflicts,
+        );
+    })
+    .catch((error: unknown) =>
+      console.error("paseo-bots: couldn't finish the proposals a crash left half done", error),
+    );
   const attach = ({ paseo }: PluginHandlerContext) => host.attach(paseo);
 
   server.handle(helloRpc, (_input, context) => {
@@ -243,7 +260,7 @@ export default function contribute(server: PluginServerContext) {
     attach(context);
     return acceptProposal(id, { store, commands, providers: (await hostProviders(host)).providers });
   });
-  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id) }));
+  server.handle(proposalDismissRpc, async ({ id }) => ({ proposal: await dismissProposal(id, store) }));
   server.handle(routineStatusRpc, (_input, context) => {
     attach(context);
     return scheduler.status();

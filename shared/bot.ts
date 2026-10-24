@@ -1,5 +1,6 @@
 import { defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+import { MAX_RECEIPTS, ReceiptSchema } from "./changes/receipt";
 
 /** Chats are found by filtering agents on this label. */
 export const BOT_LABEL = "paseo-bots.bot";
@@ -289,6 +290,10 @@ export const BotStateSchema = z.object({
   defaults: BotDefaultsSchema.optional(),
   presets: z.array(PresetSchema).optional(),
   groups: z.array(BotGroupSchema).optional(),
+  /** Only the host writes these; see applyOperation. */
+  receipts: z.array(ReceiptSchema).optional(),
+  /** Pins receipts until proposal acceptance and file publication have been reconciled. */
+  pendingOperations: z.array(z.string()).max(MAX_RECEIPTS).optional(),
 });
 export type BotState = z.infer<typeof BotStateSchema>;
 
