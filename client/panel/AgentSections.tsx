@@ -31,6 +31,7 @@ import { AppsPicker } from "./AppsPicker";
 import type { PanelProps } from "./BotPanel";
 import { InputField, TextAreaField } from "./fields";
 import { LibraryPicker } from "./LibraryPicker";
+import { ModelPicker } from "./ModelPicker";
 import { AdvancedToggle, CardNote, DrillRow, SectionMeta } from "./rows";
 import { StatusBadge } from "./status";
 
@@ -245,7 +246,13 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
 
   return (
     <>
-      <AgentSection bot={bot} providers={providers.data} loading={providers.isLoading} onPatch={onPatch} />
+      <AgentSection
+        colors={colors}
+        bot={bot}
+        providers={providers.data}
+        loading={providers.isLoading}
+        onPatch={onPatch}
+      />
       <SettingsSection
         title="Execution"
         info="Separate from model policy and approval. Changes apply to future tasks and routine runs, not existing conversations."
@@ -283,11 +290,13 @@ export function ModelSection({ colors, bot, localHost, onPatch }: PanelProps) {
 }
 
 function AgentSection({
+  colors,
   bot,
   providers,
   loading,
   onPatch,
 }: {
+  colors: PanelProps["colors"];
   bot: Bot;
   providers: readonly ProviderEntry[] | undefined;
   loading: boolean;
@@ -319,19 +328,13 @@ function AgentSection({
             });
           }}
         />
-        <SettingsSelect
-          label="Model"
-          value={provider ? (bot.model ?? "") : "Choose a provider first"}
+        <ModelPicker
+          key={`${bot.hostId ?? "local"}:${bot.provider}`}
+          colors={colors}
+          value={bot.model}
           disabled={!provider}
-          options={
-            provider
-              ? [
-                  { label: "Default", value: "" },
-                  ...models.map((entry) => ({ label: entry.label, value: entry.id })),
-                ]
-              : []
-          }
-          onValueChange={(value) => onPatch({ model: value || null, thinkingOptionId: null })}
+          models={models}
+          onChange={(value) => onPatch({ model: value, thinkingOptionId: null })}
         />
         {thinking.length > 0 ? (
           <SettingsSelect

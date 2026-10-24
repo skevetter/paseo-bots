@@ -6,6 +6,12 @@ The bot's Model panel has a separate **Execution > Managed execution** switch. I
 
 The setting governs future tasks and routine runs. It does not retroactively convert existing conversations or change their active work.
 
+The model field opens a searchable native modal with a bounded virtualized list. Search matches
+the displayed name or the full model ID; IDs stay visible so equally named models from different
+backends cannot be mistaken for one another. **Use default** restores the provider-default
+selection. Choosing a model still resets its thinking override and does not change approval.
+Switching host or provider closes the old picker rather than applying an old catalog choice.
+
 ## Conversations and task records
 
 The composer classifies the actual loaded native agent using `paseo-bots.run` (`RUN_LABEL`), not the bot's current setting. An existing agent without that label remains an ordinary conversation even after its bot opts in. Its replies and queue continue on the selected host without managed admission or accounting.
