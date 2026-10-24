@@ -270,6 +270,43 @@ describe("durable admission identity", () => {
       expect((await reopened.coordinator.list()).runs.map((run) => run.id)).toEqual([first.id]);
     },
   );
+
+  it("never releases a legacy UUID by replacing or clearing its admitted identity", async () => {
+    const h = await harness();
+    const original = makePrepared().agentId;
+    const request = {
+      botId: "bot-1",
+      routineId: "legacy",
+      trigger: "manual" as const,
+      due: new Date(START),
+      requestId: "legacy-owner",
+      requestHash: "a".repeat(64),
+    };
+    const { run } = await h.coordinator.recordLegacy(request, (_record, next) => {
+      next.agentId = original;
+    });
+    await h.coordinator.finishLegacy(run.id, {
+      executionStatus: "completed",
+      agentCreationStatus: "created",
+      endedAt: new Date(START).toISOString(),
+    });
+    for (const agentId of [null, makePrepared().agentId]) {
+      await expect(h.coordinator.finishLegacy(run.id, { agentId })).rejects.toThrow("cannot be replaced");
+    }
+    const replay = await h.coordinator.recordLegacy(request, () => {
+      throw new Error("Replay must not initialize another claim");
+    });
+    expect(replay.created).toBe(false);
+    expect(replay.run).toMatchObject({
+      id: run.id,
+      agentId: original,
+      executionStatus: "completed",
+      agentCreationStatus: "created",
+    });
+    await expect(
+      h.coordinator.admitPrepared(makePrepared({ agentId: original }), occurrence({ deferLaunch: true })),
+    ).rejects.toThrow("already admitted");
+  });
 });
 
 describe("admission snapshot replay", () => {
@@ -461,6 +498,57 @@ describe("infrastructure retry identity evidence", () => {
     expect(receipt.status).toBe("not_created");
     expect(receipt.run.taskOutcome).toBe("unknown");
   });
+
+  it.each(["prepared", "legacy", "legacy-assignment"] as const)(
+    "refuses %s reuse of a retained old managed-attempt UUID after terminal cancellation and reopen",
+    async (producer) => {
+      const h = await harness({
+        launch: async () => {
+          throw new ProvenInfrastructureError("No task effects", "omp");
+        },
+      });
+      const prepared = makePrepared();
+      const run = await retryAt(h, await h.coordinator.admitPrepared(prepared, occurrence()), START + 2_250);
+      expect(run.agentId).not.toBe(prepared.agentId);
+      await h.coordinator.cancel(run.id);
+      await close(h);
+      const reopened = await harness({}, true, h.agents);
+      const other = {
+        botId: "other",
+        routineId: "other-routine",
+        trigger: "manual" as const,
+        requestId: "different-request",
+        requestHash: "a".repeat(64),
+        due: new Date(START),
+      };
+      if (producer === "prepared") {
+        await expect(
+          reopened.coordinator.admitPrepared(makePrepared({ agentId: prepared.agentId, botId: "other" }), {
+            ...other,
+            deferLaunch: true,
+          }),
+        ).rejects.toThrow("already admitted");
+      } else if (producer === "legacy") {
+        await expect(
+          reopened.coordinator.recordLegacy(other, (_record, next) => {
+            next.agentId = prepared.agentId;
+          }),
+        ).rejects.toThrow("already admitted");
+      } else {
+        const next = await reopened.coordinator.recordLegacy(other);
+        await expect(
+          reopened.coordinator.finishLegacy(next.run.id, { agentId: prepared.agentId }),
+        ).rejects.toThrow("already admitted");
+        expect((await reopened.coordinator.get(next.run.id))?.agentId).toBeNull();
+      }
+      expect(reopened.launches).toEqual([]);
+      const claims = (await reopened.coordinator.list()).runs.filter(
+        (entry) => entry.agentId === prepared.agentId,
+      );
+      expect(claims).toEqual([]);
+      expect((await reopened.coordinator.get(run.id))?.managed?.attempts[0]?.agentId).toBe(prepared.agentId);
+    },
+  );
 });
 
 describe("bounded infrastructure retry", () => {

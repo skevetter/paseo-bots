@@ -176,6 +176,7 @@ export class LocalChatStarts {
     if (bot.executionMode !== "managed")
       throw new Error("runs.prepare requires explicit managed execution mode.");
     const agentId = input.agentId ?? newUuid();
+    if (input.agentId) await this.inspectIdentity(agentId);
     const due = new Date(this.now());
     const prepared = await prepareChat(this.host, this.relay, bot, {
       ...input,
@@ -207,17 +208,9 @@ export class LocalChatStarts {
     state: BotState,
     bot: Bot,
   ): Promise<LocalChatStartResult> {
-    const paseo = this.host.requirePaseo();
+    this.host.requirePaseo();
     const agentId = input.agentId ?? newUuid();
-    if (input.agentId) {
-      const existing = await this.calls.run(
-        () => paseo.agents.ref(agentId).refresh(),
-        "Caller-selected legacy identity inspection",
-      );
-      this.active();
-      if (existing)
-        throw new Error("The chosen agent ID already exists. Use a fresh identity for a new request.");
-    }
+    if (input.agentId) await this.inspectIdentity(agentId);
     const { run, created: admitted } = await this.coordinator.recordLegacy(
       {
         ...request,
@@ -234,6 +227,17 @@ export class LocalChatStarts {
     return this.launchLegacy(input, state, bot, run);
   }
 
+  private async inspectIdentity(agentId: string): Promise<void> {
+    const paseo = this.host.requirePaseo();
+    const existing = await this.calls.run(
+      () => paseo.agents.ref(agentId).refresh(),
+      "Caller-selected identity inspection",
+    );
+    this.active();
+    if (existing)
+      throw new Error("The chosen agent ID already exists. Use a fresh identity for a new request.");
+  }
+
   private async launchLegacy(
     input: LocalChatInput,
     state: BotState,
@@ -243,6 +247,8 @@ export class LocalChatStarts {
     const agentId = run.agentId;
     if (!agentId) throw new Error("The legacy request has no retained agent identity.");
     let evidence: CreationEvidence | null = null;
+    const observed: { acknowledgement?: Promise<RoutineRun> } = {};
+    let creationProven = false;
     try {
       const created = await this.calls.run(async (signal) => {
         const prepared = await prepareChat(this.host, this.relay, bot, {
@@ -269,19 +275,35 @@ export class LocalChatStarts {
         return launchPreparedChat(this.host, this.relay, prepared, {
           signal,
           onEvent: (event) => {
+            if (this.stopped || signal.aborted) return;
             evidence = event;
+            if (
+              !creationProven &&
+              event.kind === "agent" &&
+              event.agentId === agentId &&
+              ["agent_ready", "prompt_started", "completed"].includes(event.phase)
+            ) {
+              creationProven = true;
+              observed.acknowledgement = this.coordinator.finishLegacy(run.id, {
+                agentCreationStatus: "created",
+              });
+              // SDK observers are synchronous; observe rejection now and join the write before replying.
+              void observed.acknowledgement.catch(() => {});
+            }
           },
         });
       }, "Legacy chat creation");
       if (created !== agentId) throw new Error("The host did not preserve the planned legacy identity.");
+      if (observed.acknowledgement) run = await observed.acknowledgement;
       if (!this.stopped)
-        await this.coordinator.finishLegacy(run.id, {
+        run = await this.coordinator.finishLegacy(run.id, {
           executionStatus: "running",
           agentCreationStatus: "created",
         });
-      return this.legacyResult(run, "created");
+      return this.legacyResult(run);
     } catch (error) {
-      return this.failLegacy(run, error, evidence);
+      const retained = await observed.acknowledgement?.catch(() => null);
+      return this.failLegacy(retained ?? run, error, evidence, creationProven);
     }
   }
 
@@ -289,33 +311,51 @@ export class LocalChatStarts {
     run: RoutineRun,
     error: unknown,
     evidence: CreationEvidence | null,
+    creationProven: boolean,
   ): Promise<LocalChatStartResult> {
-    const noCreate =
-      (error instanceof HostCapabilityError ||
-        error instanceof PreparedLaunchNotCreatedError ||
-        error instanceof HostCallNotDispatchedError) &&
-      !evidence?.outcomeUnknown;
+    if (!this.stopped) run = (await this.coordinator.get(run.id)) ?? run;
+    const creation = this.legacyFailureCreation(run, error, evidence, creationProven);
+    const noCreate = creation === "not_created";
     if (!this.stopped)
-      await this.coordinator.finishLegacy(run.id, {
+      run = await this.coordinator.finishLegacy(run.id, {
         executionStatus: noCreate ? "failed" : "unknown",
         taskOutcome: "unknown",
-        agentCreationStatus: noCreate ? "not_created" : "unknown",
+        agentCreationStatus: creation,
         endedAt: new Date(this.now()).toISOString(),
         error: noCreate
           ? "Creation was refused before agent creation."
-          : "Legacy creation was not confirmed; inspect this host before retrying.",
+          : "Legacy launch did not complete; inspect this host before retrying.",
       });
-    return this.legacyResult(run, noCreate ? "not_created" : "pending");
+    return this.legacyResult(run);
+  }
+
+  private legacyFailureCreation(
+    run: RoutineRun,
+    error: unknown,
+    evidence: CreationEvidence | null,
+    creationProven: boolean,
+  ): "created" | "not_created" | "unknown" {
+    if (creationProven || run.agentCreationStatus === "created") return "created";
+    if (evidence?.outcomeUnknown) return "unknown";
+    if (
+      error instanceof HostCapabilityError ||
+      error instanceof PreparedLaunchNotCreatedError ||
+      error instanceof HostCallNotDispatchedError
+    )
+      return "not_created";
+    return "unknown";
   }
 
   private async replayLegacy(run: RoutineRun, botId: string): Promise<LocalChatStartResult> {
     this.active();
-    if (run.agentCreationStatus === "created" && run.agentId) return this.legacyResult(run, "created");
-    if (isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created")
-      return this.legacyResult(run, "not_created");
+    if (
+      (run.agentCreationStatus === "created" && run.agentId) ||
+      (isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created")
+    )
+      return this.legacyResult(run);
     const paseo = this.host.paseo;
     const agentId = run.agentId;
-    if (!paseo || !agentId) return this.legacyResult(run, "pending");
+    if (!paseo || !agentId) return this.legacyResult(run);
     try {
       const snapshot = await this.calls.run(
         () => paseo.agents.ref(agentId).refresh(),
@@ -323,16 +363,22 @@ export class LocalChatStarts {
       );
       this.active();
       if (snapshot?.agent.id === run.agentId && snapshot.agent.labels?.[BOT_LABEL] === botId) {
-        await this.coordinator.finishLegacy(run.id, { agentCreationStatus: "created" });
-        return this.legacyResult(run, "created");
+        run = await this.coordinator.finishLegacy(run.id, { agentCreationStatus: "created" });
+        return this.legacyResult(run);
       }
     } catch {
       // Missing or unavailable host evidence never authorizes another launch.
     }
-    return this.legacyResult(run, "pending");
+    return this.legacyResult(run);
   }
 
-  private legacyResult(run: RoutineRun, status: LocalChatStartResult["status"]): LocalChatStartResult {
+  private legacyResult(run: RoutineRun): LocalChatStartResult {
+    const status =
+      run.agentCreationStatus === "created" && run.agentId
+        ? "created"
+        : isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created"
+          ? "not_created"
+          : "pending";
     return {
       status,
       mode: "legacy",

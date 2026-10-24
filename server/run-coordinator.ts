@@ -420,7 +420,10 @@ export class RunCoordinator {
       const frozen = this.freezePrepared(prepared, run);
       const artifact = await this.artifacts.put({ prepared: frozen, capacity: input.capacity ?? {} });
       this.initialize(run, frozen, input, artifact);
-      await this.store.updateState((state) => this.recordAdmission(state, recordId, run));
+      await this.store.updateState((state) => {
+        this.validateAgentOwnership(state, frozen.agentId);
+        this.recordAdmission(state, recordId, run);
+      });
       return copy(run);
     });
     await this.recovery;
@@ -454,7 +457,18 @@ export class RunCoordinator {
   private validateAgentIdentity(state: RunSnapshot, agentId: string): void {
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(agentId))
       throw new Error("Managed agent identity must be an RFC 4122 v4 UUID.");
-    if (allRuns(state).some((entry) => entry.agentId === agentId))
+    this.validateAgentOwnership(state, agentId);
+  }
+
+  private validateAgentOwnership(state: RunSnapshot, agentId: string, ownerRunId?: string): void {
+    if (
+      allRuns(state).some(
+        (entry) =>
+          entry.id !== ownerRunId &&
+          (entry.agentId === agentId ||
+            entry.managed?.attempts.some((attempt) => attempt.agentId === agentId)),
+      )
+    )
       throw new Error("This agent identity is already admitted; a different occurrence requires a new UUID.");
   }
 
@@ -661,6 +675,7 @@ export class RunCoordinator {
         run.executionStatus = "starting";
         const record = state.routines[input.routineId] ?? emptyRecord();
         initialize?.(record, run);
+        if (run.agentId) this.validateAgentOwnership(state, run.agentId);
         if (input.trigger === "schedule") record.lastRunAt = run.scheduledFor;
         appendRun(record, run);
         state.routines[input.routineId] = record;
@@ -677,13 +692,25 @@ export class RunCoordinator {
   private patchLegacy(state: RunSnapshot, runId: string, patch: Partial<RoutineRun>): RoutineRun {
     const run = lookup(state, runId);
     if (!run || run.managed) throw new Error("Legacy run not found.");
+    this.assignLegacyIdentity(state, run, patch.agentId);
     const creation = run.agentCreationStatus;
     if (isTerminal(run.executionStatus)) {
-      if (patch.agentId) run.agentId = patch.agentId;
       if (patch.agentCreationStatus === "created") run.agentCreationStatus = "created";
     } else Object.assign(run, patch);
     if (creation === "created") run.agentCreationStatus = "created";
     return copy(run);
+  }
+
+  private assignLegacyIdentity(
+    state: RunSnapshot,
+    run: RoutineRun,
+    agentId: RoutineRun["agentId"] | undefined,
+  ): void {
+    if (agentId === undefined) return;
+    if (run.agentId && agentId !== run.agentId)
+      throw new Error("An admitted legacy agent identity cannot be replaced or cleared.");
+    if (agentId) this.validateAgentOwnership(state, agentId, run.id);
+    run.agentId = agentId;
   }
 
   async get(id: string): Promise<RoutineRun | null> {
@@ -1050,7 +1077,9 @@ export class RunCoordinator {
     run.attemptId = newAttemptId();
     run.executionId = newExecutionId();
     run.sessionEpoch = SessionEpochSchema.parse(1);
-    run.agentId = newUuid();
+    const agentId = newUuid();
+    this.validateAgentIdentity(state, agentId);
+    run.agentId = agentId;
     run.agentCreationStatus = "not_created";
     delete managed.hostCreatedAt;
     delete managed.evidence;
