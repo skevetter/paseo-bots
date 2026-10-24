@@ -137,6 +137,18 @@ reservation and are never automatically restarted. Provider-session generations 
 persisted per actual agent, not plugin processes; history reads do not create sessions. See
 [coordinator contracts, limits and recovery](docs/run-coordinator.md).
 
+Enable managed execution explicitly in a local bot's Model settings. Existing legacy conversations keep
+their original behavior; a managed chat is an isolated task record, and **Start new task** submits only
+the new message and attachments. It does not silently copy the previous transcript. Local starts go
+through server-owned admission; remote manual chats remain visibly outside managed enforcement.
+Unconfirmed starts retain their exact request identity and offer checking/cancellation without
+pretending the planned UUID exists. See [chat execution and retry behavior](docs/chat-execution.md).
+
+`bots.hello.version` comes from the loaded server module, not the plugin catalog. Compare it with the
+released version after an update; a catalog path or running indicator alone does not prove the new
+server code is serving requests.
+
+
 Historic `succeeded` records read as `executionStatus: completed`, `taskOutcome: unknown`, with no
 verification. A read does not rewrite the file. First save of unversioned history preserves it once as
 `routines.json.pre-run-store`; first upgrades from version 1/2 preserve `routines.json.v1.bak` /

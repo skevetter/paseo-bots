@@ -22,6 +22,7 @@ import {
   launchPreparedBotChat,
   type PreparedBotChat,
   PreparedLaunchAbortedError,
+  PreparedLaunchNotCreatedError,
   prepareBotChat,
   startBotChat,
 } from "../shared/chat";
@@ -327,6 +328,25 @@ it("does not request an agent when launch is abandoned during workspace setup", 
   controller.abort();
   daemon.release();
   await refused;
+  expect(daemon.sent.map((frame) => frame.type)).toEqual([
+    "get_providers_snapshot_request",
+    "fetch_workspaces_request",
+  ]);
+});
+
+it("proves workspace access failures happen before any agent create request", async () => {
+  const { prepared } = await admittedRemoteChat();
+  const api = {
+    ...daemon.api,
+    workspaces: {
+      ...daemon.api.workspaces,
+      list: async () => {
+        await daemon.api.workspaces.list();
+        throw new Error("Workspace access denied");
+      },
+    },
+  };
+  await expect(launchPreparedBotChat(api, prepared)).rejects.toBeInstanceOf(PreparedLaunchNotCreatedError);
   expect(daemon.sent.map((frame) => frame.type)).toEqual([
     "get_providers_snapshot_request",
     "fetch_workspaces_request",

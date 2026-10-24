@@ -241,6 +241,30 @@ describe("local managed admission", () => {
     expect(creates(h.daemon)).toEqual([]);
   });
 });
+it("releases capacity after a workspace failure proven to precede agent creation", async () => {
+  const h = await harness();
+  const list = h.daemon.api.workspaces.list.bind(h.daemon.api.workspaces);
+  vi.spyOn(h.daemon.api.workspaces, "list").mockImplementationOnce(async () => {
+    await list();
+    throw new Error("Workspace access denied");
+  });
+
+  const refused = await h.starts.create(input());
+  expect(refused.status).toBe("not_created");
+  expect(refused.run).toMatchObject({
+    executionStatus: "failed",
+    taskOutcome: "unknown",
+    agentCreationStatus: "not_created",
+  });
+  const retained = await h.coordinator.get(defined(refused.run).id);
+  expect(retained?.managed?.reservation).toBe(false);
+  expect(creates(h.daemon)).toEqual([]);
+
+  const next = await h.starts.create(input({ requestId: "next-independent-intent" }));
+  expect(next.status).toBe("created");
+  expect(next.agentId).not.toBeNull();
+  expect(creates(h.daemon)).toHaveLength(1);
+});
 
 describe("frozen replay and independent admission", () => {
   it("replays before reading edited, legacy-switched, deleted bot or policy state and starts the frozen model", async () => {
@@ -405,7 +429,11 @@ describe("local legacy and colleague boundaries", () => {
   it("proves old-host no-create separately from transport ambiguity in both modes", async () => {
     const h = await harness({ features: {} });
     const result = await h.starts.create(input());
-    expect(result).toMatchObject({ status: "not_created", agentId: null, run: { taskOutcome: "no_change" } });
+    expect(result).toMatchObject({
+      status: "not_created",
+      agentId: null,
+      run: { taskOutcome: "unknown", agentCreationStatus: "not_created" },
+    });
     expect(creates(h.daemon)).toEqual([]);
     await h.config.update((values) => ({ ...values, bots: [{ ...h.bot, executionMode: "legacy" }] }));
     expect(await h.starts.create(input({ requestId: "legacy" }))).toMatchObject({

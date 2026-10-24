@@ -1,6 +1,10 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { BOT_LABEL, type Bot, type BotState } from "../shared/bot";
-import { type CreationEvidence, PreparedLaunchAbortedError } from "../shared/chat";
+import {
+  type CreationEvidence,
+  PreparedLaunchAbortedError,
+  PreparedLaunchNotCreatedError,
+} from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import {
   chatsStartRpc,
@@ -20,7 +24,7 @@ import { launchPreparedChat, prepareChat } from "./chats";
 import type { BotsHost } from "./host";
 import type { Relay } from "./relay";
 import type { RunCoordinator } from "./run-coordinator";
-import { BoundedHostCalls } from "./run-deadlines";
+import { BoundedHostCalls, HostCallNotDispatchedError } from "./run-deadlines";
 import { type ReplayRequest, requestHashOf, requestKey } from "./run-requests";
 
 export interface LocalChatStartsOptions {
@@ -33,6 +37,7 @@ function summary(run: RoutineRun): LocalRunSummary {
   return {
     id: run.id,
     executionStatus: run.executionStatus,
+    agentCreationStatus: run.agentCreationStatus ?? "unknown",
     taskOutcome: run.taskOutcome,
     purpose: run.purpose,
   };
@@ -245,6 +250,11 @@ export class LocalChatStarts {
           agentId,
           idempotencyKey: input.idempotencyKey ?? `paseo-bots:${agentId}`,
           state,
+        }).catch((error: unknown) => {
+          throw new PreparedLaunchNotCreatedError(
+            "Chat preparation failed before requesting agent creation.",
+            error,
+          );
         });
         if (this.stopped || signal.aborted) throw new PreparedLaunchAbortedError();
         return launchPreparedChat(this.host, this.relay, prepared, {
@@ -255,7 +265,11 @@ export class LocalChatStarts {
         });
       }, "Legacy chat creation");
       if (created !== agentId) throw new Error("The host did not preserve the planned legacy identity.");
-      if (!this.stopped) await this.coordinator.finishLegacy(run.id, { executionStatus: "running" });
+      if (!this.stopped)
+        await this.coordinator.finishLegacy(run.id, {
+          executionStatus: "running",
+          agentCreationStatus: "created",
+        });
       return this.legacyResult(run, "created");
     } catch (error) {
       return this.failLegacy(run, error, evidence);
@@ -268,12 +282,15 @@ export class LocalChatStarts {
     evidence: CreationEvidence | null,
   ): Promise<LocalChatStartResult> {
     const noCreate =
-      (error instanceof HostCapabilityError || error instanceof PreparedLaunchAbortedError) &&
+      (error instanceof HostCapabilityError ||
+        error instanceof PreparedLaunchNotCreatedError ||
+        error instanceof HostCallNotDispatchedError) &&
       !evidence?.outcomeUnknown;
     if (!this.stopped)
       await this.coordinator.finishLegacy(run.id, {
         executionStatus: noCreate ? "failed" : "unknown",
-        taskOutcome: noCreate ? "no_change" : "unknown",
+        taskOutcome: "unknown",
+        agentCreationStatus: noCreate ? "not_created" : "unknown",
         endedAt: new Date(this.now()).toISOString(),
         error: noCreate
           ? "Creation was refused before agent creation."
@@ -284,7 +301,7 @@ export class LocalChatStarts {
 
   private async replayLegacy(run: RoutineRun, botId: string): Promise<LocalChatStartResult> {
     this.active();
-    if (isTerminal(run.executionStatus) && run.taskOutcome === "no_change")
+    if (isTerminal(run.executionStatus) && run.agentCreationStatus === "not_created")
       return this.legacyResult(run, "not_created");
     const paseo = this.host.paseo;
     const agentId = run.agentId;
@@ -295,8 +312,10 @@ export class LocalChatStarts {
         "Legacy creation observation",
       );
       this.active();
-      if (snapshot?.agent.id === run.agentId && snapshot.agent.labels?.[BOT_LABEL] === botId)
+      if (snapshot?.agent.id === run.agentId && snapshot.agent.labels?.[BOT_LABEL] === botId) {
+        await this.coordinator.finishLegacy(run.id, { agentCreationStatus: "created" });
         return this.legacyResult(run, "created");
+      }
     } catch {
       // Missing or unavailable host evidence never authorizes another launch.
     }

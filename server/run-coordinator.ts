@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 import type { Bot, BotState, Routine } from "../shared/bot";
 import type { CreationEvidence, PreparedBotChat, PreparedChatMetadata } from "../shared/chat";
-import { PreparedLaunchAbortedError } from "../shared/chat";
+import { PreparedLaunchNotCreatedError } from "../shared/chat";
 import { HostCapabilityError } from "../shared/host-capability";
 import { EXECUTION_LABEL, type HostReadiness, OCCURRENCE_LABEL, RUN_LABEL } from "../shared/managed-runs";
 import type { RoutineRecord, RoutineRun } from "../shared/rpc";
@@ -34,7 +34,12 @@ import {
 } from "./run-admission-policy";
 import { RunArtifacts } from "./run-artifacts";
 import { type CreationWaitResult, CreationWaits } from "./run-creation-wait";
-import { BoundedHostCalls, deadlineOf, expireBeforeLaunch } from "./run-deadlines";
+import {
+  BoundedHostCalls,
+  deadlineOf,
+  expireBeforeLaunch,
+  HostCallNotDispatchedError,
+} from "./run-deadlines";
 import type { HostTimelineEvidence } from "./run-host-evidence";
 import { type HostRunEvidence, hostRunEvidence } from "./run-host-evidence";
 import { admitRun, appendRun, emptyRecord, type RunSnapshot, RunStore } from "./run-store";
@@ -52,6 +57,11 @@ import {
 import { type ManagedSessionOpening, type ManagedSessionReceipt, ManagedSessions } from "./run-sessions";
 
 export type { ManagedSessionOpening, ManagedSessionReceipt } from "./run-sessions";
+
+function controllerRuntimeVersion(): string {
+  const bun = process.versions.bun;
+  return bun ? `bun/${bun}` : `node/${process.versions.node}`;
+}
 
 export interface Admission {
   bot: Bot;
@@ -198,11 +208,15 @@ export class RunCoordinator {
     return next;
   }
 
+  stopLaunching(): void {
+    this.calls.close();
+  }
+
   async stop(): Promise<void> {
     this.closing = true;
     clearTimeout(this.wake);
     clearInterval(this.periodic);
-    this.calls.close();
+    this.stopLaunching();
     await this.observing;
     this.detach();
     await Promise.allSettled([this.recovery]);
@@ -427,7 +441,7 @@ export class RunCoordinator {
     frozen.metadata.systemPromptHash = createHash("sha256").update(frozen.config.systemPrompt).digest("hex");
     frozen.metadata.userPromptHash = createHash("sha256").update(frozen.prompt).digest("hex");
     if (!frozen.hostId)
-      frozen.metadata.environmentVersion ??= `paseo-bots/${PLUGIN_VERSION};node/${process.version};${process.platform}/${process.arch}`;
+      frozen.metadata.environmentVersion ??= `paseo-bots/${PLUGIN_VERSION};${controllerRuntimeVersion()};${process.platform}/${process.arch}`;
     return frozen;
   }
 
@@ -925,7 +939,9 @@ export class RunCoordinator {
 
   private provenNoCreate(error: unknown, evidence: CreationEvidence | null): boolean {
     return (
-      (error instanceof HostCapabilityError || error instanceof PreparedLaunchAbortedError) &&
+      (error instanceof HostCapabilityError ||
+        error instanceof PreparedLaunchNotCreatedError ||
+        error instanceof HostCallNotDispatchedError) &&
       !evidence?.outcomeUnknown
     );
   }

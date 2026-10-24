@@ -4,12 +4,14 @@ import { useRpc } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, type LayoutRectangle, Text, View } from "react-native";
+import { ActivityIndicator, type LayoutRectangle, ScrollView, Text, View } from "react-native";
 import type { Bot, BotGroup, Library } from "../shared/bot";
 import { launchPreparedBotChat, prepareBotChat, SETUP_PROMPT, syncBotWorkspaceTitle } from "../shared/chat";
 import type { TeamTab } from "../shared/groups";
+import { chatsStartRpc, LocalChatInputSchema, LocalChatStartResultSchema } from "../shared/local-start";
 import type { PolicyState } from "../shared/policies";
-import { ensureBotHomeRpc, mountRpc, systemPromptRpc } from "../shared/rpc";
+import { ensureBotHomeRpc, systemPromptRpc } from "../shared/rpc";
+import type { Purpose } from "../shared/runs";
 import { newUuid } from "../shared/uuid";
 import { AvatarTheme } from "./Avatar";
 import { autoStarter, withoutStart } from "./autoStart";
@@ -33,6 +35,8 @@ import {
   surfaceContext,
 } from "./botsSurfaceActions";
 import { ChatPane, type OutgoingMessage } from "./ChatPane";
+import { useMountedRef } from "./chat/composer/mounted";
+import { type ChatStartFeedback, LocalStartNotice, useChatStartFeedback } from "./chat/LocalStartNotice";
 import { type BotHost, type LocalHost, useBotHost } from "./data";
 import { FleetPage } from "./fleet/FleetPage";
 import { LibraryView } from "./library/LibraryView";
@@ -40,7 +44,6 @@ import { errorText, nativeTokens } from "./native";
 import { BotPanel } from "./panel/BotPanel";
 import { Button } from "./panel/controls";
 import { Splash } from "./Splash";
-import { newMessageId } from "./sent-attachments";
 import type { Selection } from "./sidebar/types";
 import { TeamMap } from "./teams/TeamMap";
 import { TeamSheet } from "./teams/TeamSheet";
@@ -199,7 +202,7 @@ function renderTeamMap(ctx: SurfaceContext): ReactElement {
   );
 }
 
-function renderPane(ctx: SurfaceContext): ReactElement {
+function renderPane(ctx: SurfaceContext, feedback: ChatStartFeedback): ReactElement {
   const { selectedBot, selection, layout, panel } = ctx;
   if (ctx.teamMap) return renderTeamMap(ctx);
   if (ctx.fleet) {
@@ -236,6 +239,7 @@ function renderPane(ctx: SurfaceContext): ReactElement {
       }
       onTogglePanel={() => ctx.setPanel({ open: !panel.open, section: panel.section })}
       onStarted={(chatId) => ctx.setSelection({ botId: selectedBot.id, chatId })}
+      feedback={feedback}
       onStartHandled={(id) => ctx.setSelection((current) => withoutStart(current, id))}
     />
   );
@@ -266,7 +270,11 @@ function renderSettingsPanel(ctx: SurfaceContext): ReactElement | null {
         ctx.toast.show("Restored. Undo it from History if needed.", { variant: "success" });
       }}
       onSetup={() => {
-        select(ctx, { botId: selectedBot.id, chatId: null, start: { id: newUuid(), prompt: SETUP_PROMPT } });
+        select(ctx, {
+          botId: selectedBot.id,
+          chatId: null,
+          start: { id: newUuid(), prompt: SETUP_PROMPT, purpose: "maintenance" },
+        });
         // On phones the panel covers the chat.
         if (layout.compact) ctx.setPanel({ open: false, section: panel.section });
       }}
@@ -416,11 +424,12 @@ function renderRenameDialog(ctx: SurfaceContext): ReactElement | null {
 }
 
 function BotsScreen({ ctx }: { ctx: SurfaceContext }) {
+  const feedback = useChatStartFeedback();
   const { colors, layout, keyboardHeight } = ctx;
   const parts: ScreenParts = {
     sidebar: renderSidebar(ctx),
     tabProps: teamTabProps(ctx),
-    pane: renderPane(ctx),
+    pane: renderPane(ctx, feedback),
     settingsPanel: renderSettingsPanel(ctx),
     libraryScreen: renderLibrary(ctx),
   };
@@ -470,6 +479,7 @@ interface SelectedChatProps {
   onTogglePanel(): void;
   onStarted(chatId: string): void;
   onStartHandled(id: string): void;
+  feedback: ChatStartFeedback;
 }
 
 interface StartChatOptions {
@@ -478,44 +488,86 @@ interface StartChatOptions {
   policy: PolicyState;
   host: BotHost;
   onStarted(chatId: string): void;
+  feedback: ChatStartFeedback;
 }
 
-type StartChat = (message: OutgoingMessage) => Promise<void>;
+type StartChat = (message: OutgoingMessage, purpose?: Purpose) => Promise<void>;
 
-function useStartChat({ bot, library, policy, host, onStarted }: StartChatOptions): StartChat {
+function useRemoteStart({ bot, library, policy, host }: StartChatOptions) {
   const ensureHome = useRpc(ensureBotHomeRpc);
   const compose = useRpc(systemPromptRpc);
-  const mountServers = useRpc(mountRpc);
-  const queryClient = useQueryClient();
-
-  return async (message) => {
+  return async (message: OutgoingMessage, purpose: Purpose): Promise<string> => {
     if (!host.api) throw new Error(`${host.label} is offline.`);
-    // The bot's folder holds its memory and skills even when it works elsewhere.
     const home = await ensureHome({ botId: bot.id });
     const placement = bot.cwd
       ? { path: bot.cwd, projectRoot: null }
       : { path: home.path, projectRoot: home.root };
-    const { systemPrompt } = await compose({ bot, local: host.isLocal, message: message.text });
-    // The plugin's tools and connected apps go through this host's relay, so only bots here get them.
-    const agentId = newUuid();
-    const plugin = host.isLocal ? await mountServers({ botId: bot.id, agentId }) : {};
+    const { systemPrompt } = await compose({ bot, local: false, message: message.text });
     const prepared = await prepareBotChat(host.api, {
       bot,
       library,
       policy,
-      agentId,
-      idempotencyKey: `paseo-bots:${agentId}`,
-      plugin,
+      agentId: newUuid(),
+      idempotencyKey: `paseo-bots:${message.messageId}`,
+      plugin: {},
       placement,
+      purpose,
       prompt: message.text,
       systemPrompt,
       images: message.images,
       attachments: message.attachments,
       clientMessageId: message.messageId,
     });
-    const id = await launchPreparedBotChat(host.api, prepared);
-    await queryClient.invalidateQueries({ queryKey: ["paseo-bots", "chats", host.key, bot.id] });
-    onStarted(id);
+    return launchPreparedBotChat(host.api, prepared);
+  };
+}
+
+function useLocalStart({ bot, onStarted, feedback }: StartChatOptions) {
+  const create = useRpc(chatsStartRpc);
+  const mounted = useMountedRef();
+  const openCreated = (agentId: string) => {
+    if (mounted.current) onStarted(agentId);
+  };
+  return async (message: OutgoingMessage, purpose: Purpose): Promise<void> => {
+    const input = LocalChatInputSchema.parse({
+      botId: bot.id,
+      requestId: message.messageId,
+      clientMessageId: message.messageId,
+      prompt: message.text,
+      purpose,
+      images: message.images,
+      attachments: message.attachments,
+    });
+    const result = LocalChatStartResultSchema.parse(await create(input));
+    if (result.status === "created" && result.agentId) {
+      openCreated(result.agentId);
+      return;
+    }
+    feedback.report(input, result);
+    if (result.status === "not_created" || result.mode === "legacy")
+      throw new Error(
+        result.message ?? "Creation is unconfirmed. Check the existing request before retrying.",
+      );
+  };
+}
+
+function useStartChat(options: StartChatOptions): StartChat {
+  const { bot, host, onStarted } = options;
+  const local = useLocalStart(options);
+  const remote = useRemoteStart(options);
+  const queryClient = useQueryClient();
+  const mounted = useMountedRef();
+  return async (message, purpose = "task") => {
+    if (!host.api) throw new Error(`${host.label} is offline.`);
+    if (host.isLocal) await local(message, purpose);
+    else {
+      const id = await remote(message, purpose);
+      if (mounted.current) onStarted(id);
+    }
+    void queryClient.invalidateQueries(
+      { queryKey: ["paseo-bots", "chats", host.key, bot.id] },
+      { throwOnError: false },
+    );
   };
 }
 
@@ -545,12 +597,10 @@ function useAutoStart(selection: Selection, host: BotHost, start: StartChat, cle
   const [offer] = useState(() =>
     autoStarter({
       start: (request) =>
-        latest.current.start({
-          text: request.prompt,
-          messageId: newMessageId(),
-          images: [],
-          attachments: [],
-        }),
+        latest.current.start(
+          { text: request.prompt, messageId: request.id, images: [], attachments: [] },
+          request.purpose ?? "task",
+        ),
       clear: (id) => latest.current.clear(id),
       onError: (error) => latest.current.toast.error(`Couldn't start: ${errorText(error)}`),
     }),
@@ -575,29 +625,49 @@ function SelectedChat({
   onTogglePanel,
   onStarted,
   onStartHandled,
+  feedback,
 }: SelectedChatProps) {
   const host = useBotHost(bot.hostId, localHost);
   const chat = useChat(host.api, selection.chatId);
-  const start = useStartChat({ bot, library, policy, host, onStarted });
+  const start = useStartChat({ bot, library, policy, host, onStarted, feedback });
   useWorkspaceTitle(bot, host);
   useAutoStart(selection, host, start, onStartHandled);
 
   return (
-    <ChatPane
-      colors={colors}
-      bot={bot}
-      host={host}
-      chat={chat}
-      chatId={selection.chatId}
-      panelOpen={panelOpen}
-      layout={layout}
-      keyboardOpen={keyboardOpen}
-      typeVersion={typeVersion}
-      onBack={onBack}
-      onBotMenu={onBotMenu}
-      onTogglePanel={onTogglePanel}
-      onStart={start}
-      onOpenChat={onStarted}
-    />
+    <View style={{ flex: 1, minHeight: 0 }}>
+      <ScrollView style={{ maxHeight: layout.compact ? 220 : 280, flexGrow: 0 }}>
+        {feedback.pending
+          .filter((entry) => entry.input.botId === bot.id)
+          .map((entry) => (
+            <LocalStartNotice
+              key={entry.input.requestId}
+              colors={colors}
+              value={entry}
+              onResult={(result) => feedback.report(entry.input, result)}
+              onCreated={(id) => {
+                feedback.dismiss(entry.input);
+                onStarted(id);
+              }}
+              onClose={() => feedback.dismiss(entry.input)}
+            />
+          ))}
+      </ScrollView>
+      <ChatPane
+        colors={colors}
+        bot={bot}
+        host={host}
+        chat={chat}
+        chatId={selection.chatId}
+        panelOpen={panelOpen}
+        layout={layout}
+        keyboardOpen={keyboardOpen}
+        typeVersion={typeVersion}
+        onBack={onBack}
+        onBotMenu={onBotMenu}
+        onTogglePanel={onTogglePanel}
+        onStart={start}
+        onOpenChat={onStarted}
+      />
+    </View>
   );
 }

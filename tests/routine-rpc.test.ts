@@ -42,6 +42,7 @@ function rpcServer() {
   const stop = contribute({
     handle,
     on: () => () => {},
+    before: () => () => {},
     registerSettings: () => ({
       read: async () => ({ status: "invalid" }),
       subscribe: () => () => {},

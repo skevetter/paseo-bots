@@ -140,7 +140,7 @@ A typed SDK `HostCapabilityError` proving that caller-selected identity is unsup
 
 ## Readiness and reconciliation
 
-No secret chat wakes the scheduler. `BotsHost` captures the supported API only through lifecycle or RPC context. Coordinator readiness is `waiting_for_host_api`, `reconciling`, `ready` or `stopped`; `bots.hello` adds this field without removing its legacy `scheduler` boolean.
+No secret chat wakes the scheduler. `BotsHost` captures the supported API only through lifecycle or RPC context. Coordinator readiness is `waiting_for_host_api`, `reconciling`, `ready` or `stopped`; `bots.hello` reports readiness and the actual loaded module's `version` without removing its legacy `scheduler` boolean. History-only provider opening returns unchanged before attaching an API, opening a generation or writing coordinator data.
 
 Cold recovery looks up the preassigned agent UUID, verifies run/execution labels, restores only frozen relay authorization, and refetches the supported canonical timeline. The latest user prompt's `clientMessageId` must identify the admitted prompt. Timeline epoch/sequence cursor is retained; gaps, stale cursors, unseen newer entries, mismatched labels or uncomparable timestamps cannot establish completion. Supported host attention evidence can settle a matching completed/failed turn; otherwise idle is unknown, not success. Missing/repeated provider turn IDs remain evidence only. Repeated terminal delivery cannot settle another UUID execution.
 

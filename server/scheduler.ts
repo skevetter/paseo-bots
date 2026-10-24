@@ -36,6 +36,13 @@ export interface WebhookEvent {
   receivedAt: string;
 }
 
+export interface TurnCompletion {
+  outcome: PluginTurnOutcome;
+  reply: string;
+  turnId?: string | null;
+  sessionEpoch?: number;
+}
+
 /** A webhook's event follows the instructions as marked, untrusted data. */
 export function runPrompt(routine: Routine, event?: WebhookEvent): string {
   if (!event) return routine.prompt;
@@ -170,6 +177,8 @@ export class RoutineScheduler {
     clearInterval(this.timer);
     this.timer = undefined;
     this.detach();
+    // Stop dispatch immediately, but keep the shared writer open for proven legacy no-create receipts.
+    this.coordinator.stopLaunching();
     const legacyStopped = this.legacy.stop();
     await this.ticking;
     await legacyStopped;
@@ -216,22 +225,31 @@ export class RoutineScheduler {
   }
 
   /** `turnId` is what the host called the turn; it is kept as evidence and never used to find the run. */
-  async finished(
-    routineId: string,
-    agentId: string,
-    {
-      outcome,
-      reply,
-      turnId = null,
-      sessionEpoch,
-    }: {
-      outcome: PluginTurnOutcome;
-      reply: string;
-      turnId?: string | null;
-      sessionEpoch?: number;
-    },
-  ): Promise<void> {
-    if (this.stopping) return;
+  async finished(routineId: string, agentId: string, turn: TurnCompletion): Promise<void> {
+    const run = await this.finishExecution({ recordId: routineId, routineId, agentId, turn });
+    if (!run) return;
+    const routine = (await this.host.bots())
+      .flatMap((bot) => bot.routines)
+      .find((entry) => entry.id === routineId);
+    if (routine) await this.postCard(routine, run);
+  }
+
+  async finishedChat(botId: string, agentId: string, turn: TurnCompletion): Promise<void> {
+    await this.finishExecution({ recordId: `chat:${botId}`, agentId, turn });
+  }
+
+  private async finishExecution({
+    recordId,
+    routineId,
+    agentId,
+    turn: { outcome, reply, turnId = null, sessionEpoch },
+  }: {
+    recordId: string;
+    routineId?: string;
+    agentId: string;
+    turn: TurnCompletion;
+  }): Promise<RoutineRun | null> {
+    if (this.stopping) return null;
     const managed = await this.coordinator.finished(agentId, {
       kind: outcome.kind,
       reply,
@@ -240,20 +258,17 @@ export class RoutineScheduler {
       routineId,
       sessionEpoch,
     });
-    const run =
+    return (
       managed ??
-      (await this.legacy.finished(routineId, agentId, {
+      (await this.legacy.finished(recordId, agentId, {
         executionStatus: outcome.kind,
         taskOutcome: "unknown",
         output: reply.trim().slice(0, 400) || null,
         error: turnError(outcome),
         endedAt: new Date().toISOString(),
         providerTurnId: providerTurnId(turnId),
-      }));
-    const routine = (await this.host.bots())
-      .flatMap((bot) => bot.routines)
-      .find((entry) => entry.id === routineId);
-    if (run && routine) await this.postCard(routine, run);
+      }))
+    );
   }
 
   private async find(

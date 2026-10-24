@@ -105,6 +105,10 @@ export const EXECUTION_STATUSES = [
 export const ExecutionStatusSchema = z.enum(EXECUTION_STATUSES);
 export type ExecutionStatus = z.infer<typeof ExecutionStatusSchema>;
 
+/** Agent creation evidence is independent of whether the task needed or achieved a change. */
+export const AgentCreationStatusSchema = z.enum(["not_created", "created", "unknown"]);
+export type AgentCreationStatus = z.infer<typeof AgentCreationStatusSchema>;
+
 const TERMINAL: Record<ExecutionStatus, boolean> = {
   queued: false,
   reserved: false,
@@ -143,7 +147,8 @@ export interface RunState {
 
 /** Null when the pair can be true. A model saying it succeeded is not a verification. */
 export function runStateIssue({ executionStatus, taskOutcome, verification }: RunState): string | null {
-  const verified = taskOutcome === "verified_success" || taskOutcome === "verified_failure";
+  const verified =
+    taskOutcome === "verified_success" || taskOutcome === "verified_failure" || taskOutcome === "no_change";
   if (verified && !verification) return `${taskOutcome} needs a verification`;
   if (!verified && verification) return `${taskOutcome} can't carry a verification`;
   if (verified && executionStatus !== "completed") return `${taskOutcome} needs a completed execution`;
