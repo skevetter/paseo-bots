@@ -192,7 +192,7 @@ export class BotStore {
     return "current" in parsed ? parsed.current : this.migrate(parsed.legacy);
   }
 
-  /** Back up first with a no-replace publish; the version-3 write comes last so a crash leaves the source whole. */
+  /** Back up first with a no-replace publish; the current-version write comes last so a crash leaves the source whole. */
   private async migrate({
     raw,
     values,
