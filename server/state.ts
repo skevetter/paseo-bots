@@ -15,18 +15,17 @@ import {
 } from "../shared/changes/operation";
 import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { pluginDataPath } from "./bot-home";
-import { readParsed, UnsupportedFileVersionError, writeAtomic } from "./files";
+import { publishDurableExclusive, readParsed, UnsupportedFileVersionError, writeAtomic } from "./files";
 
-// Version 1 predates policies. Its bots' provider, model, mode and thinking level are already explicit
-// overrides (a bot inherits a field only when its `policy.inherit` says so), so moving to version 2 changes
-// no value; it makes the file unreadable to older plugins, which would drop the policies they can't see.
-// Before the first version 2 write, the version 1 file is copied to `<state>.v1.bak` with its SHA-256 beside
-// it in `<state>.v1.bak.sha256` (in `shasum -a 256 -c` format). Future versions stay in place and throw;
-// malformed files retain readParsed's set-aside behavior.
-const VERSION = 2;
-const LEGACY_VERSION = 1;
+// Versions 1 and 2 predate fields that older plugins can't read: policies (v1) and managed execution (v2).
+// An older reader that writes back strips the fields it doesn't know, which silently drops managed opt-ins.
+// Before the first version 3 write, the source is copied to `<state>.v<N>.bak` (N = 1 or 2) with its SHA-256
+// in `<state>.v<N>.bak.sha256`. Backups are no-replace: a mismatched, partial or digest-divergent existing
+// backup refuses before the source is touched. Future versions stay in place and throw; malformed files
+// keep readParsed's set-aside behavior.
+const VERSION = 3;
 const EnvelopeSchema = z.object({
-  version: z.union([z.literal(LEGACY_VERSION), z.literal(VERSION)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(VERSION)]),
   values: z.unknown(),
 });
 
@@ -66,7 +65,9 @@ function stateRevision(values: BotState): string {
   return sha256(JSON.stringify({ version: VERSION, values: normalized }));
 }
 
-type Parsed = { current: StateSnapshot } | { legacy: { raw: string; values: BotState } };
+type Parsed =
+  | { current: StateSnapshot }
+  | { legacy: { raw: string; values: BotState; version: number } };
 
 function parse(raw: string): Parsed {
   const decoded = JSON.parse(raw);
@@ -74,14 +75,14 @@ function parse(raw: string): Parsed {
     throw new UnsupportedFileVersionError(decoded.version);
   const envelope = EnvelopeSchema.parse(decoded);
   const values = BotStateSchema.parse(envelope.values);
-  return envelope.version === LEGACY_VERSION
-    ? { legacy: { raw, values } }
-    : { current: { revision: stateRevision(values), values } };
+  return envelope.version === VERSION
+    ? { current: { revision: stateRevision(values), values } }
+    : { legacy: { raw, values, version: envelope.version } };
 }
 
-/** Where the version 1 file is kept when it moves to version 2. */
-export function legacyBackupPath(statePath: string): string {
-  return `${statePath}.v1.bak`;
+/** Where a config file of an older version is kept before it moves to the current version. */
+export function configBackupPath(statePath: string, version: number): string {
+  return `${statePath}.v${version}.bak`;
 }
 
 /** Bots, teams and the library. Writes run one at a time; `write` saves only over the revision it names. */
@@ -195,14 +196,22 @@ export class BotStore {
     return "current" in parsed ? parsed.current : this.migrate(parsed.legacy);
   }
 
-  /** Backup first, checked by reading it back; the version 2 write comes last, so a crash leaves version 1 whole. */
-  private async migrate({ raw, values }: { raw: string; values: BotState }): Promise<StateSnapshot> {
-    const backup = legacyBackupPath(this.path);
+  /** Back up first with a no-replace publish; the version-3 write comes last so a crash leaves the source whole. */
+  private async migrate({
+    raw,
+    values,
+    version,
+  }: {
+    raw: string;
+    values: BotState;
+    version: number;
+  }): Promise<StateSnapshot> {
+    const backup = configBackupPath(this.path, version);
     const digest = sha256(raw);
-    await writeAtomic(backup, raw, 0o600);
+    await publishDurableExclusive(backup, raw, 0o600);
     if (sha256(await readFile(backup, "utf8")) !== digest)
       throw new Error(`paseo-bots: the backup ${backup} doesn't match ${this.path}; not migrating it.`);
-    await writeAtomic(`${backup}.sha256`, `${digest}  ${basename(backup)}\n`, 0o600);
+    await publishDurableExclusive(`${backup}.sha256`, `${digest}  ${basename(backup)}\n`, 0o600);
     return this.persist(values);
   }
 

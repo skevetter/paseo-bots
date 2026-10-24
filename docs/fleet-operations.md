@@ -52,7 +52,7 @@ prevents a stale request from applying again.
 
 ### Revision self-reference
 
-Envelope version remains 2. Config revision is SHA-256 of `JSON.stringify({ version: 2, values })`,
+Envelope version is 3. Config revision is SHA-256 of `JSON.stringify({ version: 3, values })`,
 where values have been normalized through `BotStateSchema` and **only receipt `newRevision` fields
 are omitted**. All other receipt fields, pins, policies, config and fleet audits contribute. This
 avoids requiring a digest to contain its own digest. `persist` computes the revision and populates the
@@ -62,7 +62,7 @@ the same normalization, including older version-2 states without fleet metadata.
 are content-derived identities, not raw-file checksums. Formatting-only edits do not change them.
 Clients holding a pre-upgrade raw-file revision must reload once before writing.
 
-The version-1 migration backup checksum remains the checksum of the original raw backup, unchanged.
+The migration backup checksums (`state.json.v1.bak`, `state.json.v2.bak`) remain the checksums of the original raw backups, unchanged.
 
 ## Revert
 
@@ -85,10 +85,9 @@ backend does not sum cumulative host usage snapshots.
 
 ## Rollback
 
-Stop the daemon and preserve `state.json` before downgrading. Existing version-2 configurations remain
-readable, but an older plugin can drop fleet receipt metadata on its next save and cannot interpret
-normalized fleet revision identities. There is no automatic downgrade that preserves replay/revert
-history. Restore a pre-upgrade whole-state backup only if intentionally discarding subsequent changes;
-never restore it over a running daemon. For rollback to envelope version 1, use the original
-`state.json.v1.bak` procedure in `policies.md`; that also discards newer changes. Active external work
-is not canceled by a rollback and must not be restarted merely because its state is uncertain.
+Stop the daemon and preserve `state.json` before downgrading. Envelope version 3 is refused by version-2 and
+older plugins, which never read it. There is no automatic downgrade that preserves replay/revert history.
+Restore a pre-upgrade whole-state backup only if intentionally discarding subsequent changes; never restore it
+over a running daemon. For rollback to envelope version 1 or 2, use the `state.json.v1.bak` or
+`state.json.v2.bak` procedure in `policies.md`; that also discards newer changes. Active external work is not
+canceled by a rollback and must not be restarted merely because its state is uncertain.

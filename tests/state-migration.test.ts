@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import type * as Files from "../server/files";
-import { BotStore, legacyBackupPath } from "../server/state";
+import { BotStore, configBackupPath } from "../server/state";
 import { BotStateSchema } from "../shared/bot";
 import { makeBot, useTempPaseoHome } from "./helpers";
 
@@ -46,7 +46,7 @@ function fleetBot(index: number) {
   });
 }
 
-describe("moving the state file from version 1 to 2", () => {
+describe("moving the state file from version 1 to 3", () => {
   useTempPaseoHome("paseo-bots-migration-");
   beforeAll(() => mkdir(pluginDataPath(), { recursive: true }));
 
@@ -69,8 +69,8 @@ describe("moving the state file from version 1 to 2", () => {
     expect(values.defaults?.approval).toBe("ask");
 
     const saved = JSON.parse(await readFile(path, "utf8"));
-    expect(saved.version).toBe(2);
-    const backup = legacyBackupPath(path);
+    expect(saved.version).toBe(3);
+    const backup = configBackupPath(path, 1);
     expect(await readFile(backup, "utf8")).toBe(original);
     expect(await readFile(`${backup}.sha256`, "utf8")).toBe(
       `${sha256(original)}  state-${file}.json.v1.bak\n`,
@@ -83,7 +83,7 @@ describe("moving the state file from version 1 to 2", () => {
     const first = await new BotStore(path).read();
     const written = await readFile(path, "utf8");
     const backups = await Promise.all(
-      [legacyBackupPath(path), `${legacyBackupPath(path)}.sha256`].map((p) => stat(p)),
+      [configBackupPath(path, 1), `${configBackupPath(path, 1)}.sha256`].map((p) => stat(p)),
     );
 
     const again = await new BotStore(path).read();
@@ -91,7 +91,7 @@ describe("moving the state file from version 1 to 2", () => {
     expect(again).toEqual(first);
     expect(await readFile(path, "utf8")).toBe(written);
     const after = await Promise.all(
-      [legacyBackupPath(path), `${legacyBackupPath(path)}.sha256`].map((p) => stat(p)),
+      [configBackupPath(path, 1), `${configBackupPath(path, 1)}.sha256`].map((p) => stat(p)),
     );
     expect(after.map((entry) => entry.mtimeMs)).toEqual(backups.map((entry) => entry.mtimeMs));
   });
@@ -105,7 +105,7 @@ describe("moving the state file from version 1 to 2", () => {
     await expect(new BotStore(path).read()).rejects.toThrow("the process died");
 
     expect(await readFile(path, "utf8")).toBe(original);
-    expect(await readFile(legacyBackupPath(path), "utf8")).toBe(original);
+    expect(await readFile(configBackupPath(path, 1), "utf8")).toBe(original);
     expect(
       (await readdir(pluginDataPath())).filter((name) => name.startsWith(`state-${file}.json.corrupt`)),
     ).toEqual([]);
@@ -113,42 +113,77 @@ describe("moving the state file from version 1 to 2", () => {
     // The next start finishes the move and the backup still matches what it replaced.
     const { values } = await new BotStore(path).read();
     expect(values.bots).toHaveLength(2);
-    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(2);
-    expect(await readFile(legacyBackupPath(path), "utf8")).toBe(original);
+    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+    expect(await readFile(configBackupPath(path, 1), "utf8")).toBe(original);
   });
 
-  it("replaces a half-written backup instead of trusting it", async () => {
+  it("refuses a partial version 1 backup before replacing the source", async () => {
     const path = newPath();
     const original = await fixtureText();
+    const partial = original.slice(0, 40);
     await writeFile(path, original);
-    await writeFile(legacyBackupPath(path), original.slice(0, 40));
-    await writeFile(`${legacyBackupPath(path)}.sha256`, "not a digest\n");
+    await writeFile(configBackupPath(path, 1), partial);
 
-    await new BotStore(path).read();
+    await expect(new BotStore(path).read()).rejects.toThrow("Durable publication refused");
 
-    expect(await readFile(legacyBackupPath(path), "utf8")).toBe(original);
-    expect(await readFile(`${legacyBackupPath(path)}.sha256`, "utf8")).toContain(sha256(original));
+    expect(await readFile(path, "utf8")).toBe(original);
+    expect(await readFile(configBackupPath(path, 1), "utf8")).toBe(partial);
   });
 
   it("refuses future versions on every read and write without initializing an empty configuration", async () => {
     const path = newPath();
-    const future = JSON.stringify({ version: 3, values: { bots: [makeBot()], history: [] } });
+    const future = JSON.stringify({ version: 4, values: { bots: [makeBot()], history: [] } });
     await writeFile(path, future);
     const store = new BotStore(path);
 
-    await expect(store.read()).rejects.toThrow("Unsupported file version 3");
-    await expect(new BotStore(path).read()).rejects.toThrow("Unsupported file version 3");
+    await expect(store.read()).rejects.toThrow("Unsupported file version 4");
+    await expect(new BotStore(path).read()).rejects.toThrow("Unsupported file version 4");
     await expect(store.write("missing", { bots: [], history: [] })).rejects.toThrow(
-      "Unsupported file version 3",
+      "Unsupported file version 4",
     );
     await expect(store.update(() => ({ bots: [], history: [] }))).rejects.toThrow(
-      "Unsupported file version 3",
+      "Unsupported file version 4",
     );
 
     expect(await readFile(path, "utf8")).toBe(future);
     expect(
       (await readdir(pluginDataPath())).filter((name) => name.startsWith(`state-${file}.json.`)),
     ).toEqual([]);
+  });
+});
+
+describe("moving the state file from version 2 to 3", () => {
+  useTempPaseoHome("paseo-bots-migration-");
+  beforeAll(() => mkdir(pluginDataPath(), { recursive: true }));
+
+  it("keeps managed opt-ins and backs the version 2 file up with its digest first", async () => {
+    const path = newPath();
+    const bot = makeBot({ id: "managed-bot", executionMode: "managed" });
+    const original = JSON.stringify({ version: 2, values: { bots: [bot], history: [] } });
+    await writeFile(path, original);
+
+    const { values } = await new BotStore(path).read();
+
+    expect(values.bots[0]?.executionMode).toBe("managed");
+    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+    const backup = configBackupPath(path, 2);
+    expect(await readFile(backup, "utf8")).toBe(original);
+    expect(await readFile(`${backup}.sha256`, "utf8")).toBe(
+      `${sha256(original)}  state-${file}.json.v2.bak\n`,
+    );
+  });
+
+  it("refuses a divergent version 2 backup before replacing the source", async () => {
+    const path = newPath();
+    const original = JSON.stringify({ version: 2, values: { bots: [makeBot()], history: [] } });
+    const divergent = "someone else's backup\n";
+    await writeFile(path, original);
+    await writeFile(configBackupPath(path, 2), divergent);
+
+    await expect(new BotStore(path).read()).rejects.toThrow("Durable publication refused");
+
+    expect(await readFile(path, "utf8")).toBe(original);
+    expect(await readFile(configBackupPath(path, 2), "utf8")).toBe(divergent);
   });
 });
 
@@ -165,7 +200,7 @@ describe("the state file after the move", () => {
     const { values } = await new BotStore(path).read();
 
     expect(values.bots).toEqual(BotStateSchema.parse({ bots, history: [] }).bots);
-    expect(await readFile(legacyBackupPath(path), "utf8")).toBe(v1);
+    expect(await readFile(configBackupPath(path, 1), "utf8")).toBe(v1);
   });
 
   it("keeps policies, pending pins and receipts through whole-state writes after the move", async () => {
