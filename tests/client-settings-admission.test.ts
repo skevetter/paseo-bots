@@ -180,17 +180,23 @@ it("retains the actionable draft and admits nothing after a failed save", async 
   expect(ui.admissions).toEqual([]);
 });
 
+async function runAutosaveTimers(): Promise<void> {
+  await act(async () => {
+    await vi.runOnlyPendingTimersAsync();
+  });
+}
+
 it.each([true, false])("does not lose a newer autosave after an in-flight save resolves %s", async (ok) => {
   const ui = await settingsConsumer();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   await act(() => ui.current.drafts.patchBot("bot-1", { title: "First edit" }));
-  await act(() => vi.advanceTimersByTimeAsync(600));
+  await runAutosaveTimers();
   expect(ui.writes).toHaveLength(1);
   await act(() => ui.current.drafts.patchBot("bot-1", { modeId: "default", executionMode: "managed" }));
-  await act(() => vi.advanceTimersByTimeAsync(600));
+  await runAutosaveTimers();
   expect(ui.writes).toHaveLength(1);
   await act(() => defined(ui.writes[0]).complete(ok));
-  await act(() => vi.advanceTimersByTimeAsync(5000));
+  await runAutosaveTimers();
   if (ok) {
     expect(ui.writes).toHaveLength(2);
     await act(() => defined(ui.writes[1]).complete(true));
@@ -211,14 +217,14 @@ it("drains the requested unmount flush after V1 without leaving an autosave time
   const ui = await settingsConsumer();
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   await act(() => ui.current.drafts.patchBot("bot-1", { title: "First edit" }));
-  await act(() => vi.advanceTimersByTimeAsync(600));
+  await runAutosaveTimers();
   await act(() => ui.current.drafts.patchBot("bot-1", { modeId: "default" }));
-  await act(() => vi.advanceTimersByTimeAsync(600));
+  await runAutosaveTimers();
   await ui.unmount();
   await act(() => defined(ui.writes[0]).complete(true));
   expect(ui.writes).toHaveLength(2);
   await act(() => defined(ui.writes[1]).complete(true));
   expect(ui.saved.bots[0]).toMatchObject({ title: "First edit", modeId: "default" });
-  await act(() => vi.advanceTimersByTimeAsync(5000));
+  await runAutosaveTimers();
   expect(ui.writes).toHaveLength(2);
 });

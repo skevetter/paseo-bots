@@ -171,7 +171,9 @@ describe("plugin preparation lifetime", () => {
       const before = await readFile(history, "utf8");
       resumed.release();
       await rejected;
-      expect(listening.mock.contexts.every((listener) => !listener.listening)).toBe(true);
+      expect(
+        listening.mock.contexts.every((listener) => listener instanceof Server && !listener.listening),
+      ).toBe(true);
       expect(await readFile(history, "utf8")).toBe(before);
       expect(daemon.sent.filter((frame) => frame.type === "agent.create.request")).toEqual([]);
     } finally {
