@@ -50,6 +50,7 @@ import { botSettings, EMPTY_LIBRARY } from "./shared/bot";
 import { shellCommand } from "./shared/commands";
 import { fleetApplyRpc, fleetListRpc, fleetPreviewRpc, fleetRevertRpc } from "./shared/fleet";
 import { importsApplyRpc } from "./shared/imports";
+import { RUN_LABEL } from "./shared/managed-runs";
 import {
   appsAccountsRpc,
   appsCatalogRpc,
@@ -274,6 +275,10 @@ function handleChatEvents(server: PluginServerContext, services: ChatEventServic
   const { host, journal, scheduler, commands } = services;
   server.before("agent.session_open", async ({ request }, context) => {
     if (request.purpose === "history") return request;
+    const native = await context.paseo.agents.ref(request.agentId).refresh();
+    if (!native || native.agent.id !== request.agentId)
+      throw new Error("Native agent ownership could not be established before opening its provider session.");
+    if (!Object.hasOwn(native.agent.labels ?? {}, RUN_LABEL)) return request;
     host.attach(context.paseo);
     const { agentId, workspaceId, provider, cwd, reason, purpose } = request;
     await scheduler.coordinator.sessionOpened({ agentId, workspaceId, provider, cwd, reason, purpose });
@@ -426,6 +431,6 @@ export default function contribute(server: PluginServerContext) {
 
   return async () => {
     starts.stop();
-    await Promise.all([scheduler.stop(), relay.stop(), stopControl()]);
+    await Promise.all([scheduler.stop(), relay.close(), stopControl()]);
   };
 }

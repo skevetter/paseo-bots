@@ -85,6 +85,7 @@ export class Relay {
   private server: Server | null = null;
   private listening: Promise<number> | null = null;
   private starts = 0;
+  private closed = false;
   private readonly routes: RelayRoute[] = [];
   private readonly preparedPermissions = new Map<
     string,
@@ -105,6 +106,7 @@ export class Relay {
 
   /** Reuses the previous port when it's free so running chats keep their URLs. A failed start can be retried. */
   start(): Promise<number> {
+    if (this.closed) return Promise.reject(new Error("The relay has been unloaded."));
     if (!this.listening) {
       const listening = this.open(this.starts);
       this.listening = listening;
@@ -157,6 +159,13 @@ export class Relay {
     await closed;
   }
 
+  /** Unload is terminal; ordinary stop remains restartable for recovery. */
+  close(): Promise<void> {
+    this.closed = true;
+    this.preparedPermissions.clear();
+    return this.stop();
+  }
+
   async preparePermissions(bot: Bot): Promise<FrozenRelayPermissions> {
     const limits = await appLimits(bot);
     return {
@@ -180,6 +189,7 @@ export class Relay {
     agentId: string,
     frozen: { tools: boolean; apps: boolean; permissions: FrozenRelayPermissions },
   ): Promise<PluginServers> {
+    if (this.closed) throw new Error("The relay has been unloaded.");
     const previous = this.preparedPermissions.get(agentId);
     if (
       previous &&
