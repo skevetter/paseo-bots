@@ -157,7 +157,7 @@ function RunEvidence({ colors, run, details }: { colors: Colors; run: SafeRun; d
       ) : null}
       {run.errorDiagnostic === "retained" ? (
         <Text accessibilityRole="alert" style={{ color: colors.statusDanger }}>
-          Run recorded a failure. Error text is withheld from this view.
+          An error diagnostic is retained. Its text is withheld from this view.
         </Text>
       ) : null}
       <FactList
