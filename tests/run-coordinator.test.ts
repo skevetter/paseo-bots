@@ -250,6 +250,37 @@ describe("scheduled deadline representation", () => {
     expect(record.lastRunAt).toBe(new Date(START).toISOString());
     expect(record.runs.map((run) => run.id)).toContain(rejected.id);
   });
+
+  it("does not consume an occurrence while waiting for the host API to attach", async () => {
+    const h = await harness(
+      {
+        prepare: async (_host, _relay, bot, input) =>
+          makePrepared({
+            botId: bot.id,
+            agentId: defined(input.agentId),
+            idempotencyKey: defined(input.idempotencyKey),
+          }),
+      },
+      false,
+    );
+    const state = await h.host.values();
+    const input = {
+      bot: defined(state.bots[0]),
+      state,
+      trigger: "schedule" as const,
+      due: new Date(START),
+      requestId: "waiting-for-host",
+      prompt: "Do not consume this occurrence before host readiness.",
+      title: "Host readiness",
+    };
+    await expect(h.coordinator.admit(input)).rejects.toBeInstanceOf(Error);
+    expect((await h.store.read()).routines["chat:bot-1"]).toBeUndefined();
+    expect(h.launches).toEqual([]);
+    h.host.attach(h.api);
+    await h.coordinator.recover();
+    const admitted = await h.coordinator.admit(input);
+    expect((await h.coordinator.waitForCreation(admitted.id)).status).toBe("created");
+  });
 });
 
 async function changeCrashWindow(h: Harness, run: RoutineRun, status: "reserved" | "starting" | "running") {

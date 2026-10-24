@@ -265,13 +265,17 @@ export class RunCoordinator {
       epoch: SessionEpochSchema.parse(1),
     });
     identity.occurrenceKey = key;
-    let prepared: PreparedBotChat;
     try {
       this.validateDeadline(input.deadlineAt);
-      if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
-        return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
-      this.host.requirePaseo();
-      const agentId = newUuid();
+    } catch (error) {
+      return this.rejectAdmission(input, identity, errorText(error));
+    }
+    if (input.deadlineAt !== undefined && input.deadlineAt <= this.now())
+      return this.rejectAdmission(input, identity, "Execution deadline expired before preparation.");
+    this.host.requirePaseo();
+    const agentId = newUuid();
+    let prepared: PreparedBotChat;
+    try {
       prepared = await this.calls.run(
         () =>
           (this.options.prepare ?? prepareChat)(this.host, this.relay, input.bot, {
