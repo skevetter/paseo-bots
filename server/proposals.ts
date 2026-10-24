@@ -15,6 +15,7 @@ import {
 import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { addImportedBots, setBotUses, updateSkill, upsertSkills } from "../shared/library";
 import type { Proposal } from "../shared/proposals";
+import { newSchedulePolicy } from "../shared/schedule-policy";
 import { parseSkillFrontmatter } from "../shared/skills";
 import { pluginDataPath } from "./bot-home";
 import type { CommandAllowlist } from "./commands";
@@ -166,6 +167,7 @@ function withRoutine(
   const routine = {
     id: changeIds(scope.operationId, 0).id("rt"),
     ...proposal.data,
+    schedulePolicy: proposal.data.schedulePolicy ?? newSchedulePolicy(),
     enabled: true,
     createdAt: scope.now,
   };

@@ -66,7 +66,7 @@ async function artifactEvidence(path: string): Promise<boolean> {
 }
 
 async function priorEvidence(path: string): Promise<"managed" | "legacy" | null> {
-  if (await present(`${path}.v2.bak`)) return "managed";
+  if ((await present(`${path}.v2.bak`)) || (await present(`${path}.v3.bak`))) return "managed";
   if (await artifactEvidence(path)) return "managed";
   for (const suffix of [".pre-run-store", ".v1.bak"]) if (await present(`${path}${suffix}`)) return "legacy";
   return null;

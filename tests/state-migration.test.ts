@@ -46,7 +46,7 @@ function fleetBot(index: number) {
   });
 }
 
-describe("moving the state file from version 1 to 3", () => {
+describe("moving the state file from version 1 to 4", () => {
   useTempPaseoHome("paseo-bots-migration-");
   beforeAll(() => mkdir(pluginDataPath(), { recursive: true }));
 
@@ -69,7 +69,7 @@ describe("moving the state file from version 1 to 3", () => {
     expect(values.defaults?.approval).toBe("ask");
 
     const saved = JSON.parse(await readFile(path, "utf8"));
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     const backup = configBackupPath(path, 1);
     expect(await readFile(backup, "utf8")).toBe(original);
     expect(await readFile(`${backup}.sha256`, "utf8")).toBe(
@@ -113,7 +113,7 @@ describe("moving the state file from version 1 to 3", () => {
     // The next start finishes the move and the backup still matches what it replaced.
     const { values } = await new BotStore(path).read();
     expect(values.bots).toHaveLength(2);
-    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(4);
     expect(await readFile(configBackupPath(path, 1), "utf8")).toBe(original);
   });
 
@@ -132,17 +132,17 @@ describe("moving the state file from version 1 to 3", () => {
 
   it("refuses future versions on every read and write without initializing an empty configuration", async () => {
     const path = newPath();
-    const future = JSON.stringify({ version: 4, values: { bots: [makeBot()], history: [] } });
+    const future = JSON.stringify({ version: 5, values: { bots: [makeBot()], history: [] } });
     await writeFile(path, future);
     const store = new BotStore(path);
 
-    await expect(store.read()).rejects.toThrow("Unsupported file version 4");
-    await expect(new BotStore(path).read()).rejects.toThrow("Unsupported file version 4");
+    await expect(store.read()).rejects.toThrow("Unsupported file version 5");
+    await expect(new BotStore(path).read()).rejects.toThrow("Unsupported file version 5");
     await expect(store.write("missing", { bots: [], history: [] })).rejects.toThrow(
-      "Unsupported file version 4",
+      "Unsupported file version 5",
     );
     await expect(store.update(() => ({ bots: [], history: [] }))).rejects.toThrow(
-      "Unsupported file version 4",
+      "Unsupported file version 5",
     );
 
     expect(await readFile(path, "utf8")).toBe(future);
@@ -152,7 +152,7 @@ describe("moving the state file from version 1 to 3", () => {
   });
 });
 
-describe("moving the state file from version 2 to 3", () => {
+describe("moving the state file from version 2 to 4", () => {
   useTempPaseoHome("paseo-bots-migration-");
   beforeAll(() => mkdir(pluginDataPath(), { recursive: true }));
 
@@ -165,7 +165,7 @@ describe("moving the state file from version 2 to 3", () => {
     const { values } = await new BotStore(path).read();
 
     expect(values.bots[0]?.executionMode).toBe("managed");
-    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(4);
     const backup = configBackupPath(path, 2);
     expect(await readFile(backup, "utf8")).toBe(original);
     expect(await readFile(`${backup}.sha256`, "utf8")).toBe(
@@ -184,6 +184,67 @@ describe("moving the state file from version 2 to 3", () => {
 
     expect(await readFile(path, "utf8")).toBe(original);
     expect(await readFile(configBackupPath(path, 2), "utf8")).toBe(divergent);
+  });
+});
+
+describe("moving explicit schedule policy from version 3 to 4", () => {
+  useTempPaseoHome("paseo-bots-schedule-migration-");
+  beforeAll(() => mkdir(pluginDataPath(), { recursive: true }));
+
+  it("retains managed mode, legacy schedules and explicit recovery choices with an exact v3 backup", async () => {
+    const path = newPath();
+    const legacy = {
+      id: "legacy-interval",
+      name: "Legacy",
+      prompt: "Review",
+      enabled: true,
+      createdAt: "2026-10-23T00:00:00.000Z",
+      schedule: { kind: "interval" as const, minutes: 90 },
+      resultsChatId: null,
+    };
+    const policy = {
+      version: 1 as const,
+      timeZone: "America/New_York",
+      gap: "shift_forward" as const,
+      repeat: "both" as const,
+      catchUp: { windowSeconds: 7200, maxOccurrences: 3, strategy: "queue" as const },
+      jitterToleranceSeconds: 120,
+    };
+    const bot = makeBot({
+      executionMode: "managed",
+      routines: [legacy, { ...legacy, id: "explicit-interval", schedulePolicy: policy }],
+    });
+    const original = JSON.stringify({ version: 3, values: { bots: [bot], history: [] } });
+    await writeFile(path, original);
+    const store = new BotStore(path);
+    const first = await store.read();
+    expect(first.values.bots[0]?.executionMode).toBe("managed");
+    expect(first.values.bots[0]?.routines).toEqual([
+      legacy,
+      { ...legacy, id: "explicit-interval", schedulePolicy: policy },
+    ]);
+    const written = await readFile(path, "utf8");
+    expect(JSON.parse(written).version).toBe(4);
+    const backup = configBackupPath(path, 3);
+    expect(await readFile(backup, "utf8")).toBe(original);
+    expect(await readFile(`${backup}.sha256`, "utf8")).toBe(
+      `${sha256(original)}  state-${file}.json.v3.bak\n`,
+    );
+    expect(await new BotStore(path).read()).toEqual(first);
+    expect(await readFile(path, "utf8")).toBe(written);
+  });
+
+  it("refuses a conflicting backup digest without replacing the original schedule configuration", async () => {
+    const path = newPath();
+    const original = JSON.stringify({ version: 3, values: { bots: [makeBot()], history: [] } });
+    const backup = configBackupPath(path, 3);
+    await writeFile(path, original);
+    await writeFile(backup, original);
+    await writeFile(`${backup}.sha256`, "conflicting prior digest\n");
+    await expect(new BotStore(path).read()).rejects.toThrow("Durable publication refused");
+    expect(await readFile(path, "utf8")).toBe(original);
+    expect(await readFile(backup, "utf8")).toBe(original);
+    expect(await readFile(`${backup}.sha256`, "utf8")).toBe("conflicting prior digest\n");
   });
 });
 

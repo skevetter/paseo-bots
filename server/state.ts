@@ -17,15 +17,13 @@ import type { ApplicationReceipt } from "../shared/changes/receipt";
 import { pluginDataPath } from "./bot-home";
 import { publishDurableExclusive, readParsed, UnsupportedFileVersionError, writeAtomic } from "./files";
 
-// Versions 1 and 2 predate fields that older plugins can't read: policies (v1) and managed execution (v2).
-// An older reader that writes back strips the fields it doesn't know, which silently drops managed opt-ins.
-// Before the first version 3 write, the source is copied to `<state>.v<N>.bak` (N = 1 or 2) with its SHA-256
-// in `<state>.v<N>.bak.sha256`. Backups are no-replace: a mismatched, partial or digest-divergent existing
-// backup refuses before the source is touched. Future versions stay in place and throw; malformed files
-// keep readParsed's set-aside behavior.
-const VERSION = 3;
+// Each envelope fences older readers that would strip its execution-affecting fields: policies (v2),
+// managed execution (v3), then explicit timezone/DST/recovery policy (v4).
+// Before migration, preserve exact source bytes and their digest in no-replace `<state>.v<N>.bak`
+// and `.sha256` files. Divergent or incomplete existing backups refuse before replacing the source.
+const VERSION = 4;
 const EnvelopeSchema = z.object({
-  version: z.union([z.literal(1), z.literal(2), z.literal(VERSION)]),
+  version: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(VERSION)]),
   values: z.unknown(),
 });
 
@@ -147,7 +145,7 @@ export class BotStore {
         revision: current.revision,
       });
       const outcome = applyOperation(current.values, operation, () => change);
-      if (change.fleet) outcome.receipt.originalRevision = current.revision;
+      if (change.fleet || change.automations) outcome.receipt.originalRevision = current.revision;
       const snapshot = await this.persist(outcome.values);
       const receipt = snapshot.values.receipts?.find((entry) => entry.operationId === operation.id);
       if (!receipt) throw new Error(`Operation ${operation.id} has no persisted receipt.`);
@@ -194,7 +192,7 @@ export class BotStore {
     return "current" in parsed ? parsed.current : this.migrate(parsed.legacy);
   }
 
-  /** Back up first with a no-replace publish; the version-3 write comes last so a crash leaves the source whole. */
+  /** Back up first with a no-replace publish; the current-version write comes last so a crash leaves the source whole. */
   private async migrate({
     raw,
     values,

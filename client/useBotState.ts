@@ -63,15 +63,11 @@ async function saveOnce(
   if (current.status !== "ready") return "unavailable";
   if (await current.save(mutate(current.values), current.revision, onSaved)) {
     // Let the hook render the new revision before the next queued write reads it.
-    const { promise, resolve } = Promise.withResolvers<void>();
-    setTimeout(resolve, 0);
-    await promise;
+    await new Promise((resolve) => setTimeout(resolve, 0));
     return "saved";
   }
   await current.reload();
-  const { promise, resolve } = Promise.withResolvers<void>();
-  setTimeout(resolve, 50);
-  await promise;
+  await new Promise((resolve) => setTimeout(resolve, 50));
   return "conflict";
 }
 

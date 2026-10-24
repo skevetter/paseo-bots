@@ -7,7 +7,7 @@ import { routineWebhookRpc } from "../../../shared/rpc";
 import { confirmDialog, errorText } from "../../native";
 import type { PanelProps } from "../BotPanel";
 import { InputField } from "../fields";
-import { type Cadence, ONCE, WEBHOOK } from "./cadence";
+import { type Cadence, INTERVAL, ONCE, WEBHOOK } from "./cadence";
 
 type Colors = PanelProps["colors"];
 
@@ -32,6 +32,21 @@ function ScheduleField({
         initialValue={cadence.onceText}
         placeholder="2026-09-27 09:00"
         onChangeText={cadence.editOnce}
+      />
+    );
+  }
+  if (cadence.schedule.kind === "interval") {
+    return (
+      <InputField
+        colors={colors}
+        key="interval"
+        label="Minutes"
+        hint="Elapsed time between runs, 5 to 1440"
+        error={cadence.intervalError}
+        initialValue={cadence.intervalText}
+        placeholder="60"
+        keyboardType="number-pad"
+        onChangeText={cadence.editInterval}
       />
     );
   }
@@ -65,7 +80,7 @@ export function CadenceSection({
   return (
     <SettingsSection
       title="Cadence"
-      info="In this host's local time. A run that's still working when the next is due is skipped."
+      info="Wall-clock times use the timezone policy below. Once uses device-local input saved as an absolute instant."
     >
       <SettingsCard>
         <SettingsSelect
@@ -73,6 +88,7 @@ export function CadenceSection({
           value={cadence.presetValue}
           options={[
             ...CRON_PRESETS.map((preset) => ({ label: preset.label, value: preset.id })),
+            { label: "Every N minutes (elapsed)", value: INTERVAL },
             { label: "Once", value: ONCE },
             { label: "When its webhook is called", value: WEBHOOK },
           ]}

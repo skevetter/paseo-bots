@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Routine, RoutineSchedule } from "./bot";
+import type { SchedulePolicy } from "./schedule-policy";
 import { localDay, localTime, pad2 } from "./time";
+import { latestZonedDue, nextZonedRun, type ZonedSchedule } from "./zoned-schedules";
 
 /** A run missed by more than this is skipped instead of caught up. */
 const CATCH_UP_MS = 12 * 60 * 60 * 1000;
@@ -10,6 +12,17 @@ function atLocalTime(day: Date, time: string): Date {
   const at = new Date(day);
   at.setHours(hours, minutes, 0, 0);
   return at;
+}
+
+/** Explicit intervals retain intended phase; legacy overdue intervals retain their notice-time behavior. */
+function nextIntervalRun(minutes: number, since: Date, now: Date, policy?: SchedulePolicy): Date {
+  const step = minutes * 60_000;
+  if (!policy) {
+    const due = new Date(since.getTime() + step);
+    return due > now ? due : now;
+  }
+  const steps = Math.max(1, Math.floor((now.getTime() - since.getTime()) / step) + 1);
+  return new Date(since.getTime() + steps * step);
 }
 
 type DailySchedule = Extract<RoutineSchedule, { kind: "daily" }>;
@@ -45,8 +58,27 @@ function nextDailyRun(schedule: DailySchedule, now: Date): Date | null {
   return null;
 }
 
+function zonedSchedule(schedule: RoutineSchedule, policy?: SchedulePolicy): ZonedSchedule | null {
+  if (!policy) return null;
+  switch (schedule.kind) {
+    case "daily":
+      return { schedule, policy, cron: null };
+    case "cron":
+      return { schedule, policy, cron: tryParseCron(schedule.expression) };
+    default:
+      return null;
+  }
+}
+
 /** `since` is the last run, or the routine's creation when it never ran. */
-export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
+export function latestDue(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  policy?: SchedulePolicy,
+): Date | null {
+  const zoned = zonedSchedule(schedule, policy);
+  if (zoned) return latestZonedDue(zoned, since, now);
   switch (schedule.kind) {
     case "webhook":
       return null;
@@ -65,7 +97,14 @@ export function latestDue(schedule: RoutineSchedule, since: Date, now: Date): Da
   }
 }
 
-export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date | null {
+export function nextRun(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  policy?: SchedulePolicy,
+): Date | null {
+  const zoned = zonedSchedule(schedule, policy);
+  if (zoned) return nextZonedRun(zoned, now);
   switch (schedule.kind) {
     case "webhook":
       return null;
@@ -73,10 +112,8 @@ export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date
       const at = new Date(schedule.at);
       return at > since && at > now ? at : null;
     }
-    case "interval": {
-      const due = new Date(since.getTime() + schedule.minutes * 60_000);
-      return due > now ? due : now;
-    }
+    case "interval":
+      return nextIntervalRun(schedule.minutes, since, now, policy);
     case "cron": {
       const cron = tryParseCron(schedule.expression);
       return cron ? nextCronTime(cron, now) : null;
@@ -86,13 +123,23 @@ export function nextRun(schedule: RoutineSchedule, since: Date, now: Date): Date
   }
 }
 
-/** An interval that's already due starts with `now`. */
-export function upcomingRuns(schedule: RoutineSchedule, since: Date, now: Date, count: number): Date[] {
+export interface UpcomingRunOptions {
+  count: number;
+  policy?: SchedulePolicy;
+}
+
+/** Upcoming intended instants; legacy overdue intervals still begin at now. */
+export function upcomingRuns(
+  schedule: RoutineSchedule,
+  since: Date,
+  now: Date,
+  { count, policy }: UpcomingRunOptions,
+): Date[] {
   const runs: Date[] = [];
   let from = since;
   let after = now;
   while (runs.length < count) {
-    const next = nextRun(schedule, from, after);
+    const next = nextRun(schedule, from, after, policy);
     const last = runs.at(-1);
     if (!next || (last && next <= last)) break;
     runs.push(next);
@@ -136,7 +183,7 @@ export type RoutineDecision =
 export function decide(routine: Routine, lastRunAt: string | null, now: Date): RoutineDecision {
   if (!routine.enabled) return { action: "wait" };
   const since = new Date(lastRunAt ?? routine.createdAt);
-  const due = latestDue(routine.schedule, since, now);
+  const due = latestDue(routine.schedule, since, now, routine.schedulePolicy);
   if (!due) return { action: "wait" };
   return now.getTime() - due.getTime() <= CATCH_UP_MS
     ? { action: "run", due }
@@ -145,7 +192,7 @@ export function decide(routine: Routine, lastRunAt: string | null, now: Date): R
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function describeSchedule(schedule: RoutineSchedule): string {
+function describeBaseSchedule(schedule: RoutineSchedule): string {
   switch (schedule.kind) {
     case "webhook":
       return "When its webhook is called";
@@ -168,6 +215,12 @@ export function describeSchedule(schedule: RoutineSchedule): string {
       return `${which} at ${schedule.time}`;
     }
   }
+}
+
+export function describeSchedule(schedule: RoutineSchedule, policy?: SchedulePolicy): string {
+  const base = describeBaseSchedule(schedule);
+  if (!policy || (schedule.kind !== "daily" && schedule.kind !== "cron")) return base;
+  return `${base} (${policy.timeZone}; gap ${policy.gap}; repeat ${policy.repeat})`;
 }
 
 // Paseo's cron grammar (protocol/schedule/cron-expression.ts): every field must match (no
@@ -255,7 +308,7 @@ function parseCron(expression: string): ParsedCron {
   };
 }
 
-function tryParseCron(expression: string): ParsedCron | null {
+export function tryParseCron(expression: string): ParsedCron | null {
   try {
     return parseCron(expression);
   } catch {
@@ -386,25 +439,17 @@ function dailyToCron(schedule: DailySchedule): string {
   return `${Number(minutes)} ${Number(hours)} * * ${dow}`;
 }
 
-function intervalToCron(minutes: number): string {
-  if (minutes < 60) return `*/${minutes} * * * *`;
-  const hours = Math.round(minutes / 60);
-  if (hours >= 24) return "0 9 * * *";
-  return hours === 1 ? "0 * * * *" : `0 */${hours} * * *`;
-}
-
-/** Intervals convert like Paseo's normalizeScheduleFormCadence. */
+/** Calendar schedules as a cron expression for the editor; elapsed intervals have no cron form. */
 export function scheduleToCron(schedule: RoutineSchedule): string | null {
   switch (schedule.kind) {
     case "cron":
       return schedule.expression;
     case "once":
     case "webhook":
+    case "interval":
       return null;
     case "daily":
       return dailyToCron(schedule);
-    case "interval":
-      return intervalToCron(schedule.minutes);
   }
 }
 

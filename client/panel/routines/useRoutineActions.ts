@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { Routine } from "../../../shared/bot";
 import { type RoutineRun, routineRunNowRpc, routineWebhookRpc } from "../../../shared/rpc";
+import { hasCreationProof } from "../../../shared/run-details";
 import { confirmDialog, errorText } from "../../native";
 import type { PanelProps } from "../BotPanel";
 import { type RunStart, type RunStarts, withRunStart } from "./runs";
@@ -20,7 +21,7 @@ export interface RoutineActions {
 }
 
 function showRunOutcome(toast: ToastApi, routine: Routine, botName: string, started: RoutineRun) {
-  if (started.agentCreationStatus === "created" || started.managed?.hostCreatedAt !== undefined)
+  if (hasCreationProof(started))
     toast.show(`Chat created for "${routine.name}" under ${botName}. Task outcome: ${started.taskOutcome}.`, {
       variant: "success",
     });

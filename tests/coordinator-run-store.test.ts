@@ -48,7 +48,7 @@ function terminalReservation(executionStatus: "completed" | "failed" | "canceled
 
 describe("coordinator history version migration", () => {
   it.each([1, 2])(
-    "backs up exact v%i bytes before v3 and preserves older backups through reopen",
+    "backs up exact v%i bytes before v4 and preserves older backups through reopen",
     async (version) => {
       const historic = makeRun("historic");
       const original = `${JSON.stringify(
@@ -79,7 +79,7 @@ describe("coordinator history version migration", () => {
       expect(await readFile(`${path}.pre-run-store`, "utf8")).toBe(preStoreBackup);
       const reopened = new RunStore(path);
       const migrated = await reopened.read();
-      expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+      expect(JSON.parse(await readFile(path, "utf8")).version).toBe(4);
       expect(defined(migrated.routines.rt).runs).toEqual([historic, added]);
       expect(migrated.coordinator).toEqual(
         CoordinatorStateSchema.parse({
@@ -134,7 +134,7 @@ describe("legacy empty slots", () => {
     });
     await store.updateState(() => {});
     const saved = JSON.parse(await readFile(path, "utf8"));
-    expect(saved.version).toBe(3);
+    expect(saved.version).toBe(4);
     expect(saved.routines["rt-holes"].runs.map((run: { id: string }) => run.id)).toEqual(["legacy-kept"]);
   });
 });

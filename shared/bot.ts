@@ -3,6 +3,7 @@ import { z } from "zod";
 import { MAX_RECEIPTS, ReceiptSchema } from "./changes/receipt";
 import { CapacityLimitsSchema, OverlapSchema } from "./managed-runs";
 import { BotPolicySchema, PolicyBindingSchema, PolicySchema, RoutineOverridesSchema } from "./policies";
+import { SchedulePolicySchema } from "./schedule-policy";
 
 /** Chats are found by filtering agents on this label. */
 export const BOT_LABEL = "paseo-bots.bot";
@@ -113,6 +114,8 @@ const RoutineSchema = z.object({
   prompt: z.string(),
   enabled: z.boolean().default(true),
   schedule: RoutineScheduleSchema,
+  /** Absent on legacy routines, which retain the host's existing local-time interpretation. */
+  schedulePolicy: SchedulePolicySchema.optional(),
   /** Gets a card for each run; runs themselves always get their own chat. */
   resultsChatId: z.string().nullable().default(null),
   createdAt: z.string(),

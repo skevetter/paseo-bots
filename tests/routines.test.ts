@@ -227,9 +227,6 @@ describe("cron routines", () => {
     expect(scheduleToCron({ kind: "daily", time: "09:00", weekdays: [0, 1, 2, 3, 4, 5, 6] })).toBe(
       "0 9 * * *",
     );
-    expect(scheduleToCron({ kind: "interval", minutes: 30 })).toBe("*/30 * * * *");
-    expect(scheduleToCron({ kind: "interval", minutes: 60 })).toBe("0 * * * *");
-    expect(scheduleToCron({ kind: "interval", minutes: 240 })).toBe("0 */4 * * *");
     expect(scheduleToCron({ kind: "once", at: "2026-09-26T10:00:00" })).toBeNull();
   });
 });

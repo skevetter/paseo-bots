@@ -61,7 +61,7 @@ function describeProposal(proposal: Proposal): string {
     case "skill":
       return `Skill ${proposal.data.name}: ${proposal.data.description}`;
     case "routine":
-      return `Routine ${proposal.data.name}: ${describeSchedule(proposal.data.schedule)}`;
+      return `Routine ${proposal.data.name}: ${describeSchedule(proposal.data.schedule, proposal.data.schedulePolicy)}`;
     case "changes": {
       const described = proposal.data.changes.map(describeChange).join("; ");
       return proposal.data.summary === described ? described : `${proposal.data.summary}: ${described}`;

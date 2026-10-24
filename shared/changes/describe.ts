@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { describeSchedule, type ScheduleInput, scheduleFrom } from "../routines";
+import type { SchedulePolicy } from "../schedule-policy";
 import { BOT_TEMPLATES } from "../templates";
 import { oneLine } from "./fields";
 import type { AppInputValue, AvatarInput, BotFieldValues, Change, ChangeOf } from "./schema";
@@ -62,9 +63,9 @@ function fieldsText(fields: BotFieldValues): string[] {
   return [...profileText(fields), ...agentText(fields), ...settingsText(fields)];
 }
 
-function scheduleText(input: z.infer<typeof ScheduleInput>): string {
+function scheduleText(input: z.infer<typeof ScheduleInput>, policy?: SchedulePolicy): string {
   try {
-    return describeSchedule(scheduleFrom(input, new Date()));
+    return describeSchedule(scheduleFrom(input, new Date()), policy);
   } catch {
     return input.type;
   }
@@ -120,7 +121,12 @@ function updateRoutineText(change: ChangeOf<"update_routine">): string {
   const parts = [
     ...(change.name !== undefined ? [`renamed to "${change.name}"`] : []),
     ...(change.instructions !== undefined ? ["new instructions"] : []),
-    ...(change.schedule ? [scheduleText(change.schedule)] : []),
+    ...(change.schedule ? [scheduleText(change.schedule, change.schedulePolicy)] : []),
+    ...(change.schedulePolicy && !change.schedule
+      ? [
+          `timezone ${change.schedulePolicy.timeZone}, gap ${change.schedulePolicy.gap}, repeat ${change.schedulePolicy.repeat}`,
+        ]
+      : []),
     ...(change.enabled !== undefined ? [change.enabled ? "resumed" : "paused"] : []),
     ...(change.deadline_seconds === undefined ? [] : [`managed deadline ${change.deadline_seconds}s`]),
   ];
@@ -185,7 +191,7 @@ export function describeChange(change: Change): string {
     case "delete_bot":
       return `**Delete bot ${change.bot}**; its chats stay in Paseo's history`;
     case "add_routine":
-      return `**${change.bot}**: new routine "${change.name}", ${scheduleText(change.schedule)}${change.deadline_seconds === undefined ? "" : `; managed deadline ${change.deadline_seconds}s`}`;
+      return `**${change.bot}**: new routine "${change.name}", ${scheduleText(change.schedule, change.schedulePolicy)}${change.deadline_seconds === undefined ? "" : `; managed deadline ${change.deadline_seconds}s`}`;
     case "update_routine":
       return updateRoutineText(change);
     case "delete_routine":

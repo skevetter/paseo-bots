@@ -31,12 +31,10 @@ export function upcomingRunsOf(routines: Routine[], recordOf: RecordOf, now: Dat
   return routines
     .filter((routine) => routine.enabled)
     .flatMap((routine) =>
-      upcomingRuns(
-        routine.schedule,
-        new Date(recordOf(routine)?.lastRunAt ?? routine.createdAt),
-        now,
-        UPCOMING,
-      ).map((at) => ({ at, routine })),
+      upcomingRuns(routine.schedule, new Date(recordOf(routine)?.lastRunAt ?? routine.createdAt), now, {
+        count: UPCOMING,
+        policy: routine.schedulePolicy,
+      }).map((at) => ({ at, routine })),
     )
     .filter(({ at }) => at.getTime() - now.getTime() <= UPCOMING_DAYS * 86_400_000)
     .sort((a, b) => a.at.getTime() - b.at.getTime())

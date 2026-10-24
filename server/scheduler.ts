@@ -7,6 +7,7 @@ import { ROUTINE_LABEL } from "../shared/chat";
 import { decide } from "../shared/routines";
 import { ROUTINE_RUN_CARD, type RoutineRun, type RoutineRunCard } from "../shared/rpc";
 import { providerTurnId, type Trigger } from "../shared/runs";
+import { planOccurrences, type ScheduleRecoveryPlan, scheduleNotBefore } from "../shared/schedule-recovery";
 import { newUuid } from "../shared/uuid";
 import { pluginDataPath } from "./bot-home";
 import { readJson, writeJson } from "./files";
@@ -370,21 +371,66 @@ export class RoutineScheduler {
     now: Date,
   ): Promise<void> {
     try {
+      if (routine.schedulePolicy) {
+        const plan = planOccurrences(routine, lastRunAt, now);
+        if (plan.plannedThrough) this.dispatch(routine, () => this.recoverOccurrences(target, routine, plan));
+        return;
+      }
       const decision = decide(routine, lastRunAt, now);
       if (decision.action === "run")
-        this.dispatch(routine, decision.due, () =>
-          this.run({ ...target, routine, trigger: "schedule", due: decision.due }),
+        this.dispatch(
+          routine,
+          () => this.run({ ...target, routine, trigger: "schedule", due: decision.due }),
+          decision.due,
         );
       else if (decision.action === "skip-missed")
-        this.dispatch(routine, decision.due, () => this.recordMissed(routine, decision.due, now));
+        this.dispatch(routine, () => this.recordMissed(routine, decision.due, now), decision.due);
     } catch (error) {
       console.error(`paseo-bots: routine "${routine.name}" (${routine.id}) failed`, error);
     }
   }
 
-  private dispatch(routine: Routine, due: Date, work: () => Promise<unknown>): void {
+  private async recoverOccurrences(
+    target: Pick<RunRequest, "state" | "bot">,
+    routine: Routine,
+    plan: ScheduleRecoveryPlan,
+  ): Promise<void> {
+    if (target.bot.executionMode === "managed") {
+      const runs = await this.coordinator.admitSchedule({ ...target, routine }, plan);
+      for (const run of runs) await this.postCard(routine, run);
+      return;
+    }
+    return this.recoverLegacyOccurrences(target, routine, plan);
+  }
+
+  private async recoverLegacyOccurrences(
+    target: Pick<RunRequest, "state" | "bot">,
+    routine: Routine,
+    plan: ScheduleRecoveryPlan,
+  ): Promise<void> {
+    // Legacy launches keep their overlap behavior. Commit only a chronological prefix, so a crash
+    // cannot advance the intended cursor past an occurrence that has not been admitted.
+    const steps = [
+      ...plan.summaries.map((summary) => ({ due: summary.due, summary })),
+      ...plan.runs.map((due) => ({ due, summary: null })),
+    ].sort((a, b) => a.due.getTime() - b.due.getTime());
+    for (const step of steps) {
+      if (this.stopping) return;
+      if (step.summary) {
+        const run = await this.coordinator.recordRecovery(routine.id, step.summary);
+        await this.postCard(routine, run);
+      } else {
+        if (scheduleNotBefore(routine, step.due) > Date.now()) return;
+        await this.run({ ...target, routine, trigger: "schedule", due: step.due });
+      }
+    }
+  }
+
+  private dispatch(routine: Routine, work: () => Promise<unknown>, due?: Date): void {
     if (this.stopping) return;
-    const key = requestKey({ routineId: routine.id, trigger: "schedule", requestId: "schedule", due });
+    const key = due
+      ? requestKey({ routineId: routine.id, trigger: "schedule", requestId: "schedule", due })
+      : `recovery:${routine.id}`;
     if (this.occurrences.has(key)) return;
     const pending = Promise.resolve()
       .then(() => {

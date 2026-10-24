@@ -44,6 +44,7 @@ const MIGRATIONS = [
   { label: "unversioned", version: null, suffix: ".pre-run-store" },
   { label: "v1", version: 1, suffix: ".v1.bak" },
   { label: "v2", version: 2, suffix: ".v2.bak" },
+  { label: "v3", version: 3, suffix: ".v3.bak" },
 ];
 
 describe("exclusive migration backup integrity", () => {
@@ -107,7 +108,7 @@ describe("reusing an exact migration backup", () => {
       await reopened.update((records) => {
         records.other = emptyRecord();
       });
-      expect(JSON.parse(await readFile(path, "utf8")).version).toBe(3);
+      expect(JSON.parse(await readFile(path, "utf8")).version).toBe(4);
       expect(await readFile(backup, "utf8")).toBe(original);
       expect((await stat(backup)).ino).toBe(before.ino);
     },
@@ -462,7 +463,7 @@ describe("initialization seal publication crash windows", () => {
       fault.restore();
     }
     const durable = await readFile(path);
-    expect(JSON.parse(durable.toString("utf8"))).toMatchObject({ version: 3, routines: {} });
+    expect(JSON.parse(durable.toString("utf8"))).toMatchObject({ version: 4, routines: {} });
     await expect(stat(marker)).rejects.toMatchObject({ code: "ENOENT" });
     const reopened = new RunStore(path);
     expect((await reopened.read()).routines).toEqual({});
@@ -553,6 +554,15 @@ describe("unsealed backup-only history cannot be reset as legacy", () => {
 });
 
 describe("malformed managed run rows fail closed", () => {
+  it("refuses a covered v4 history with a corrupt recovery receipt without rewriting it", async () => {
+    await managedHistory();
+    const envelope = JSON.parse(await readFile(path, "utf8"));
+    envelope.routines.rt.runs[0].recovery = { reason: "bogus" };
+    const corrupt = Buffer.from(`${JSON.stringify(envelope, null, "\t")}\n`);
+    await writeFile(path, corrupt);
+    await assertClosed(new RunStore(path), corrupt);
+  });
+
   it("refuses an unsealed v3 history with a malformed managed run row", async () => {
     const envelope = {
       version: 3,

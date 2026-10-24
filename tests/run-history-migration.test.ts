@@ -270,7 +270,7 @@ describe("historical no-change development labels", () => {
       ]);
       expect(await readFile(path, "utf8")).toBe(original);
       await store.updateState(() => {});
-      if (version < 3) expect(await readFile(`${path}.v${version}.bak`, "utf8")).toBe(original);
+      expect(await readFile(`${path}.v${version}.bak`, "utf8")).toBe(original);
       const reopened = new RunStore(path);
       expect(await reopened.get(managedRun.id)).toEqual({
         ...managedRun,
