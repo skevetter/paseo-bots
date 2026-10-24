@@ -33,6 +33,14 @@ The plugin needs Paseo 0.11.0 or later. The install has no npm step. [Releases](
 
 An imported bot or team file brings its instructions, model, skills, routines and playbooks. The bot starts in the approval mode the new-bot defaults give its provider, with no always-allowed tools, MCP servers or apps. Its routines start paused. The file's skills and MCP servers wait in the library, switched off, until you review them.
 
+## Memory limits and history
+
+Chats load up to 200 lines and 24,000 UTF-8 bytes from `MEMORY.md`, stopping at a whole-line boundary. The Memory panel shows how much was included and omitted. Edit the file or move detail to a topic file when it exceeds the limit.
+
+Overlapping chats make file-change attribution ambiguous. A chat remains a possible author until its turn ends; elapsed time alone does not prove it stopped. With a single active chat, a concurrent external edit cannot be distinguished from that chat's edit.
+
+App saves and undo replace files atomically. Undo refuses if the current content no longer matches the saved after-hash, or if an older journal entry has no hash. External writers do not share the app's lock, so they can still race the final conflict check and replace.
+
 ## Approval for new bots
 
 **Settings > Bots > Defaults for new bots** sets the approval mode a new bot starts in, on any provider:

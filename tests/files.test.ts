@@ -5,8 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { pluginDataPath } from "../server/bot-home";
 import { CommandAllowlist } from "../server/commands";
 import { MemoryJournal } from "../server/journal";
+import { memoryFilePath } from "../server/memory";
 import { createProposal, getProposal } from "../server/proposals";
-import { useTempPaseoHome } from "./helpers";
+import { defined, useTempPaseoHome } from "./helpers";
 
 const tearing = vi.hoisted(() => ({ path: null as string | null }));
 
@@ -100,6 +101,37 @@ describe("stored files", () => {
     await expect(journal.write("bot-j", "MEMORY.md", "# Memory\n- likes coffee\n")).rejects.toThrow("ENOSPC");
     tearing.path = null;
     expect((await journal.list("bot-j")).map((entry) => entry.kind)).toEqual(["created"]);
+  });
+
+  it("leaves the memory file intact when a save is interrupted between the temp write and the rename", async () => {
+    const journal = new MemoryJournal();
+    const path = memoryFilePath("bot-torn", "MEMORY.md");
+    await journal.write("bot-torn", "MEMORY.md", "# Memory\n- likes tea\n- works Mon-Fri\n");
+    tearing.path = "MEMORY.md";
+    await expect(journal.write("bot-torn", "MEMORY.md", "# Memory\n- likes coffee\n")).rejects.toThrow(
+      "ENOSPC",
+    );
+    tearing.path = null;
+
+    expect(await readFile(path, "utf8")).toBe("# Memory\n- likes tea\n- works Mon-Fri\n");
+    expect((await readdir(join(path, ".."))).filter((file) => file.endsWith(".tmp"))).toEqual([]);
+    expect((await journal.list("bot-torn")).map((entry) => entry.kind)).toEqual(["created"]);
+  });
+
+  it("leaves the file intact and the change undoable when an undo is interrupted", async () => {
+    const journal = new MemoryJournal();
+    const path = memoryFilePath("bot-torn-undo", "MEMORY.md");
+    await journal.write("bot-torn-undo", "MEMORY.md", "# Memory\n- likes tea\n");
+    await journal.write("bot-torn-undo", "MEMORY.md", "# Memory\n- likes coffee\n");
+    const edit = defined((await journal.list("bot-torn-undo"))[0], "edit");
+
+    tearing.path = "MEMORY.md";
+    await expect(journal.undo("bot-torn-undo", edit.id)).rejects.toThrow("ENOSPC");
+    tearing.path = null;
+    expect(await readFile(path, "utf8")).toBe("# Memory\n- likes coffee\n");
+
+    await journal.undo("bot-torn-undo", edit.id);
+    expect(await readFile(path, "utf8")).toBe("# Memory\n- likes tea\n");
   });
 });
 

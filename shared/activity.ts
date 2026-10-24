@@ -174,9 +174,10 @@ export function whenLabel(at: Date, now: Date): string {
 
 interface JournalRowLike {
   file: string;
-  actor: "bot" | "you";
+  actor: "bot" | "you" | "ambiguous";
   via: "chat" | "app" | "disk" | "undo";
   chat: { title: string } | null;
+  chats: readonly { title: string }[];
   kind: "created" | "edited" | "deleted";
   added: number;
   removed: number;
@@ -186,8 +187,13 @@ export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
+function journalActor(row: JournalRowLike, botName: string): string {
+  if (row.actor === "ambiguous") return `${botName} or you`;
+  return row.actor === "bot" ? botName : "You";
+}
+
 export function journalSummary(row: JournalRowLike, botName: string): string {
-  const who = row.actor === "bot" ? botName : "You";
+  const who = journalActor(row, botName);
   const target = row.file === "MEMORY.md" ? "MEMORY.md" : `the ${row.file.replace(/\.md$/, "")} topic`;
   if (row.kind === "created")
     return `${who} created ${target}${row.added ? ` with ${plural(row.added, "line")}` : ""}`;
@@ -200,6 +206,8 @@ export function journalSummary(row: JournalRowLike, botName: string): string {
 export function journalSource(row: JournalRowLike): string {
   if (row.via === "undo") return "undo";
   if (row.via === "disk") return "changed outside the app";
+  if (row.actor === "ambiguous")
+    return `unclear which: ${row.chats.map((chat) => `"${chat.title}"`).join(" and ")} ran at the same time`;
   if (row.chat) return `from chat "${row.chat.title}"`;
   return "in the bot's settings";
 }
